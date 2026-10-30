@@ -1,0 +1,6 @@
+{
+  "name": "INVICT Security Solutions - Sistema de Gestión Gerencial y Matriz Operativa",
+  "description": "Plataforma ejecutiva de control y auditoría C-Level, matriz de tareas de oficina central, informes ejecutivos avanzados, gastos y seguimiento de cartas documento para INVICT Security Solutions S.A.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
