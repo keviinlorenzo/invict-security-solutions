@@ -4,7 +4,7 @@
  * across static assets and APIs, and background push alerts for office workstations.
  */
 
-const CACHE_NAME = 'invict-cache-v5';
+const CACHE_NAME = 'invict-cache-v6';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -50,6 +50,9 @@ self.addEventListener('fetch', (event) => {
   if (url.protocol.startsWith('chrome-extension') || url.protocol.startsWith('moz-extension')) {
     return;
   }
+
+  // Chequeo de versión: siempre directo a la red, sin caché
+  if (url.searchParams.has('__version_check')) return;
 
   // Network-first para páginas HTML: así cada equipo recibe la última versión publicada
   if (event.request.mode === 'navigate') {
