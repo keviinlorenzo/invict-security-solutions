@@ -96,7 +96,8 @@ export const Header: React.FC<HeaderProps> = ({
   });
 
   const personalMentions = messages.filter(m =>
-    m.mentions.includes(currentPersona.email) || m.mentions.includes('consultasinvictsolutionss.a@gmail.com')
+    m.mentions.includes(currentPersona.email) ||
+    (isGerencia && m.mentions.includes('consultasinvictsolutionss.a@gmail.com'))
   );
 
   const totalAlertsCount = delayedTasks.length + personalMentions.length;

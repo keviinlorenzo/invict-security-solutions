@@ -32,6 +32,7 @@ interface ExportReportModalProps {
   expenses: Expense[];
   currentPeriod: string;
   allPersonas?: UserPersona[];
+  currentUser?: UserPersona;
 }
 
 export const ExportReportModal: React.FC<ExportReportModalProps> = ({
@@ -41,16 +42,27 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({
   expenses,
   currentPeriod,
   allPersonas,
+  currentUser,
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
+  const isGerencia = Boolean(
+    currentUser && (currentUser.department === 'GERENCIA' || currentUser.profileType === 'GERENTE')
+  );
+
   const availablePeriods = getAvailablePeriodsList();
-  const periodTasks = tasks.filter(t => (t.monthPeriod || '2026-10') === selectedPeriod);
-  const periodExpenses = expenses.filter(e => e.date.startsWith(selectedPeriod));
-  const effectiveExpenses = periodExpenses.length > 0 ? periodExpenses : expenses;
+  const periodTasks = tasks.filter(t => {
+    if (!isGerencia && t.area === 'GERENCIA') return false;
+    return (t.monthPeriod || '2026-10') === selectedPeriod;
+  });
+  const allowedExpenses = isGerencia
+    ? expenses
+    : expenses.filter(e => e.category !== 'Multas REPRIV' && e.category !== 'Telefonía y Conectividad' && !e.responsible.toLowerCase().includes('gerencia'));
+  const periodExpenses = allowedExpenses.filter(e => e.date.startsWith(selectedPeriod));
+  const effectiveExpenses = periodExpenses.length > 0 ? periodExpenses : allowedExpenses;
 
   const showStatus = (msg: string) => {
     setStatusMessage(msg);
@@ -76,7 +88,9 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({
     const totalExpenses = effectiveExpenses.reduce((sum, e) => sum + e.amount, 0);
     const budgetUtilization = Math.round((totalExpenses / 3200000) * 100);
 
-    const areas: AreaType[] = ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION', 'GERENCIA'];
+    const areas: AreaType[] = isGerencia
+      ? ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION', 'GERENCIA']
+      : ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION'];
     const areaBreakdown = areas.map(areaKey => {
       const aTasks = periodTasks.filter(t => t.area === areaKey);
       const total = aTasks.length;
@@ -119,7 +133,7 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({
       period: selectedPeriod,
       periodName: formatPeriodName(selectedPeriod),
       generatedDate: new Date().toLocaleDateString('es-AR'),
-      generatedBy: 'Dirección General (INVICT)',
+      generatedBy: currentUser ? `${currentUser.name} (${currentUser.role})` : 'Administración Operativa (INVICT)',
       totalTasks,
       completedTasks,
       inProgressTasks,

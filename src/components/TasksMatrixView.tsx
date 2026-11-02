@@ -116,10 +116,14 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
     }
   };
 
+  const isGerencia = Boolean(
+    currentPersona && (currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE')
+  );
+
   // Helper to dynamically compute current assigned officers from allPersonas so any change by Gerencia is reflected immediately
   const getOfficersForArea = (area: AreaType, fallback: string): string => {
     if (!allPersonas || allPersonas.length === 0) return fallback;
-    if (area === 'TODOS') return 'Gerencia General & Auditoría Integral';
+    if (area === 'TODOS') return isGerencia ? 'Gerencia General & Auditoría Integral' : 'Coordinación General de Oficina';
     const matching = allPersonas.filter(p => p.department === area);
     if (matching.length > 0) {
       return matching.map(p => p.name).join(' / ');
@@ -128,6 +132,19 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   };
 
   const postTabs: PostTabDef[] = [
+    ...(isGerencia
+      ? [
+          {
+            id: 'GERENCIA' as AreaType,
+            label: 'Gerencia General (Privado)',
+            shortLabel: 'GERENCIA',
+            officer: getOfficersForArea('GERENCIA', 'Yamila / Laura / Domingo'),
+            icon: <Shield className="w-4 h-4 text-amber-400" />,
+            description: 'Tareas estratégicas, confidenciales y de dirección exclusivas del sector de Gerencia General.',
+            badgeClass: 'text-amber-300 bg-amber-950/70 border-amber-700/70',
+          },
+        ]
+      : []),
     {
       id: 'OPERACIONES',
       label: 'Operaciones & Logística',
@@ -175,21 +192,24 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
     },
     {
       id: 'TODOS',
-      label: 'Vista Consolidada (Auditoría C-Level)',
+      label: isGerencia ? 'Vista Consolidada (Auditoría C-Level)' : 'Vista Consolidada (Oficina)',
       shortLabel: 'Consolidado',
-      officer: getOfficersForArea('TODOS', 'Dirección General (C-Level)'),
+      officer: getOfficersForArea('TODOS', isGerencia ? 'Dirección General (C-Level)' : 'Áreas Operativas y Administrativas'),
       icon: <Layers className="w-4 h-4" />,
       description: 'Auditoría integral cruzada de todas las áreas y puestos de trabajo de la oficina central.',
       badgeClass: 'text-red-400 bg-red-950/60 border-red-800/60',
     },
   ];
 
-  const activeTabId = selectedArea || 'OPERACIONES';
+  const activeTabId = (!isGerencia && selectedArea === 'GERENCIA') ? 'OPERACIONES' : (selectedArea || 'OPERACIONES');
   const activeTabDef = postTabs.find(p => p.id === activeTabId) || postTabs[0];
   const effectiveSearch = (globalSearchTerm || localSearch).toLowerCase().trim();
 
-  // Tasks of the selected period
-  const periodTasks = tasks.filter(t => (t.monthPeriod || '2026-10') === currentPeriod);
+  // Tasks of the selected period (defense-in-depth: never include GERENCIA tasks for non-Gerencia users)
+  const periodTasks = tasks.filter(t => {
+    if (!isGerencia && t.area === 'GERENCIA') return false;
+    return (t.monthPeriod || '2026-10') === currentPeriod;
+  });
 
   // Number of completed tasks in active tab
   const completedInActiveTab = periodTasks.filter(t => {

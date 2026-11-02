@@ -114,10 +114,19 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
     currentPersona && (currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE')
   );
 
-  // If user is NOT Gerencia (demás administrativos), restrict to Gastos Comunes only
+  // If user is NOT Gerencia (demás administrativos), restrict to Gastos Comunes only and exclude Gerencia-responsible expenses
   const visibleExpenses = useMemo(() => {
     return expenses.filter((e) => {
       if (!isGerencia) {
+        const respLower = (e.responsible || '').toLowerCase();
+        const isGerenciaResp =
+          respLower.includes('gerencia') ||
+          respLower.includes('dirección general') ||
+          respLower.includes('direccion general') ||
+          respLower.includes('yamila') ||
+          respLower.includes('laura') ||
+          respLower.includes('domingo');
+        if (isGerenciaResp) return false;
         return GASTOS_COMUNES_CATEGORIES.includes(e.category);
       }
       return true;
@@ -765,7 +774,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
           {/* View Mode Switcher */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-400 font-mono">
-              {filteredExpenses.length} de {expenses.length} registros
+              {filteredExpenses.length} de {visibleExpenses.length} registros
             </span>
             <div className="flex items-center bg-[#121620] border border-[#2b354c] p-0.5 rounded-xl">
               <button

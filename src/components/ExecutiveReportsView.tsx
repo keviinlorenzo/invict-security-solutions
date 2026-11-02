@@ -68,10 +68,20 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
   const [workloadSort, setWorkloadSort] = useState<'LOAD_DESC' | 'BOTTLENECK_FIRST' | 'RATE_ASC' | 'NAME'>('LOAD_DESC');
   const [reportFeedback, setReportFeedback] = useState<string | null>(null);
 
-  // Filter for period
-  const periodTasks = tasks.filter(t => (t.monthPeriod || '2026-10') === currentPeriod);
-  const periodExpenses = expenses.filter(e => e.date.startsWith(currentPeriod));
-  const effectiveExpenses = periodExpenses.length > 0 ? periodExpenses : expenses;
+  const isGerencia = Boolean(
+    currentUser && (currentUser.department === 'GERENCIA' || currentUser.profileType === 'GERENTE')
+  );
+
+  // Filter for period (and strictly exclude GERENCIA tasks/expenses for non-Gerencia users)
+  const periodTasks = tasks.filter(t => {
+    if (!isGerencia && t.area === 'GERENCIA') return false;
+    return (t.monthPeriod || '2026-10') === currentPeriod;
+  });
+  const allowedExpenses = isGerencia
+    ? expenses
+    : expenses.filter(e => e.category !== 'Multas REPRIV' && e.category !== 'Telefonía y Conectividad' && !e.responsible.toLowerCase().includes('gerencia'));
+  const periodExpenses = allowedExpenses.filter(e => e.date.startsWith(currentPeriod));
+  const effectiveExpenses = periodExpenses.length > 0 ? periodExpenses : allowedExpenses;
 
   // Compute metrics
   const totalTasks = periodTasks.length;
@@ -117,7 +127,9 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
     TODOS: { name: DEFAULT_POST_METADATA.TODOS.name, officer: 'Directorio', color: DEFAULT_POST_METADATA.TODOS.color },
   };
 
-  const areas: AreaType[] = ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION', 'GERENCIA'];
+  const areas: AreaType[] = isGerencia
+    ? ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION', 'GERENCIA']
+    : ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION'];
   const areaBreakdown = areas.map(areaKey => {
     const aTasks = periodTasks.filter(t => t.area === areaKey);
     const total = aTasks.length;
@@ -159,7 +171,11 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
   });
 
   // --- WORKLOAD COMPARISON PER INDIVIDUAL COLLABORATOR & ASSIGNED POST ---
-  const collaboratorWorkloadRaw = allPersonas.map((persona) => {
+  const visibleCollaboratorsForChart = isGerencia
+    ? allPersonas
+    : allPersonas.filter(p => p.department !== 'GERENCIA' && p.profileType !== 'GERENTE');
+
+  const collaboratorWorkloadRaw = visibleCollaboratorsForChart.map((persona) => {
     const firstName = persona.name.split(' ')[0].toLowerCase();
     const assignedTasks = periodTasks.filter(t => {
       const matchName = t.assignee.toLowerCase().includes(firstName);
@@ -835,15 +851,17 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
           </div>
 
           <div className="space-y-2.5 text-xs">
-            <div className="p-3 rounded-xl bg-[#161b26] border border-[#252c3e] flex items-center justify-between">
-              <div>
-                <span className="font-bold text-white block">Gerencia General (C-Level)</span>
-                <span className="text-slate-400 text-[11px]">Dirección ejecutiva, planificación estratégica y toma de decisiones</span>
+            {isGerencia && (
+              <div className="p-3 rounded-xl bg-[#161b26] border border-[#252c3e] flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-white block">Gerencia General (C-Level)</span>
+                  <span className="text-slate-400 text-[11px]">Dirección ejecutiva, planificación estratégica y toma de decisiones</span>
+                </div>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800">
+                  Oficina Central
+                </span>
               </div>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800">
-                Oficina Central
-              </span>
-            </div>
+            )}
 
             <div className="p-3 rounded-xl bg-[#161b26] border border-[#252c3e] flex items-center justify-between">
               <div>

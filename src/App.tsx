@@ -928,11 +928,74 @@ export default function App() {
     currentPersona && (currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE')
   );
 
-  // Aislamiento estricto de tareas: los demás administrativos no deben tener acceso a ver las tareas que registra Gerencia
+  // Aislamiento estricto de tareas, gastos, personal y actividad de Gerencia para los demás usuarios
+  const isGerenciaTextMatch = (val?: string): boolean => {
+    if (!val) return false;
+    const lower = val.toLowerCase();
+    return (
+      lower.includes('gerencia') ||
+      lower.includes('dirección general') ||
+      lower.includes('direccion general') ||
+      lower.includes('yamila') ||
+      lower.includes('laura') ||
+      lower.includes('domingo')
+    );
+  };
+
+  const visiblePersonas = useMemo(() => {
+    if (isCurrentUserGerencia) return personas;
+    return personas.filter(p => p.department !== 'GERENCIA' && p.profileType !== 'GERENTE');
+  }, [personas, isCurrentUserGerencia]);
+
   const visibleTasks = useMemo(() => {
     if (isCurrentUserGerencia) return tasks;
-    return tasks.filter(t => t.area !== 'GERENCIA');
-  }, [tasks, isCurrentUserGerencia]);
+    const gerenciaEmails = new Set(
+      personas
+        .filter(p => p.department === 'GERENCIA' || p.profileType === 'GERENTE')
+        .map(p => p.email.toLowerCase())
+    );
+    return tasks.filter(t => {
+      if (t.area === 'GERENCIA') return false;
+      if (t.assigneeEmail && gerenciaEmails.has(t.assigneeEmail.toLowerCase())) return false;
+      if (isGerenciaTextMatch(t.assignee)) return false;
+      return true;
+    });
+  }, [tasks, personas, isCurrentUserGerencia]);
+
+  const visibleExpenses = useMemo(() => {
+    if (isCurrentUserGerencia) return expenses;
+    const commonCategories: Expense['category'][] = [
+      'Uniformes e Indumentaria',
+      'Combustible Móviles',
+      'Mantenimiento y Taller',
+      'Oficina e Insumos',
+      'Comunicaciones / Handy',
+      'Seguros y ART',
+      'Impuestos y Servicios',
+      'Caja Chica / Varios',
+    ];
+    return expenses.filter(e => {
+      if (!commonCategories.includes(e.category)) return false;
+      if (isGerenciaTextMatch(e.responsible)) return false;
+      return true;
+    });
+  }, [expenses, isCurrentUserGerencia]);
+
+  const visibleModifications = useMemo(() => {
+    if (isCurrentUserGerencia) return cloudModifications;
+    return cloudModifications.filter(
+      m => m.userProfile !== 'GERENTE' && !isGerenciaTextMatch(m.userName) && !isGerenciaTextMatch(m.actionDescription)
+    );
+  }, [cloudModifications, isCurrentUserGerencia]);
+
+  const visibleMessages = useMemo(() => {
+    if (isCurrentUserGerencia) return messages;
+    const gerenciaTaskIds = new Set(tasks.filter(t => t.area === 'GERENCIA' || isGerenciaTextMatch(t.assignee)).map(t => t.id));
+    return messages.filter(m => {
+      if (m.taskId && gerenciaTaskIds.has(m.taskId)) return false;
+      return true;
+    });
+  }, [messages, tasks, isCurrentUserGerencia]);
 
   // Counters
   const urgentTasksCount = visibleTasks.filter(t => {
@@ -940,16 +1003,19 @@ export default function App() {
     return t.priority === 'Urgente';
   }).length;
 
-  const unreadMentionsCount = messages.filter(m =>
+  const unreadMentionsCount = visibleMessages.filter(m =>
     m.mentions.includes(currentPersona.email)
   ).length;
 
-  // Garantizar que ningún puesto que no sea Gerencia acceda al Dashboard Gerencial
+  // Garantizar que ningún puesto que no sea Gerencia acceda al Dashboard Gerencial ni al filtro de área GERENCIA
   useEffect(() => {
     if (!isCurrentUserGerencia && activeTab === 'dashboard') {
       setActiveTab('tasks');
     }
-  }, [isCurrentUserGerencia, activeTab]);
+    if (!isCurrentUserGerencia && selectedArea === 'GERENCIA') {
+      setSelectedArea('OPERACIONES');
+    }
+  }, [isCurrentUserGerencia, activeTab, selectedArea]);
 
   // Interfaz de inicio de sesión obligatoria
   if (!authSession) {
@@ -991,7 +1057,7 @@ export default function App() {
           showToast(`Perfil cambiado a ${p.name} (${p.profileType || p.department})`);
         }}
         tasks={visibleTasks}
-        messages={messages}
+        messages={visibleMessages}
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
         currentPeriod={currentPeriod}
@@ -1099,8 +1165,8 @@ export default function App() {
                 onDeleteTask={handleDeleteTask}
                 globalSearchTerm={searchTerm}
                 currentPersona={currentPersona}
-                allPersonas={personas}
-                lastModification={cloudModifications[0] || null}
+                allPersonas={visiblePersonas}
+                lastModification={visibleModifications[0] || null}
                 currentPeriod={currentPeriod}
                 onPeriodChange={handlePeriodChange}
                 onResetFixedTasks={handleResetFixedTasks}
@@ -1112,11 +1178,11 @@ export default function App() {
             {activeTab === 'reports' && (
               <ExecutiveReportsView
                 tasks={visibleTasks}
-                expenses={expenses}
+                expenses={visibleExpenses}
                 currentPeriod={currentPeriod}
                 onPeriodChange={handlePeriodChange}
                 currentUser={currentPersona}
-                allPersonas={personas}
+                allPersonas={visiblePersonas}
                 onSelectTask={(task) => setSelectedTaskForDetail(task)}
               />
             )}
@@ -1147,7 +1213,7 @@ export default function App() {
 
             {activeTab === 'expenses' && (
               <ExpensesView
-                expenses={expenses}
+                expenses={visibleExpenses}
                 onOpenNewExpenseModal={() => setIsNewExpenseModalOpen(true)}
                 onUpdatePaymentStatus={handleUpdatePaymentStatus}
                 onUpdateExpense={handleUpdateExpense}
@@ -1164,9 +1230,9 @@ export default function App() {
 
             {activeTab === 'feed' && (
               <InvictFeedView
-                messages={messages}
+                messages={visibleMessages}
                 currentPersona={currentPersona}
-                allPersonas={personas}
+                allPersonas={visiblePersonas}
                 onSendMessage={handleSendMessage}
                 tasks={visibleTasks}
                 onRefreshEmailLogs={refreshEmailLogs}
@@ -1206,9 +1272,10 @@ export default function App() {
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         tasks={visibleTasks}
-        expenses={expenses}
+        expenses={visibleExpenses}
         currentPeriod={currentPeriod}
-        allPersonas={personas}
+        allPersonas={visiblePersonas}
+        currentUser={currentPersona}
       />
 
       <ProfileSwitcherModal
@@ -1243,7 +1310,7 @@ export default function App() {
         onUpdateTaskDetails={handleUpdateTaskDetails}
         onAddComment={handleAddTaskComment}
         currentPersona={currentPersona}
-        allPersonas={personas}
+        allPersonas={visiblePersonas}
         onRefreshEmailLogs={refreshEmailLogs}
       />
 
@@ -1253,7 +1320,7 @@ export default function App() {
         onAddTask={handleAddTask}
         currentPeriod={currentPeriod}
         defaultArea={selectedArea}
-        personas={personas}
+        personas={visiblePersonas}
         currentUser={currentPersona}
       />
 

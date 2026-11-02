@@ -109,13 +109,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const visibleNavItems = navItems.filter((item) => !item.restrictedToGerencia || isGerencia);
 
   const departmentFilters: { id: AreaType; label: string; icon: React.ReactNode }[] = [
+    ...(isGerencia
+      ? [{ id: 'GERENCIA' as AreaType, label: 'Gerencia General (Privado)', icon: <Crown className="w-3.5 h-3.5 text-amber-400" /> }]
+      : []),
     { id: 'OPERACIONES', label: 'Operaciones (Puestos & Rondas)', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
     { id: 'SUPERVISIÓN', label: 'Supervisión en Terreno', icon: <Award className="w-3.5 h-3.5 text-amber-400" /> },
     { id: 'RRHH', label: 'Recursos Humanos (RR.HH.)', icon: <Users className="w-3.5 h-3.5" /> },
     { id: 'ADM', label: 'Administración (ADM)', icon: <Briefcase className="w-3.5 h-3.5" /> },
     { id: 'AUX_ADM', label: 'Auxiliar Administrativo', icon: <FileCheck className="w-3.5 h-3.5" /> },
     { id: 'SELECCION', label: 'Selección & Reclutamiento', icon: <Headphones className="w-3.5 h-3.5" /> },
-    { id: 'TODOS', label: 'Consolidado (Auditoría Global)', icon: <Compass className="w-3.5 h-3.5" /> },
+    { id: 'TODOS', label: isGerencia ? 'Consolidado (Auditoría Global)' : 'Consolidado (Oficina)', icon: <Compass className="w-3.5 h-3.5" /> },
   ];
 
   return (
