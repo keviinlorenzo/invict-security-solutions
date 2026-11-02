@@ -4,17 +4,15 @@
  * across static assets and APIs, and background push alerts for office workstations.
  */
 
-const CACHE_NAME = 'invict-cache-v3';
+const CACHE_NAME = 'invict-cache-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/icons/icon-192.svg',
-  '/icons/icon-512.svg',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
-  '/assets/invict-logo-full.svg',
-  '/assets/invict-emblem.svg'
+  '/brand/invict-emblem-white.png',
+  '/brand/invict-emblem-color.png'
 ];
 
 self.addEventListener('install', (event) => {
@@ -50,6 +48,20 @@ self.addEventListener('fetch', (event) => {
 
   // Ignore browser extensions and unsupported protocols
   if (url.protocol.startsWith('chrome-extension') || url.protocol.startsWith('moz-extension')) {
+    return;
+  }
+
+  // Network-first para páginas HTML: así cada equipo recibe la última versión publicada
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put('/index.html', copy));
+          return res;
+        })
+        .catch(() => caches.match('/index.html').then((r) => r || caches.match('/')))
+    );
     return;
   }
 

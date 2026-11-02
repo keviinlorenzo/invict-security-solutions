@@ -96,8 +96,8 @@ export function triggerPersistentNotification(
   }
   showNativeNotification(title, {
     body,
-    icon: '/icons/icon-192.svg',
-    badge: '/icons/icon-192.svg',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
     tag,
     requireInteraction: true,
   });
@@ -122,8 +122,8 @@ export function checkAndTriggerDeadlineNotifications(tasks: Task[]): void {
       const body = `Área: ${task.area} | Responsable: ${task.assignee}\nLímite: ${task.dueDate} (${label})`;
       showNativeNotification(title, {
         body,
-        icon: '/icons/icon-192.svg',
-        badge: '/icons/icon-192.svg',
+        icon: '/icons/icon-192.png',
+        badge: '/icons/icon-192.png',
         tag: `task-${task.id}`,
         requireInteraction: true,
       }, task.id);
@@ -152,8 +152,8 @@ export function notifySingleMention(
   if (isMentioned && newMessage.authorEmail !== currentPersona.email) {
     showNativeNotification(`🔔 Mención de ${newMessage.authorName} (${newMessage.authorRole})`, {
       body: newMessage.content,
-      icon: '/icons/icon-192.svg',
-      badge: '/icons/icon-192.svg',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
       tag: `msg-${newMessage.id}`,
       requireInteraction: true,
     });
