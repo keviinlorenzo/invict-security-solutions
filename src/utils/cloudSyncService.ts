@@ -1,13 +1,5 @@
 import { UserPersona, UserProfileType } from '../types';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import {
-  getFirestore,
-  doc,
-  setDoc,
-  onSnapshot,
-  Firestore
-} from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { supabase } from './supabaseClient';
 
 // Corporate Default Passwords per Profile
 export const DEFAULT_PROFILE_PASSWORDS: Record<UserProfileType, string> = {
@@ -104,7 +96,7 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// Collect full shared state from localStorage to push to remote devices
+// Collect full shared state from localStorage to push to remote database
 export function collectLocalSharedState(): Record<string, any> {
   if (typeof window === 'undefined') return {};
   const snapshot: Record<string, any> = {};
@@ -158,82 +150,96 @@ export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>):
   }
 }
 
-// --- FIREBASE FIRESTORE + SERVER /api/sync REAL-TIME MULTI-DEVICE ENGINE ---
-let firestoreDb: Firestore | null = null;
+// --- SUPABASE POSTGRES + REALTIME WEBSOCKET MULTI-DEVICE ENGINE ---
 let remoteSyncInitialized = false;
+
+function handleRemoteRow(row: any, isInitialFetch: boolean) {
+  if (!row) return;
+  const rowVersion = Number(row.version || 0);
+  if (rowVersion > 0 && rowVersion <= lastServerVersion && !isInitialFetch) return;
+  if (rowVersion > 0) lastServerVersion = rowVersion;
+
+  if (row.client_id === CLIENT_INSTANCE_ID && !isInitialFetch) return;
+
+  const stateObj = row.state || {};
+  if (Object.keys(stateObj).length > 0) {
+    const eventPayload: CloudSyncPayload = row.last_event || {
+      id: `sb-${rowVersion}-${row.updated_at}`,
+      type: 'FULL_STATE_SYNC',
+      timestamp: row.updated_at || new Date().toISOString(),
+      authorName: 'Base de Datos Nube',
+      authorProfile: 'GERENTE',
+      authorEmail: isInitialFetch ? '__initial__' : '',
+      summary: 'Sincronización en tiempo real desde la base de datos',
+    };
+    eventPayload.id = eventPayload.id || `sb-${rowVersion}`;
+    if (isInitialFetch) {
+      eventPayload.authorEmail = '__initial__';
+    }
+    eventPayload.stateSnapshot = stateObj;
+    notifySubscribers(eventPayload);
+  } else if (isInitialFetch) {
+    // Database is empty: seed initial state from this device
+    pushStateToRemote(undefined, collectLocalSharedState());
+  }
+}
 
 function initRemoteSync() {
   if (remoteSyncInitialized || typeof window === 'undefined') return;
   remoteSyncInitialized = true;
 
-  // 1. Firestore real-time listener (activates automatically when Firestore is enabled in Firebase project)
-  try {
-    const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-    firestoreDb = getFirestore(app);
-    const stateDocRef = doc(firestoreDb, 'invict_corporate_sync', 'global_state');
-    onSnapshot(
-      stateDocRef,
-      (snap) => {
-        if (!snap.exists()) return;
-        const docData = snap.data();
-        if (!docData || docData.clientId === CLIENT_INSTANCE_ID) return;
-        const payload: CloudSyncPayload = docData.lastEvent || {
-          id: `fs-${docData.updatedAt}`,
-          type: 'FULL_STATE_SYNC',
-          timestamp: docData.updatedAt || new Date().toISOString(),
-          authorName: 'Sincronización Nube',
-          authorProfile: 'GERENTE',
-          authorEmail: '',
-          summary: 'Estado actualizado desde la nube',
-        };
-        payload.stateSnapshot = docData.stateSnapshot;
-        notifySubscribers(payload);
-      },
-      () => {
-        // Firestore not enabled or permission denied: fallback to /api/sync polling silently
-      }
-    );
-  } catch {
-    // ignore init error
-  }
-
-  // 2. Server /api/sync polling (every 4 seconds + on window focus) for cross-device sync
-  const pollServerSync = async () => {
+  // 1. Initial fetch from Supabase Postgres
+  const fetchFromSupabase = async (isInitial = false) => {
     try {
-      const res = await fetch(`/api/sync?since=${lastServerVersion}`, { cache: 'no-store' });
-      if (!res.ok) return;
-      const json = await res.json();
-      if (!json.changed || !json.version) return;
-      const isInitialFetch = lastServerVersion === 0;
-      lastServerVersion = json.version;
+      const { data, error } = await supabase
+        .from('invict_cloud_state')
+        .select('id, version, updated_at, client_id, last_event, state')
+        .eq('id', 'global_state')
+        .maybeSingle();
 
-      if (json.state && Object.keys(json.state).length > 0) {
-        const eventPayload: CloudSyncPayload = json.lastEvent || {
-          id: `srv-${json.version}`,
-          type: 'FULL_STATE_SYNC',
-          timestamp: json.updatedAt || new Date().toISOString(),
-          authorName: 'Sincronización Nube',
-          authorProfile: 'GERENTE',
-          authorEmail: isInitialFetch ? '__initial__' : '',
-          summary: 'Sincronización automática en tiempo real',
-        };
-        eventPayload.id = eventPayload.id || `srv-${json.version}`;
-        eventPayload.stateSnapshot = json.state;
-        notifySubscribers(eventPayload);
-      } else if (isInitialFetch) {
-        // Server store is empty: seed it with this device's current state
-        pushStateToRemote(undefined, collectLocalSharedState());
+      if (!error && data) {
+        handleRemoteRow(data, isInitial);
       }
     } catch {
       // network offline
     }
   };
 
-  setTimeout(pollServerSync, 600);
-  setInterval(pollServerSync, 4000);
-  window.addEventListener('focus', pollServerSync);
+  fetchFromSupabase(true);
+
+  // 2. Supabase Realtime WebSocket subscription (instant push on any DB change + broadcast)
+  try {
+    supabase
+      .channel('invict-realtime-sync')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'invict_cloud_state',
+          filter: 'id=eq.global_state',
+        },
+        (changePayload) => {
+          if (changePayload.new) {
+            handleRemoteRow(changePayload.new, false);
+          }
+        }
+      )
+      .on('broadcast', { event: 'cloud_mutation' }, ({ payload }) => {
+        if (payload && payload.clientId !== CLIENT_INSTANCE_ID && payload.event) {
+          notifySubscribers(payload.event);
+        }
+      })
+      .subscribe();
+  } catch (e) {
+    console.warn('Supabase Realtime subscription warning:', e);
+  }
+
+  // 3. Periodic reconciliation every 5s and on window focus
+  setInterval(() => fetchFromSupabase(false), 5000);
+  window.addEventListener('focus', () => fetchFromSupabase(false));
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) pollServerSync();
+    if (!document.hidden) fetchFromSupabase(false);
   });
 }
 
@@ -241,41 +247,47 @@ async function pushStateToRemote(event?: CloudSyncPayload, stateSnapshot?: Recor
   if (typeof window === 'undefined') return;
   const snapshot = stateSnapshot || collectLocalSharedState();
 
-  // Push to /api/sync endpoint
+  // 1. Atomic RPC upsert directly to Supabase Postgres
   try {
-    const res = await fetch('/api/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        clientId: CLIENT_INSTANCE_ID,
-        event,
-        partialState: snapshot,
-      }),
+    const { data, error } = await supabase.rpc('upsert_invict_cloud_state', {
+      p_client_id: CLIENT_INSTANCE_ID,
+      p_last_event: event || null,
+      p_partial_state: snapshot,
     });
-    if (res.ok) {
-      const json = await res.json();
-      if (json.version) lastServerVersion = json.version;
+    if (!error && Array.isArray(data) && data[0]?.version) {
+      lastServerVersion = Number(data[0].version);
     }
   } catch {
-    // ignore offline error
+    // Fallback to /api/sync if direct call fails
+    try {
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: CLIENT_INSTANCE_ID,
+          event,
+          partialState: snapshot,
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.version) lastServerVersion = Number(json.version);
+      }
+    } catch {
+      // ignore offline
+    }
   }
 
-  // Push to Firestore if available
-  if (firestoreDb) {
+  // 2. Also broadcast via Supabase Realtime channel for sub-100ms instant delivery
+  if (event) {
     try {
-      const stateDocRef = doc(firestoreDb, 'invict_corporate_sync', 'global_state');
-      await setDoc(
-        stateDocRef,
-        {
-          clientId: CLIENT_INSTANCE_ID,
-          updatedAt: new Date().toISOString(),
-          lastEvent: event || null,
-          stateSnapshot: snapshot,
-        },
-        { merge: true }
-      );
+      supabase.channel('invict-realtime-sync').send({
+        type: 'broadcast',
+        event: 'cloud_mutation',
+        payload: { clientId: CLIENT_INSTANCE_ID, event },
+      });
     } catch {
-      // ignore if Firestore is disabled
+      // ignore
     }
   }
 }
@@ -342,7 +354,7 @@ export function broadcastCloudChange(
     // ignore
   }
 
-  // 3. Push to remote cloud (/api/sync + Firestore) for all other devices
+  // 3. Persist in Supabase PostgreSQL + notify all connected devices in real time
   pushStateToRemote(payload, stateSnapshot);
 }
 
