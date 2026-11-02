@@ -1,6 +1,7 @@
 // Managerial Sheets & Financial Module for INVICT SECURITY SOLUTIONS S.A.
 // Strict security: Access restricted to GERENCIA (Yamila, Laura, Domingo)
 import * as XLSX from 'xlsx';
+import { getCurrentPeriodString } from '../utils/dateUtils';
 
 export interface FixedExpenseItem {
   id: string;
@@ -327,7 +328,7 @@ const INITIAL_OCTOBER_DATA: ManagerialMonthData = {
   ],
 };
 
-export function getManagerialMonthData(period: string = '2026-10'): ManagerialMonthData {
+export function getManagerialMonthData(period: string = getCurrentPeriodString()): ManagerialMonthData {
   try {
     const raw = localStorage.getItem(`${STORAGE_PREFIX}${period}`);
     if (raw) {
@@ -389,7 +390,7 @@ export function saveManagerialMonthData(period: string, data: ManagerialMonthDat
 export function updateSalaryAdvance(
   employeeName: string,
   advanceAmount: number,
-  period: string = '2026-10'
+  period: string = getCurrentPeriodString()
 ): { success: boolean; message: string; updatedRow?: EmployeeSalaryItem } {
   const data = getManagerialMonthData(period);
   const normalizedTarget = employeeName.toLowerCase().trim();
@@ -465,7 +466,7 @@ export function startNewMonth(fromPeriod: string, newPeriod: string): Managerial
 }
 
 // Reset all values in the active period to 0 to start sheets fresh from zero
-export function resetMonthDataToZero(period: string = '2026-10'): ManagerialMonthData {
+export function resetMonthDataToZero(period: string = getCurrentPeriodString()): ManagerialMonthData {
   const current = getManagerialMonthData(period);
   const zeroedData: ManagerialMonthData = {
     period,
@@ -587,7 +588,7 @@ export function calculateClientProfitability(data: ManagerialMonthData): ClientP
 }
 
 // Compute Complete Managerial Metrics for Dashboard
-export function calculateManagerialMetrics(period: string = '2026-10') {
+export function calculateManagerialMetrics(period: string = getCurrentPeriodString()) {
   const data = getManagerialMonthData(period);
   const profitability = calculateClientProfitability(data);
 
@@ -871,7 +872,7 @@ export function importBankExpensesFromRows(
 // Generate Strict Plain-Text Markdown Tables for Excel copy / chat response
 export function generatePlainTextTable(
   sheetType: 'gastos_fijos' | 'sueldos' | 'clientes' | 'gastos_bancarios' | 'rentabilidad' | 'resumen' | 'todas',
-  period: string = '2026-10'
+  period: string = getCurrentPeriodString()
 ): string {
   const metrics = calculateManagerialMetrics(period);
   const { data, profitability, generalSummary } = metrics;

@@ -52,6 +52,7 @@ interface TasksMatrixViewProps {
   currentPeriod: string;
   onPeriodChange: (period: string) => void;
   onResetFixedTasks?: () => void;
+  onClearMonth?: () => void;
   onExportPeriod?: () => void;
 }
 
@@ -81,6 +82,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   currentPeriod,
   onPeriodChange,
   onResetFixedTasks,
+  onClearMonth,
   onExportPeriod,
 }) => {
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
@@ -335,6 +337,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
         currentPeriod={currentPeriod}
         onPeriodChange={onPeriodChange}
         onResetFixedTasks={onResetFixedTasks}
+        onClearMonth={onClearMonth}
         onExportPeriod={onExportPeriod}
         totalTasksInPeriod={periodTasks.length}
         fixedTasksCount={fixedTasksInThisPeriod.length}

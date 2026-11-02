@@ -54,9 +54,11 @@ import {
 import {
   DEFAULT_PERIOD,
   formatPeriodName,
-  formatCurrentFullDate
+  formatCurrentFullDate,
+  getTodayDateString
 } from './utils/dateUtils';
 import { ensureMonthHasFixedTasks, renewMonthFixedTasks } from './utils/monthRenewalService';
+import { resetMonthDataToZero } from './data/managerialSheetsData';
 import { getEmailNotificationLogs } from './utils/emailAlertService';
 import { registerServiceWorker } from './utils/serviceWorkerManager';
 import { checkAndTriggerDeadlineNotifications } from './utils/notificationService';
@@ -118,9 +120,18 @@ export default function App() {
   });
 
   const [currentPeriod, setCurrentPeriod] = useState<string>(() => {
-    const saved = localStorage.getItem('invict_current_period');
-    return saved || DEFAULT_PERIOD;
+    // Siempre abrir en el mes real actual (no en el último mes guardado)
+    return DEFAULT_PERIOD;
   });
+
+  // Detectar cambio de día (app abierta de un día para otro) y recargar con la fecha real
+  useEffect(() => {
+    const loadedDate = getTodayDateString();
+    const id = setInterval(() => {
+      if (getTodayDateString() !== loadedDate) window.location.reload();
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   // UI state
   const [activeTab, setActiveTab] = useState<ActiveTab>('tasks');
@@ -457,6 +468,32 @@ export default function App() {
       updated
     );
     showToast(`Tareas fijas mensuales renovadas para ${formatPeriodName(currentPeriod)}`);
+  };
+
+  // Limpia todo lo cargado/hablado en el mes seleccionado (tareas, gastos, mensajes,
+  // chats con BONO, planillas gerenciales e historial de cambios) y deja las tareas fijas.
+  const handleClearMonth = () => {
+    const label = formatPeriodName(currentPeriod);
+    if (!window.confirm(`¿Limpiar TODO lo realizado en ${label}?\n\nSe borrarán tareas, gastos, mensajes, chats con BONO y planillas del mes. Esta acción no se puede deshacer.`)) return;
+    const [py, pm] = currentPeriod.split('-');
+    const inPeriod = (d?: string) => !!d && (d.startsWith(currentPeriod) || d.includes(`/${pm}/${py}`));
+    const updatedTasks = renewMonthFixedTasks(currentPeriod, tasks);
+    setTasks(updatedTasks);
+    setExpenses(prev => prev.filter(e => !inPeriod(e.date)));
+    setMessages(prev => prev.filter(m => !inPeriod(m.timestamp)));
+    setCloudModifications([]);
+    resetMonthDataToZero(currentPeriod);
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('bono_chat_'))
+      .forEach(k => localStorage.removeItem(k));
+    broadcastCloudChange(
+      'TASK_MUTATION',
+      `Limpió todos los datos de ${label}`,
+      { name: currentPersona.name, profile: currentPersona.profileType, email: currentPersona.email },
+      updatedTasks
+    );
+    showToast(`Se limpiaron los datos de ${label}. Recargando...`);
+    setTimeout(() => window.location.reload(), 1200);
   };
 
   const showToast = (msg: string) => {
@@ -996,6 +1033,7 @@ export default function App() {
                 currentPeriod={currentPeriod}
                 onPeriodChange={handlePeriodChange}
                 onResetFixedTasks={handleResetFixedTasks}
+                onClearMonth={isCurrentUserGerencia ? handleClearMonth : undefined}
                 onExportPeriod={handleExportCurrentPeriodCSV}
               />
             ) : activeTab === 'dashboard' && !isCurrentUserGerencia ? (
@@ -1032,6 +1070,7 @@ export default function App() {
                 currentPeriod={currentPeriod}
                 onPeriodChange={handlePeriodChange}
                 onResetFixedTasks={handleResetFixedTasks}
+                onClearMonth={isCurrentUserGerencia ? handleClearMonth : undefined}
                 onExportPeriod={handleExportCurrentPeriodCSV}
               />
             )}

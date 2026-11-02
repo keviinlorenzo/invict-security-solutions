@@ -14,6 +14,14 @@ export function getCurrentPeriodString(): string {
   return `${y}-${m}`;
 }
 
+export function getNextPeriodString(period: string): string {
+  const [y, m] = period.split('-').map(Number);
+  const d = new Date(y, m, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Nota: se calculan al cargar la app. App.tsx recarga la página al cambiar el día
+// para que siempre reflejen la fecha real.
 export const DEFAULT_PERIOD = getCurrentPeriodString();
 export const CURRENT_APP_DATE = getTodayDateString();
 

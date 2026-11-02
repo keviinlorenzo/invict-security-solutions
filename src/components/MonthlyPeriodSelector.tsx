@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
+  Eraser,
   FileSpreadsheet,
   Clock,
   Sparkles,
@@ -20,6 +21,7 @@ interface MonthlyPeriodSelectorProps {
   currentPeriod: string; // 'YYYY-MM'
   onPeriodChange: (newPeriod: string) => void;
   onResetFixedTasks?: () => void;
+  onClearMonth?: () => void;
   onExportPeriod?: () => void;
   totalTasksInPeriod?: number;
   fixedTasksCount?: number;
@@ -29,6 +31,7 @@ export const MonthlyPeriodSelector: React.FC<MonthlyPeriodSelectorProps> = ({
   currentPeriod,
   onPeriodChange,
   onResetFixedTasks,
+  onClearMonth,
   onExportPeriod,
   totalTasksInPeriod = 0,
   fixedTasksCount = 0,
@@ -168,6 +171,17 @@ export const MonthlyPeriodSelector: React.FC<MonthlyPeriodSelectorProps> = ({
           >
             <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
             <span className="hidden sm:inline">Renovar Fijas</span>
+          </button>
+        )}
+
+        {onClearMonth && (
+          <button
+            onClick={onClearMonth}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-300 hover:text-white bg-[#2a1416] hover:bg-[#BE2629] border border-[#5a2326] rounded-xl transition-colors active:scale-95 cursor-pointer"
+            title="Borra tareas, gastos, mensajes, chats con BONO y planillas del mes seleccionado"
+          >
+            <Eraser className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Limpiar Mes</span>
           </button>
         )}
 

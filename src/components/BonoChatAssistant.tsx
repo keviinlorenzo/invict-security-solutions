@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { UserPersona, Task, AreaType } from '../types';
-import { calculateDaysRemaining } from '../utils/dateUtils';
+import { calculateDaysRemaining, getCurrentPeriodString, getNextPeriodString, formatPeriodName } from '../utils/dateUtils';
 import {
   generatePlainTextTable,
   calculateManagerialMetrics,
@@ -217,7 +217,7 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
               currentUser,
               isEffectiveGerencia,
               userTasks,
-              currentPeriod: '2026-10',
+              currentPeriod: getCurrentPeriodString(),
               contextMemoryPrompt: getPersonalizedSystemPromptContext(currentUser, isEffectiveGerencia),
             }),
           });
@@ -890,8 +890,8 @@ function generateFallbackBonoResponse(
       else if (q.includes('perez') || q.includes('marcelo')) employeeName = 'Perez, Marcelo';
       else if (q.includes('aguero') || q.includes('luciano')) employeeName = 'Aguero, Luciano';
 
-      const updateRes = updateSalaryAdvance(employeeName, amount, '2026-10');
-      const updatedSueldosTable = generatePlainTextTable('sueldos', '2026-10');
+      const updateRes = updateSalaryAdvance(employeeName, amount, getCurrentPeriodString());
+      const updatedSueldosTable = generatePlainTextTable('sueldos', getCurrentPeriodString());
 
       return `¡Anticipo registrado exitosamente en el sistema de Gerencia!\n\n` +
         `• **Colaborador:** ${employeeName}\n` +
@@ -903,44 +903,44 @@ function generateFallbackBonoResponse(
 
     // Iniciar nuevo mes
     if (q.includes('iniciar nuevo mes') || q.includes('cerrar mes') || q.includes('nuevo mes')) {
-      startNewMonth('2026-10', '2026-11');
-      return `¡Nuevo mes iniciado exitosamente!\n\nSe cerró el período **2026-10** y se habilitó la nueva planilla en blanco para **2026-11**, conservando las estructuras de Gastos Fijos y la nómina de colaboradores activa para Dirección General.`;
+      const curP = getCurrentPeriodString(); const nextP = getNextPeriodString(curP); startNewMonth(curP, nextP);
+      return `¡Nuevo mes iniciado exitosamente!\n\nSe cerró el período **${curP}** y se habilitó la nueva planilla en blanco para **${nextP}**, conservando las estructuras de Gastos Fijos y la nómina de colaboradores activa para Dirección General.`;
     }
 
     // Mostrar tablas específicas o todas
     if (q.includes('mostrar todas las planillas') || q.includes('ver planillas') || q.includes('planillas de octubre') || q.includes('todas las planillas')) {
-      const allTables = generatePlainTextTable('todas', '2026-10');
+      const allTables = generatePlainTextTable('todas', getCurrentPeriodString());
       return `Estimada Gerencia: Aquí tiene todas las planillas mensuales de octubre organizadas y estructuradas en texto plano, listas para ser copiadas y pegadas directamente en Excel:\n\n${allTables}`;
     }
 
     if (q.includes('mostrar sueldo') || q.includes('ver sueldo') || q.includes('sueldos personal') || q.includes('planilla de sueldos')) {
-      const table = generatePlainTextTable('sueldos', '2026-10');
+      const table = generatePlainTextTable('sueldos', getCurrentPeriodString());
       return `Estimada Gerencia: A continuación se entrega la planilla de **SUELDOS PERSONAL** en texto plano directamente lista para copiar:\n\n${table}`;
     }
 
     if (q.includes('mostrar gastos fijos') || q.includes('ver gastos fijos') || q.includes('gastos fijos')) {
-      const table = generatePlainTextTable('gastos_fijos', '2026-10');
+      const table = generatePlainTextTable('gastos_fijos', getCurrentPeriodString());
       return `Estimada Gerencia: A continuación se entrega la planilla de **GASTOS FIJOS** en texto plano:\n\n${table}`;
     }
 
     if (q.includes('mostrar cliente') || q.includes('ver cliente') || q.includes('clientes facturacion') || q.includes('facturacion')) {
-      const table = generatePlainTextTable('clientes', '2026-10');
+      const table = generatePlainTextTable('clientes', getCurrentPeriodString());
       return `Estimada Gerencia: A continuación se entrega la planilla de **CLIENTES (FACTURACIÓN)** en texto plano:\n\n${table}`;
     }
 
     if (q.includes('mostrar rentabilidad') || q.includes('rentabilidad por cliente') || q.includes('margen neto')) {
-      const table = generatePlainTextTable('rentabilidad', '2026-10');
+      const table = generatePlainTextTable('rentabilidad', getCurrentPeriodString());
       return `Estimada Gerencia: A continuación se entrega la planilla de **RENTABILIDAD POR CLIENTE** (Facturación Neta vs. Costo Directo y Margen Neto):\n\n${table}`;
     }
 
     if (q.includes('mostrar resumen') || q.includes('resumen general') || q.includes('resumen global')) {
-      const table = generatePlainTextTable('resumen', '2026-10');
+      const table = generatePlainTextTable('resumen', getCurrentPeriodString());
       return `Estimada Gerencia: A continuación se entrega el **RESUMEN GENERAL** financiero en texto plano:\n\n${table}`;
     }
 
     // Alertas de cobranza
     if (q.includes('alerta') || q.includes('cobranza') || q.includes('impago') || q.includes('deuda')) {
-      const metrics = calculateManagerialMetrics('2026-10');
+      const metrics = calculateManagerialMetrics(getCurrentPeriodString());
       const list = metrics.unpaidInvoices.map(inv => {
         return `• **${inv.clientName}**: Total adeudado $ ${inv.totalNet.toLocaleString('es-AR')} (Comprobante: ${inv.invoiceNumber || 'FAC-0001'}, Vto: ${inv.dueDate || 'Vencido'})`;
       }).join('\n');
@@ -953,8 +953,8 @@ function generateFallbackBonoResponse(
 
     // Dashboard gerencial general
     if (q.includes('dashboard') || q.includes('metrica') || q.includes('rentabilidad') || q.includes('costo') || q.includes('gerencial')) {
-      const metrics = calculateManagerialMetrics('2026-10');
-      return `📊 **Panel Analítico del Dashboard Gerencial (Octubre 2026):**\n\n` +
+      const metrics = calculateManagerialMetrics(getCurrentPeriodString());
+      return `📊 **Panel Analítico del Dashboard Gerencial (${formatPeriodName(getCurrentPeriodString())}):**\n\n` +
         `1. **Rentabilidad por Cliente:**\n` +
         `   • Facturación Neta Total: $ ${metrics.totalIncome.toLocaleString('es-AR')}\n` +
         `   • Costos Directos Guardias: $ ${metrics.totalDirectCosts.toLocaleString('es-AR')}\n` +

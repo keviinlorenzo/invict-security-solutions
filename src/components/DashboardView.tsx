@@ -34,6 +34,7 @@ interface DashboardViewProps {
   currentPeriod: string;
   onPeriodChange: (period: string) => void;
   onResetFixedTasks?: () => void;
+  onClearMonth?: () => void;
   onExportPeriod?: () => void;
 }
 
@@ -51,6 +52,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   currentPeriod,
   onPeriodChange,
   onResetFixedTasks,
+  onClearMonth,
   onExportPeriod,
 }) => {
   // Filter tasks by current period first
@@ -115,6 +117,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         currentPeriod={currentPeriod}
         onPeriodChange={onPeriodChange}
         onResetFixedTasks={onResetFixedTasks}
+        onClearMonth={onClearMonth}
         onExportPeriod={onExportPeriod}
         totalTasksInPeriod={periodTasks.length}
         fixedTasksCount={fixedTasksInPeriod.length}
