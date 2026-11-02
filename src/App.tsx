@@ -965,14 +965,12 @@ export default function App() {
   const visibleExpenses = useMemo(() => {
     if (isCurrentUserGerencia) return expenses;
     const commonCategories: Expense['category'][] = [
-      'Uniformes e Indumentaria',
-      'Combustible Móviles',
-      'Mantenimiento y Taller',
-      'Oficina e Insumos',
-      'Comunicaciones / Handy',
-      'Seguros y ART',
-      'Impuestos y Servicios',
-      'Caja Chica / Varios',
+      'Compras de Insumos',
+      'Viáticos Operativos',
+      'Servicios de Oficina',
+      'Mantenimiento / Ploteo',
+      'Movilidad y Combustible',
+      'Indumentaria / Uniformes',
     ];
     return expenses.filter(e => {
       if (!commonCategories.includes(e.category)) return false;
