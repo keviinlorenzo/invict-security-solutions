@@ -63,6 +63,7 @@ import {
   exportProfitabilityToPDF
 } from '../utils/pdfExportUtils';
 import { formatCurrencyARS } from '../utils/dateUtils';
+import { subscribeToCloudSync } from '../utils/cloudSyncService';
 
 export interface BankColorTheme {
   name: string;
@@ -190,6 +191,15 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
 
   useEffect(() => {
     setSheetsData(getManagerialMonthData(currentPeriod));
+  }, [currentPeriod]);
+
+  useEffect(() => {
+    const unsub = subscribeToCloudSync((payload) => {
+      if (payload.type === 'SHEET_MUTATION' || payload.type === 'FULL_STATE_SYNC' || payload.stateSnapshot) {
+        setSheetsData(getManagerialMonthData(currentPeriod));
+      }
+    });
+    return () => unsub();
   }, [currentPeriod]);
 
   // Filters state

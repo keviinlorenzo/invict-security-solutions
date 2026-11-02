@@ -2,6 +2,7 @@
 // Strict security: Access restricted to GERENCIA (Yamila, Laura, Domingo)
 import * as XLSX from 'xlsx';
 import { getCurrentPeriodString } from '../utils/dateUtils';
+import { broadcastCloudChange } from '../utils/cloudSyncService';
 
 export interface FixedExpenseItem {
   id: string;
@@ -381,6 +382,12 @@ export function getManagerialMonthData(period: string = getCurrentPeriodString()
 export function saveManagerialMonthData(period: string, data: ManagerialMonthData): void {
   try {
     localStorage.setItem(`${STORAGE_PREFIX}${period}`, JSON.stringify(data));
+    broadcastCloudChange(
+      'SHEET_MUTATION',
+      `Actualización en planilla gerencial (${period})`,
+      { name: 'Gerencia General', profile: 'GERENTE', email: 'consultasinvictsolutionss.a@gmail.com' },
+      { period, data }
+    );
   } catch (err) {
     console.error('Error saving managerial data:', err);
   }

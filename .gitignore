@@ -6,4 +6,5 @@ server.js
 !.env.example
 *.zip
 .vercel/
+.invict-cloud-state.json
 *.log

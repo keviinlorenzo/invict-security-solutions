@@ -1,5 +1,6 @@
 import express from 'express';
 import { bonoChatHandler, analyzeReceiptHandler } from './lib/aiHandlers.js';
+import { cloudSyncHandler } from './lib/syncHandler.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -13,6 +14,7 @@ app.use(express.json({ limit: '15mb' }));
 
 app.post('/api/bono/chat', bonoChatHandler);
 app.post('/api/expenses/analyze-receipt', analyzeReceiptHandler);
+app.all('/api/sync', cloudSyncHandler);
 
 // Vite middleware in dev or static files in production
 async function startServer() {

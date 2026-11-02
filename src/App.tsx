@@ -214,11 +214,32 @@ export default function App() {
   // Real-time Cloud Synchronization Listener
   useEffect(() => {
     const unsubscribe = subscribeToCloudSync((payload) => {
-      if (payload.authorEmail !== currentPersona.email) {
+      if (payload.authorEmail && payload.authorEmail !== '__initial__' && payload.authorEmail !== currentPersona.email) {
         showToast(`⚡ ${payload.summary}`);
+      }
+      if (payload.stateSnapshot) {
+        if (Array.isArray(payload.stateSnapshot.invict_tasks)) {
+          setTasks(payload.stateSnapshot.invict_tasks);
+        }
+        if (Array.isArray(payload.stateSnapshot.invict_expenses)) {
+          setExpenses(payload.stateSnapshot.invict_expenses);
+        }
+        if (Array.isArray(payload.stateSnapshot.invict_messages)) {
+          setMessages(payload.stateSnapshot.invict_messages);
+        }
+        if (Array.isArray(payload.stateSnapshot.invict_personas)) {
+          setPersonas(payload.stateSnapshot.invict_personas);
+        }
+        if (Array.isArray(payload.stateSnapshot.invict_cloud_modifications)) {
+          setCloudModifications(payload.stateSnapshot.invict_cloud_modifications);
+        }
       }
       if (payload.type === 'TASK_MUTATION' && payload.data) {
         setTasks(payload.data);
+      } else if (payload.type === 'EXPENSE_MUTATION' && payload.data) {
+        setExpenses(payload.data);
+      } else if (payload.type === 'MESSAGE_MUTATION' && payload.data) {
+        setMessages(payload.data);
       } else if (payload.type === 'POST_ADDED' && payload.data) {
         setPersonas(prev => {
           if (prev.some(p => p.id === payload.data.id)) return prev;
@@ -823,6 +844,12 @@ export default function App() {
   const handleUpdatePaymentStatus = (id: string, status: 'Pagado' | 'Pendiente' | 'En Revisión') => {
     const updated = expenses.map(e => e.id === id ? { ...e, paymentStatus: status } : e);
     setExpenses(updated);
+    broadcastCloudChange(
+      'EXPENSE_MUTATION',
+      `${currentPersona.name} cambió estado de gasto a: ${status}`,
+      { name: currentPersona.name, profile: currentPersona.profileType, email: currentPersona.email },
+      updated
+    );
     showToast(`Estado de pago actualizado a: ${status}`);
   };
 
@@ -874,7 +901,14 @@ export default function App() {
       mentions,
       taskId,
     };
-    setMessages(prev => [newMsg, ...prev]);
+    const updated = [newMsg, ...messages];
+    setMessages(updated);
+    broadcastCloudChange(
+      'MESSAGE_MUTATION',
+      `${currentPersona.name} publicó un mensaje en el feed interno`,
+      { name: currentPersona.name, profile: currentPersona.profileType, email: currentPersona.email },
+      updated
+    );
   };
 
   // Direct Header Export triggers

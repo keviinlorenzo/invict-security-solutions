@@ -1,4 +1,13 @@
-import { UserPersona, UserProfileType, AreaType, Task } from '../types';
+import { UserPersona, UserProfileType } from '../types';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  onSnapshot,
+  Firestore
+} from 'firebase/firestore';
+import firebaseConfig from '../../firebase-applet-config.json';
 
 // Corporate Default Passwords per Profile
 export const DEFAULT_PROFILE_PASSWORDS: Record<UserProfileType, string> = {
@@ -16,24 +25,33 @@ const STORAGE_KEY_CUSTOM_POSTS = 'invict_custom_posts';
 const STORAGE_KEY_DELETED_POSTS = 'invict_deleted_post_ids';
 
 export interface CloudSyncPayload {
+  id?: string;
   type:
     | 'TASK_MUTATION'
     | 'EXPENSE_MUTATION'
+    | 'MESSAGE_MUTATION'
+    | 'SHEET_MUTATION'
     | 'LEGAL_MUTATION'
     | 'POST_ADDED'
     | 'POST_DELETED'
     | 'POST_UPDATED'
     | 'PASSWORD_UPDATED'
-    | 'GENERIC_SYNC';
+    | 'GENERIC_SYNC'
+    | 'FULL_STATE_SYNC';
   timestamp: string;
   authorName: string;
   authorProfile: string;
   authorEmail: string;
   summary: string;
   data?: any;
+  stateSnapshot?: Record<string, any>;
 }
 
-// Singleton BroadcastChannel for real-time cloud communications
+const CLIENT_INSTANCE_ID = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+let lastProcessedEventId = '';
+let lastServerVersion = 0;
+
+// Singleton BroadcastChannel for same-device cross-tab real-time sync
 let cloudChannel: BroadcastChannel | null = null;
 try {
   if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -46,16 +64,28 @@ try {
 type SyncCallback = (payload: CloudSyncPayload) => void;
 const subscribers = new Set<SyncCallback>();
 
+function notifySubscribers(payload: CloudSyncPayload) {
+  if (payload.id && payload.id === lastProcessedEventId) return;
+  if (payload.id) lastProcessedEventId = payload.id;
+
+  // Persist incoming state snapshots to localStorage so all tabs/components stay in sync
+  if (payload.stateSnapshot && typeof window !== 'undefined') {
+    applyStateSnapshotToLocalStorage(payload.stateSnapshot);
+  }
+
+  subscribers.forEach(cb => {
+    try {
+      cb(payload);
+    } catch (err) {
+      console.error('Error invoking cloud sync subscriber', err);
+    }
+  });
+}
+
 if (cloudChannel) {
   cloudChannel.onmessage = (event: MessageEvent<CloudSyncPayload>) => {
     if (event.data) {
-      subscribers.forEach(cb => {
-        try {
-          cb(event.data);
-        } catch (err) {
-          console.error('Error invoking cloud sync subscriber', err);
-        }
-      });
+      notifySubscribers(event.data);
     }
   };
 }
@@ -66,15 +96,192 @@ if (typeof window !== 'undefined') {
     if (e.key === 'invict_cloud_broadcast_event' && e.newValue) {
       try {
         const payload: CloudSyncPayload = JSON.parse(e.newValue);
-        subscribers.forEach(cb => cb(payload));
-      } catch (err) {
+        notifySubscribers(payload);
+      } catch {
         // ignore
       }
     }
   });
 }
 
+// Collect full shared state from localStorage to push to remote devices
+export function collectLocalSharedState(): Record<string, any> {
+  if (typeof window === 'undefined') return {};
+  const snapshot: Record<string, any> = {};
+  const sharedKeys = [
+    'invict_tasks',
+    'invict_expenses',
+    'invict_messages',
+    'invict_personas',
+    'invict_cloud_modifications',
+    STORAGE_KEY_PASSWORDS,
+    STORAGE_KEY_CUSTOM_POSTS,
+    STORAGE_KEY_DELETED_POSTS,
+  ];
+  for (const key of sharedKeys) {
+    const raw = localStorage.getItem(key);
+    if (raw !== null) {
+      try {
+        snapshot[key] = JSON.parse(raw);
+      } catch {
+        snapshot[key] = raw;
+      }
+    }
+  }
+  // Include all managerial financial sheets
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('invict_managerial_sheets_')) {
+      const raw = localStorage.getItem(k);
+      if (raw !== null) {
+        try {
+          snapshot[k] = JSON.parse(raw);
+        } catch {
+          snapshot[k] = raw;
+        }
+      }
+    }
+  }
+  return snapshot;
+}
+
+export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>): void {
+  if (typeof window === 'undefined' || !snapshot) return;
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value !== undefined) {
+      try {
+        localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+      } catch {
+        // ignore quota errors
+      }
+    }
+  }
+}
+
+// --- FIREBASE FIRESTORE + SERVER /api/sync REAL-TIME MULTI-DEVICE ENGINE ---
+let firestoreDb: Firestore | null = null;
+let remoteSyncInitialized = false;
+
+function initRemoteSync() {
+  if (remoteSyncInitialized || typeof window === 'undefined') return;
+  remoteSyncInitialized = true;
+
+  // 1. Firestore real-time listener (activates automatically when Firestore is enabled in Firebase project)
+  try {
+    const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+    firestoreDb = getFirestore(app);
+    const stateDocRef = doc(firestoreDb, 'invict_corporate_sync', 'global_state');
+    onSnapshot(
+      stateDocRef,
+      (snap) => {
+        if (!snap.exists()) return;
+        const docData = snap.data();
+        if (!docData || docData.clientId === CLIENT_INSTANCE_ID) return;
+        const payload: CloudSyncPayload = docData.lastEvent || {
+          id: `fs-${docData.updatedAt}`,
+          type: 'FULL_STATE_SYNC',
+          timestamp: docData.updatedAt || new Date().toISOString(),
+          authorName: 'Sincronización Nube',
+          authorProfile: 'GERENTE',
+          authorEmail: '',
+          summary: 'Estado actualizado desde la nube',
+        };
+        payload.stateSnapshot = docData.stateSnapshot;
+        notifySubscribers(payload);
+      },
+      () => {
+        // Firestore not enabled or permission denied: fallback to /api/sync polling silently
+      }
+    );
+  } catch {
+    // ignore init error
+  }
+
+  // 2. Server /api/sync polling (every 4 seconds + on window focus) for cross-device sync
+  const pollServerSync = async () => {
+    try {
+      const res = await fetch(`/api/sync?since=${lastServerVersion}`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const json = await res.json();
+      if (!json.changed || !json.version) return;
+      const isInitialFetch = lastServerVersion === 0;
+      lastServerVersion = json.version;
+
+      if (json.state && Object.keys(json.state).length > 0) {
+        const eventPayload: CloudSyncPayload = json.lastEvent || {
+          id: `srv-${json.version}`,
+          type: 'FULL_STATE_SYNC',
+          timestamp: json.updatedAt || new Date().toISOString(),
+          authorName: 'Sincronización Nube',
+          authorProfile: 'GERENTE',
+          authorEmail: isInitialFetch ? '__initial__' : '',
+          summary: 'Sincronización automática en tiempo real',
+        };
+        eventPayload.id = eventPayload.id || `srv-${json.version}`;
+        eventPayload.stateSnapshot = json.state;
+        notifySubscribers(eventPayload);
+      } else if (isInitialFetch) {
+        // Server store is empty: seed it with this device's current state
+        pushStateToRemote(undefined, collectLocalSharedState());
+      }
+    } catch {
+      // network offline
+    }
+  };
+
+  setTimeout(pollServerSync, 600);
+  setInterval(pollServerSync, 4000);
+  window.addEventListener('focus', pollServerSync);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) pollServerSync();
+  });
+}
+
+async function pushStateToRemote(event?: CloudSyncPayload, stateSnapshot?: Record<string, any>) {
+  if (typeof window === 'undefined') return;
+  const snapshot = stateSnapshot || collectLocalSharedState();
+
+  // Push to /api/sync endpoint
+  try {
+    const res = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: CLIENT_INSTANCE_ID,
+        event,
+        partialState: snapshot,
+      }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.version) lastServerVersion = json.version;
+    }
+  } catch {
+    // ignore offline error
+  }
+
+  // Push to Firestore if available
+  if (firestoreDb) {
+    try {
+      const stateDocRef = doc(firestoreDb, 'invict_corporate_sync', 'global_state');
+      await setDoc(
+        stateDocRef,
+        {
+          clientId: CLIENT_INSTANCE_ID,
+          updatedAt: new Date().toISOString(),
+          lastEvent: event || null,
+          stateSnapshot: snapshot,
+        },
+        { merge: true }
+      );
+    } catch {
+      // ignore if Firestore is disabled
+    }
+  }
+}
+
 export function subscribeToCloudSync(callback: SyncCallback): () => void {
+  initRemoteSync();
   subscribers.add(callback);
   return () => {
     subscribers.delete(callback);
@@ -87,7 +294,26 @@ export function broadcastCloudChange(
   author: { name: string; profile: string; email: string },
   data?: any
 ): void {
+  initRemoteSync();
+
+  // Ensure latest data is written to localStorage before collecting snapshot
+  if (typeof window !== 'undefined' && data !== undefined) {
+    try {
+      if (type === 'TASK_MUTATION') {
+        localStorage.setItem('invict_tasks', JSON.stringify(data));
+      } else if (type === 'EXPENSE_MUTATION') {
+        localStorage.setItem('invict_expenses', JSON.stringify(data));
+      } else if (type === 'MESSAGE_MUTATION') {
+        localStorage.setItem('invict_messages', JSON.stringify(data));
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const stateSnapshot = collectLocalSharedState();
   const payload: CloudSyncPayload = {
+    id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     type,
     timestamp: new Date().toISOString(),
     authorName: author.name,
@@ -95,9 +321,12 @@ export function broadcastCloudChange(
     authorEmail: author.email,
     summary,
     data,
+    stateSnapshot,
   };
 
-  // Broadcast via Channel
+  lastProcessedEventId = payload.id!;
+
+  // 1. Broadcast via BroadcastChannel (same browser)
   if (cloudChannel) {
     try {
       cloudChannel.postMessage(payload);
@@ -106,12 +335,15 @@ export function broadcastCloudChange(
     }
   }
 
-  // Broadcast via localStorage storage event
+  // 2. Broadcast via localStorage storage event
   try {
     localStorage.setItem('invict_cloud_broadcast_event', JSON.stringify(payload));
-  } catch (e) {
+  } catch {
     // ignore
   }
+
+  // 3. Push to remote cloud (/api/sync + Firestore) for all other devices
+  pushStateToRemote(payload, stateSnapshot);
 }
 
 // --- PASSWORD MANAGEMENT CONTROLLED BY GERENCIA ---
@@ -189,21 +421,16 @@ export function verifyProfilePassword(
   const activePassword = passwords[profile] || DEFAULT_PROFILE_PASSWORDS[profile];
   const defaultPassword = DEFAULT_PROFILE_PASSWORDS[profile];
 
-  // No universal backdoor: each account must be authenticated with its legitimate password
-  // 1. Direct active password check for this profile
   if (inputPassword === activePassword) return true;
-
-  // 2. Default profile initial password (only valid if not altered)
   if (inputPassword === defaultPassword) return true;
 
-  // 3. Custom workplace post password
   try {
     const customPosts = getCustomPosts();
     const matchedPost = customPosts.find(p => p.email.toLowerCase() === (accountEmail || '').toLowerCase());
     if (matchedPost && (matchedPost as any).customPassword) {
       if (inputPassword === (matchedPost as any).customPassword) return true;
     }
-  } catch (e) {}
+  } catch {}
 
   return false;
 }
@@ -273,7 +500,6 @@ export function updateWorkplacePost(
   updated: UserPersona,
   author: { name: string; profile: string; email: string }
 ): void {
-  // 1. Update in main invict_personas localStorage
   try {
     const raw = localStorage.getItem('invict_personas');
     let list: UserPersona[] = raw ? JSON.parse(raw) : [];
@@ -288,7 +514,6 @@ export function updateWorkplacePost(
     console.warn('Failed to update invict_personas in localStorage', e);
   }
 
-  // 2. Also keep custom posts array in sync
   try {
     const custom = getCustomPosts();
     const idx = custom.findIndex(p => p.id === updated.id);
