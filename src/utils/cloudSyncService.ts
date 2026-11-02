@@ -106,6 +106,7 @@ export function collectLocalSharedState(): Record<string, any> {
     'invict_messages',
     'invict_personas',
     'invict_cloud_modifications',
+    'invict_admin_informative_sheets',
     STORAGE_KEY_PASSWORDS,
     STORAGE_KEY_CUSTOM_POSTS,
     STORAGE_KEY_DELETED_POSTS,

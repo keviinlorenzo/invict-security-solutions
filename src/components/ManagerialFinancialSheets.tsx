@@ -238,8 +238,11 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
   const [targetEmployee, setTargetEmployee] = useState('');
   const [advanceAmountInput, setAdvanceAmountInput] = useState('50000');
 
-  // Dynamic metrics calculated from current interactive sheetsData
-  const metrics = calculateManagerialMetrics(currentPeriod);
+  // Dynamic metrics calculated directly from current interactive sheetsData
+  const metrics = useMemo(
+    () => calculateManagerialMetrics(currentPeriod, sheetsData),
+    [currentPeriod, sheetsData]
+  );
   const {
     profitability,
     totalIncome,
@@ -861,7 +864,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
           <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2 font-mono">
             <span>{sheetsData.clientBilling.length} clientes activos</span>
             <span className="text-emerald-400 font-semibold text-[10px] bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-800/50">
-              fx: Tarifa × Hs
+              fx: Suma Total Neto
             </span>
           </div>
         </div>
@@ -889,7 +892,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
           <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2 font-mono">
             <span>{sheetsData.salaries.length} colaboradores</span>
             <span className="text-amber-400 font-semibold text-[10px] bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-800/50">
-              fx: Sueldo Neto - Ant.
+              fx: Suma Recibo + X
             </span>
           </div>
         </div>

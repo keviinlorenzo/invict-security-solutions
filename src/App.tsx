@@ -20,11 +20,12 @@ import {
   INITIAL_MESSAGES,
   USER_PERSONAS
 } from './data/mockData';
-import { Lock } from 'lucide-react';
+import { Lock, AtSign, ArrowRight } from 'lucide-react';
 import { Header } from './components/Header';
 import { Sidebar, ActiveTab } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
 import { TasksMatrixView } from './components/TasksMatrixView';
+import { AdminInformativeSheetsView } from './components/AdminInformativeSheetsView';
 import { ExecutiveReportsView } from './components/ExecutiveReportsView';
 import { ExpensesView } from './components/ExpensesView';
 import { InvictFeedView } from './components/InvictFeedView';
@@ -821,6 +822,27 @@ export default function App() {
       { name: currentPersona.name, profile: userProf, email: currentPersona.email },
       updatedTasks
     );
+
+    if (commentText.includes('@') || (mentions && mentions.length > 0)) {
+      const newMsg: InternalMessage = {
+        id: `msg-${Date.now()}`,
+        authorName: currentPersona.name,
+        authorRole: currentPersona.role,
+        content: commentText,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        mentions: mentions || [],
+        taskId,
+      };
+      const updatedMsgs = [newMsg, ...messages];
+      setMessages(updatedMsgs);
+      broadcastCloudChange(
+        'MESSAGE_MUTATION',
+        `${currentPersona.name} mencionó en la tarea "${taskTitle}"`,
+        { name: currentPersona.name, profile: userProf, email: currentPersona.email },
+        updatedMsgs
+      );
+    }
+
     showToast(`Comentario registrado en el archivo compartido`);
   };
 
@@ -995,15 +1017,67 @@ export default function App() {
     });
   }, [messages, tasks, isCurrentUserGerencia]);
 
+  const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
+  const [dismissedMentionIds, setDismissedMentionIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem('invict_dismissed_mentions');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const normalizeMentionStr = (s: string) =>
+    (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  const myDirectMentions = useMemo(() => {
+    const myFirstName = normalizeMentionStr(currentPersona.name.split(' ')[0] || '');
+    const myDept = normalizeMentionStr(currentPersona.department || '');
+    const myProf = normalizeMentionStr(currentPersona.profileType || '');
+    return visibleMessages.filter((m) => {
+      if (m.authorName === currentPersona.name) return false;
+      const emailMatch =
+        m.mentions.some((e) => e.toLowerCase() === currentPersona.email.toLowerCase()) ||
+        (isCurrentUserGerencia && m.mentions.includes('consultasinvictsolutionss.a@gmail.com'));
+      if (emailMatch) return true;
+      const normContent = normalizeMentionStr(m.content || '');
+      return (
+        (myFirstName && normContent.includes(`@${myFirstName}`)) ||
+        (myDept && normContent.includes(`@${myDept}`)) ||
+        (myProf && normContent.includes(`@${myProf}`)) ||
+        normContent.includes('@todos')
+      );
+    });
+  }, [visibleMessages, currentPersona, isCurrentUserGerencia]);
+
+  const unreadDirectMentions = useMemo(
+    () => myDirectMentions.filter((m) => !dismissedMentionIds.includes(m.id)),
+    [myDirectMentions, dismissedMentionIds]
+  );
+
+  const handleDismissMention = (msgId: string) => {
+    const next = Array.from(new Set([...dismissedMentionIds, msgId]));
+    setDismissedMentionIds(next);
+    try {
+      localStorage.setItem('invict_dismissed_mentions', JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleNavigateToMentionMessage = (msgId: string, taskId?: string) => {
+    handleDismissMention(msgId);
+    setFocusedMessageId(msgId);
+    setActiveTab('feed');
+  };
+
   // Counters
   const urgentTasksCount = visibleTasks.filter(t => {
     if (t.status === 'Completada') return false;
     return t.priority === 'Urgente';
   }).length;
 
-  const unreadMentionsCount = visibleMessages.filter(m =>
-    m.mentions.includes(currentPersona.email)
-  ).length;
+  const unreadMentionsCount = unreadDirectMentions.length;
 
   // Garantizar que ningún puesto que no sea Gerencia acceda al Dashboard Gerencial ni al filtro de área GERENCIA
   useEffect(() => {
@@ -1081,6 +1155,7 @@ export default function App() {
         onExportPeriodCSV={handleExportCurrentPeriodCSV}
         onExportPeriodPDF={handleExportCurrentPeriodPDF}
         totalEmailAlertsCount={emailLogs.length}
+        onSelectMentionMessage={handleNavigateToMentionMessage}
       />
 
       {/* Body Layout */}
@@ -1116,6 +1191,50 @@ export default function App() {
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto p-3 sm:p-6 bg-[#090b0f] flex flex-col justify-between">
           <div className="max-w-7xl mx-auto w-full space-y-6">
+            {/* Banner de Notificación de Mención (@) con acceso directo al mensaje */}
+            {unreadDirectMentions.length > 0 && (
+              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-[#23121a] via-[#1c1629] to-[#131d2e] border border-[#BE2629]/70 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+                <div className="flex items-start sm:items-center gap-3 min-w-0">
+                  <div className="p-2 rounded-xl bg-[#BE2629]/20 border border-[#BE2629]/50 text-[#ff6b6e] shrink-0">
+                    <AtSign className="w-4 h-4 animate-pulse" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-black text-white uppercase tracking-wide">
+                        Nueva Mención para ti ({unreadDirectMentions.length})
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-black/40 text-cyan-300 border border-cyan-800/50">
+                        De: {unreadDirectMentions[0].authorName} · {unreadDirectMentions[0].timestamp}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-200 truncate mt-0.5">
+                      "{unreadDirectMentions[0].content}"
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() =>
+                      handleNavigateToMentionMessage(
+                        unreadDirectMentions[0].id,
+                        unreadDirectMentions[0].taskId
+                      )
+                    }
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#BE2629] hover:bg-[#d32f32] text-white text-xs font-bold shadow transition-all cursor-pointer active:scale-95"
+                  >
+                    <span>Ver Mensaje donde te mencionaron</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => handleDismissMention(unreadDirectMentions[0].id)}
+                    className="px-2.5 py-1.5 rounded-xl bg-[#161c28] hover:bg-[#222b3d] text-slate-300 hover:text-white text-xs font-semibold border border-[#2a354b] transition-colors cursor-pointer"
+                  >
+                    Leído
+                  </button>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'dashboard' && isCurrentUserGerencia ? (
               <DashboardView
                 tasks={visibleTasks}
@@ -1170,6 +1289,14 @@ export default function App() {
                 onResetFixedTasks={handleResetFixedTasks}
                 onClearMonth={isCurrentUserGerencia ? handleClearMonth : undefined}
                 onExportPeriod={handleExportCurrentPeriodCSV}
+                onOpenAdminSheets={() => setActiveTab('admin_sheets')}
+              />
+            )}
+
+            {activeTab === 'admin_sheets' && (
+              <AdminInformativeSheetsView
+                currentPersona={currentPersona}
+                onNotify={showToast}
               />
             )}
 
@@ -1235,6 +1362,9 @@ export default function App() {
                 tasks={visibleTasks}
                 onRefreshEmailLogs={refreshEmailLogs}
                 onOpenEmailAlertsModal={() => setIsEmailAlertsModalOpen(true)}
+                focusedMessageId={focusedMessageId}
+                onClearFocusedMessage={() => setFocusedMessageId(null)}
+                onSelectTask={(task) => setSelectedTaskForDetail(task)}
               />
             )}
           </div>

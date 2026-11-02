@@ -52,6 +52,7 @@ interface HeaderProps {
   onExportPeriodCSV?: () => void;
   onExportPeriodPDF?: () => void;
   totalEmailAlertsCount?: number;
+  onSelectMentionMessage?: (messageId: string, taskId?: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -80,6 +81,7 @@ export const Header: React.FC<HeaderProps> = ({
   onExportPeriodCSV,
   onExportPeriodPDF,
   totalEmailAlertsCount = 0,
+  onSelectMentionMessage,
 }) => {
   const [showPersonaMenu, setShowPersonaMenu] = useState(false);
   const [showNotificationMenu, setShowNotificationMenu] = useState(false);
@@ -95,10 +97,25 @@ export const Header: React.FC<HeaderProps> = ({
     return status === 'vencida' || status === 'urgente_48h';
   });
 
-  const personalMentions = messages.filter(m =>
-    m.mentions.includes(currentPersona.email) ||
-    (isGerencia && m.mentions.includes('consultasinvictsolutionss.a@gmail.com'))
-  );
+  const normalizeText = (s: string) =>
+    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  const personalMentions = messages.filter(m => {
+    const emailMatch =
+      m.mentions.some(e => e.toLowerCase() === currentPersona.email.toLowerCase()) ||
+      (isGerencia && m.mentions.includes('consultasinvictsolutionss.a@gmail.com'));
+    if (emailMatch) return true;
+    const normContent = normalizeText(m.content || '');
+    const myFirstName = normalizeText(currentPersona.name.split(' ')[0] || '');
+    const myDept = normalizeText(currentPersona.department || '');
+    const myProf = normalizeText(currentPersona.profileType || '');
+    return (
+      (myFirstName && normContent.includes(`@${myFirstName}`)) ||
+      (myDept && normContent.includes(`@${myDept}`)) ||
+      (myProf && normContent.includes(`@${myProf}`)) ||
+      normContent.includes('@todos')
+    );
+  });
 
   const totalAlertsCount = delayedTasks.length + personalMentions.length;
 
@@ -467,13 +484,29 @@ export const Header: React.FC<HeaderProps> = ({
                           Ir al Feed →
                         </button>
                       </div>
-                      {personalMentions.slice(0, 2).map(msg => (
-                        <div key={msg.id} className="text-xs text-slate-300 mb-1.5 bg-[#10141f] p-2 rounded border border-[#222838]">
+                      {personalMentions.slice(0, 4).map(msg => (
+                        <div
+                          key={msg.id}
+                          onClick={() => {
+                            setShowNotificationMenu(false);
+                            if (onSelectMentionMessage) {
+                              onSelectMentionMessage(msg.id, msg.taskId);
+                            } else {
+                              onNavigateToFeed();
+                            }
+                          }}
+                          className="text-xs text-slate-300 mb-1.5 bg-[#10141f] hover:bg-[#192236] p-2.5 rounded-xl border border-[#222838] hover:border-cyan-500/60 cursor-pointer transition-all group"
+                        >
                           <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-                            <span className="font-semibold text-slate-200">{msg.authorName}</span>
+                            <span className="font-semibold text-white group-hover:text-cyan-300">
+                              {msg.authorName} te mencionó
+                            </span>
                             <span className="font-mono text-[9px]">{msg.timestamp}</span>
                           </div>
                           <p className="line-clamp-2 text-slate-300 text-[11px]">{msg.content}</p>
+                          <span className="text-[10px] font-bold text-cyan-400 mt-1 inline-block group-hover:underline">
+                            Abrir mensaje directamente →
+                          </span>
                         </div>
                       ))}
                     </div>

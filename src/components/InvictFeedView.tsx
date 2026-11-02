@@ -19,6 +19,9 @@ interface InvictFeedViewProps {
   tasks: Task[];
   onRefreshEmailLogs?: () => void;
   onOpenEmailAlertsModal?: () => void;
+  focusedMessageId?: string | null;
+  onClearFocusedMessage?: () => void;
+  onSelectTask?: (task: Task) => void;
 }
 
 export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
@@ -29,11 +32,26 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
   tasks,
   onRefreshEmailLogs,
   onOpenEmailAlertsModal,
+  focusedMessageId,
+  onClearFocusedMessage,
+  onSelectTask,
 }) => {
   const [content, setContent] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   const [filterMode, setFilterMode] = useState<'all' | 'mentions'>('all');
   const [lastNotificationStatus, setLastNotificationStatus] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (focusedMessageId) {
+      setFilterMode('all');
+      setTimeout(() => {
+        const el = document.getElementById(`feed-msg-${focusedMessageId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 120);
+    }
+  }, [focusedMessageId]);
 
   const mentionList = allPersonas.map(p => ({
     tag: `@${p.name.split(' ')[0]}`,
@@ -52,16 +70,26 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
 
     const foundMentions: string[] = [];
     const mentionedNames: string[] = [];
+    const normContent = content.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-    mentionList.forEach((m) => {
-      const regex = new RegExp(`@${m.name.split(' ')[0]}\\b`, 'i');
-      if (regex.test(content)) {
-        foundMentions.push(m.email);
-        mentionedNames.push(m.name);
+    allPersonas.forEach((p) => {
+      const firstName = p.name.split(' ')[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const dept = (p.department || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const prof = (p.profileType || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (
+        (firstName && normContent.includes(`@${firstName}`)) ||
+        (dept && normContent.includes(`@${dept}`)) ||
+        (prof && normContent.includes(`@${prof}`)) ||
+        normContent.includes('@todos')
+      ) {
+        if (!foundMentions.includes(p.email)) {
+          foundMentions.push(p.email);
+          mentionedNames.push(p.name);
+        }
       }
     });
 
-    if (/@todos\b/i.test(content)) {
+    if (/@todos\b/i.test(content) && !foundMentions.includes('consultasinvictsolutionss.a@gmail.com')) {
       foundMentions.push('consultasinvictsolutionss.a@gmail.com');
       mentionedNames.push('Todo el Equipo');
     }
@@ -285,12 +313,22 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
           <div className="space-y-3">
             {filteredMessages.map((msg) => {
               const linkedTask = tasks.find(t => t.id === msg.taskId);
-              const isDirectMention = msg.mentions.includes(currentPersona.email);
+              const normText = (msg.content || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+              const myFirst = (currentPersona.name.split(' ')[0] || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+              const isDirectMention =
+                msg.mentions.some(e => e.toLowerCase() === currentPersona.email.toLowerCase()) ||
+                (myFirst && normText.includes(`@${myFirst}`)) ||
+                normText.includes('@todos');
+              const isFocused = focusedMessageId === msg.id;
               return (
                 <div
+                  id={`feed-msg-${msg.id}`}
                   key={msg.id}
-                  className={`p-4 bg-[#121620] border rounded-2xl shadow transition-colors ${
-                    isDirectMention
+                  onClick={() => isFocused && onClearFocusedMessage?.()}
+                  className={`p-4 bg-[#121620] border rounded-2xl shadow transition-all ${
+                    isFocused
+                      ? 'border-cyan-400 ring-2 ring-cyan-500/50 bg-[#172236]'
+                      : isDirectMention
                       ? 'border-[#BE2629]/60 bg-[#161a26]'
                       : 'border-[#22293b] hover:border-[#2f384f]'
                   }`}
@@ -343,7 +381,10 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
                   </p>
 
                   {linkedTask && (
-                    <div className="mt-3 ml-10 p-2.5 bg-[#0e121a] rounded-xl border border-[#202737] flex items-center justify-between text-xs">
+                    <div
+                      onClick={() => onSelectTask?.(linkedTask)}
+                      className="mt-3 ml-10 p-2.5 bg-[#0e121a] hover:bg-[#161e2e] rounded-xl border border-[#202737] hover:border-blue-500/50 flex items-center justify-between text-xs cursor-pointer transition-colors"
+                    >
                       <div className="flex items-center gap-2 truncate">
                         <span className="text-[10px] font-bold uppercase px-1.5 py-0.2 bg-[#202737] text-slate-300 rounded shrink-0">
                           {linkedTask.area}
@@ -352,8 +393,8 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
                           Tarea: <strong className="text-white">{linkedTask.title}</strong>
                         </span>
                       </div>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#1a2130] text-slate-400 shrink-0 font-mono">
-                        {linkedTask.status}
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-blue-950/60 text-blue-300 border border-blue-800/50 shrink-0 font-bold">
+                        Abrir Tarea ({linkedTask.status}) →
                       </span>
                     </div>
                   )}

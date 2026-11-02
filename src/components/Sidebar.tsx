@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { InvictLogo } from './InvictLogo';
 
-export type ActiveTab = 'dashboard' | 'tasks' | 'reports' | 'calendar' | 'expenses' | 'feed';
+export type ActiveTab = 'dashboard' | 'tasks' | 'admin_sheets' | 'reports' | 'calendar' | 'expenses' | 'feed';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -79,6 +79,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: <CheckSquare className="w-4 h-4" />,
       badge: urgentTasksCount > 0 ? urgentTasksCount : undefined,
       badgeColor: 'bg-[#BE2629]',
+    },
+    {
+      id: 'admin_sheets',
+      label: 'Planillas Informativas (ADM)',
+      icon: <FileText className="w-4 h-4 text-blue-400" />,
     },
     {
       id: 'reports',

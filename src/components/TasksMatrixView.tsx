@@ -54,6 +54,7 @@ interface TasksMatrixViewProps {
   onResetFixedTasks?: () => void;
   onClearMonth?: () => void;
   onExportPeriod?: () => void;
+  onOpenAdminSheets?: () => void;
 }
 
 interface PostTabDef {
@@ -84,6 +85,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   onResetFixedTasks,
   onClearMonth,
   onExportPeriod,
+  onOpenAdminSheets,
 }) => {
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
   const [statusFilter, setStatusFilter] = useState<'TODOS' | 'SOLO_PENDIENTES' | TaskStatus>('TODOS');
@@ -681,6 +683,23 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
       </div>
 
       {/* Quick Filter Status Bar (Workflow Presets) */}
+      {onOpenAdminSheets && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3.5 py-2.5 bg-gradient-to-r from-[#121a2b] via-[#152036] to-[#121a2b] border border-blue-800/50 rounded-xl text-xs shadow">
+          <div className="flex items-center gap-2 text-slate-200">
+            <FileText className="w-4 h-4 text-blue-400 shrink-0" />
+            <span>
+              <strong>Planillas Informativas de Administración:</strong> Consulta o actualiza <em>Personal Sin DISEP</em> y <em>Personal que Debe Uniforme</em> (no afectan métricas de tareas).
+            </span>
+          </div>
+          <button
+            onClick={onOpenAdminSheets}
+            className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-all cursor-pointer shrink-0 shadow"
+          >
+            Abrir Planillas Informativas →
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-[#10141d] border border-[#1e2536] rounded-xl text-xs">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 mr-1">

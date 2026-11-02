@@ -583,16 +583,27 @@ export function computeFixedExpenseFormulas(
   };
 }
 
-// Calculate Client Profitability (Rentabilidad por Cliente)
+// Calculate Client Profitability (Rentabilidad por Cliente) based on real loaded data
 export function calculateClientProfitability(data: ManagerialMonthData): ClientProfitabilityItem[] {
-  return data.clientBilling.map(c => {
-    // Facturación Neta (subtotal sin IVA o neta de retenciones)
-    const netBilling = c.hourlyRate * c.totalHours;
-    // Costo Directo de guardias asignados (~62% de facturación neta promedio en seguridad)
-    const directCost = Math.round(netBilling * 0.62);
+  const realTotalDirectCosts = (data.salaries || []).reduce(
+    (acc, s) => acc + ((s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary) + (s.extraAmount || 0)),
+    0
+  );
+  const realTotalOverhead =
+    (data.fixedExpenses || []).reduce((acc, f) => acc + (f.amount || 0), 0) +
+    (data.bankExpenses || []).reduce((acc, b) => acc + (b.amount || 0), 0);
+
+  const totalBillingAll = (data.clientBilling || []).reduce(
+    (acc, c) => acc + (c.totalNet !== undefined ? c.totalNet : c.hourlyRate * c.totalHours),
+    0
+  );
+
+  return (data.clientBilling || []).map(c => {
+    const netBilling = c.totalNet !== undefined ? c.totalNet : c.hourlyRate * c.totalHours;
+    const share = totalBillingAll > 0 ? netBilling / totalBillingAll : 0;
+    const directCost = Math.round(realTotalDirectCosts * share);
     const grossMargin = netBilling - directCost;
-    // Margen Neto after ~12% allocated overhead/fixed costs
-    const allocatedFixedCost = Math.round(netBilling * 0.12);
+    const allocatedFixedCost = Math.round(realTotalOverhead * share);
     const netMargin = grossMargin - allocatedFixedCost;
     const netMarginPercent = netBilling > 0 ? Math.round((netMargin / netBilling) * 100) : 0;
 
@@ -607,24 +618,33 @@ export function calculateClientProfitability(data: ManagerialMonthData): ClientP
   });
 }
 
-// Compute Complete Managerial Metrics for Dashboard
-export function calculateManagerialMetrics(period: string = getCurrentPeriodString()) {
-  const data = getManagerialMonthData(period);
+// Compute Complete Managerial Metrics for Dashboard using real loaded data
+export function calculateManagerialMetrics(
+  period: string = getCurrentPeriodString(),
+  customData?: ManagerialMonthData
+) {
+  const data = customData || getManagerialMonthData(period);
   const profitability = calculateClientProfitability(data);
 
-  // Total Ingresos (Facturación Neta)
-  const totalIncome = profitability.reduce((acc, curr) => acc + curr.netBilling, 0);
+  // Total Ingresos Reales (Suma exacta del Total Neto de los clientes cargados)
+  const totalIncome = (data.clientBilling || []).reduce(
+    (acc, c) => acc + (c.totalNet !== undefined ? c.totalNet : c.hourlyRate * c.totalHours),
+    0
+  );
 
-  // Total Costos Directos
-  const totalDirectCosts = profitability.reduce((acc, curr) => acc + curr.directCost, 0);
+  // Total Costos Directos Reales (Suma exacta de Sueldo Neto = Recibo + X de los colaboradores cargados)
+  const totalDirectCosts = (data.salaries || []).reduce(
+    (acc, s) => acc + ((s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary) + (s.extraAmount || 0)),
+    0
+  );
 
-  // Total Gastos Fijos
-  const totalFixedExpenses = data.fixedExpenses.reduce((acc, curr) => acc + curr.amount, 0);
+  // Total Gastos Fijos Reales
+  const totalFixedExpenses = (data.fixedExpenses || []).reduce((acc, curr) => acc + (curr.amount || 0), 0);
 
-  // Total Gastos Bancarios
-  const totalBankExpenses = (data.bankExpenses || []).reduce((acc, curr) => acc + curr.amount, 0);
+  // Total Gastos Bancarios Reales
+  const totalBankExpenses = (data.bankExpenses || []).reduce((acc, curr) => acc + (curr.amount || 0), 0);
 
-  // Margen Neto Global (Ingresos - Costos Directos - Gastos Fijos - Gastos Bancarios)
+  // Margen Neto Global Real (Ingresos - Costos Directos - Gastos Fijos - Gastos Bancarios)
   const globalNetMargin = totalIncome - totalDirectCosts - totalFixedExpenses - totalBankExpenses;
   const globalNetMarginPercent = totalIncome > 0 ? Math.round((globalNetMargin / totalIncome) * 100) : 0;
 
