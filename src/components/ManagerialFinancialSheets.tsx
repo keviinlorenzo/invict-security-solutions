@@ -267,30 +267,41 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
   const handleClientFieldChange = (
     index: number,
     field: keyof ClientBillingItem,
-    value: string | number
+    value: string | number | boolean
   ) => {
     const updatedBilling = [...sheetsData.clientBilling];
     const item = { ...updatedBilling[index] };
+    const currentIncludesVat = item.includesVat !== undefined ? item.includesVat : item.vatAmount > 0;
 
     if (field === 'clientName') {
       item.clientName = String(value);
     } else if (field === 'hourlyRate') {
       const rate = Math.max(0, parseFloat(String(value)) || 0);
       item.hourlyRate = rate;
-      const formulas = computeClientBillingFormulas(rate, item.totalHours, item.withholdings);
+      item.includesVat = currentIncludesVat;
+      const formulas = computeClientBillingFormulas(rate, item.totalHours, item.withholdings, currentIncludesVat);
       item.vatAmount = formulas.vatAmount;
       item.totalNet = formulas.totalNet;
     } else if (field === 'totalHours') {
       const hours = Math.max(0, parseFloat(String(value)) || 0);
       item.totalHours = hours;
-      const formulas = computeClientBillingFormulas(item.hourlyRate, hours, item.withholdings);
+      item.includesVat = currentIncludesVat;
+      const formulas = computeClientBillingFormulas(item.hourlyRate, hours, item.withholdings, currentIncludesVat);
+      item.vatAmount = formulas.vatAmount;
+      item.totalNet = formulas.totalNet;
+    } else if (field === 'includesVat') {
+      const nextIncludesVat = Boolean(value);
+      item.includesVat = nextIncludesVat;
+      const formulas = computeClientBillingFormulas(item.hourlyRate, item.totalHours, item.withholdings, nextIncludesVat);
       item.vatAmount = formulas.vatAmount;
       item.totalNet = formulas.totalNet;
     } else if (field === 'withholdings') {
       const ret = Math.max(0, parseFloat(String(value)) || 0);
       item.withholdings = ret;
-      const subtotal = item.hourlyRate * item.totalHours;
-      item.totalNet = Math.max(0, Math.round(subtotal + item.vatAmount - ret));
+      item.includesVat = currentIncludesVat;
+      const formulas = computeClientBillingFormulas(item.hourlyRate, item.totalHours, ret, currentIncludesVat);
+      item.vatAmount = formulas.vatAmount;
+      item.totalNet = formulas.totalNet;
     } else if (field === 'status') {
       item.status = value as 'PAGO' | 'IMPAGO';
     } else if (field === 'invoiceNumber') {
@@ -309,16 +320,17 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
       clientName: 'Nuevo Cliente S.A.',
       hourlyRate: 5000,
       totalHours: 720,
+      includesVat: true,
       vatAmount: Math.round(5000 * 720 * 0.21),
-      withholdings: Math.round(5000 * 720 * 0.04),
-      totalNet: Math.round(5000 * 720 * 1.17),
+      withholdings: 0,
+      totalNet: Math.round(5000 * 720 * 1.21),
       status: 'IMPAGO',
       invoiceNumber: `FAC-0001-${Math.floor(1000 + Math.random() * 9000)}`,
       dueDate: `${currentPeriod}-20`,
     };
     const updated = [...sheetsData.clientBilling, newRow];
     updateAndSaveData({ ...sheetsData, clientBilling: updated });
-    if (onNotify) onNotify('¡Fila de cliente agregada con fórmulas automáticas de IVA y Total!');
+    if (onNotify) onNotify('¡Fila de cliente agregada con selector de IVA (21% / Sin IVA) y retenciones manuales!');
   };
 
   const handleDeleteClientRow = (index: number) => {
@@ -991,7 +1003,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                   <span>Planilla Interactiva: Clientes (Facturación)</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Modifica clientes, tarifas y horas directamente. El <strong>IVA (21%)</strong>, <strong>Retenciones (4%)</strong> y <strong>Total Neto</strong> se calculan automáticamente.
+                  Modifica clientes, tarifas y horas directamente. Selecciona con un clic si aplica <strong>IVA (21%)</strong> (SÍ / NO) e ingresa las <strong>Retenciones</strong> manualmente para calcular el <strong>Total Neto</strong>.
                 </p>
               </div>
 
@@ -1086,13 +1098,13 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                       <span className="block">Horas Totales</span>
                       <span className="text-[9px] text-blue-400 font-normal">Editable</span>
                     </th>
-                    <th className="py-2.5 px-3 text-right min-w-[120px]">
-                      <span className="block">IVA (21%)</span>
-                      <span className="text-[9px] text-emerald-400 font-normal font-mono">fx: Sub × 21%</span>
+                    <th className="py-2.5 px-3 text-right min-w-[175px]">
+                      <span className="block">¿Cobra IVA (21%)?</span>
+                      <span className="text-[9px] text-emerald-400 font-normal font-mono">Botón SÍ (21%) / NO ($0)</span>
                     </th>
-                    <th className="py-2.5 px-3 text-right min-w-[120px]">
-                      <span className="block">Retenciones</span>
-                      <span className="text-[9px] text-amber-400 font-normal font-mono">fx: Sub × 4%</span>
+                    <th className="py-2.5 px-3 text-right min-w-[140px]">
+                      <span className="block">Retenciones ($)</span>
+                      <span className="text-[9px] text-amber-400 font-normal font-mono">Carga Manual</span>
                     </th>
                     <th className="py-2.5 px-3 text-right min-w-[140px]">
                       <span className="block">Total Neto</span>
@@ -1148,14 +1160,61 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                           />
                         </td>
 
-                        {/* IVA (Automated Formula) */}
-                        <td className="py-2 px-3 text-right text-slate-300 font-semibold bg-[#111622]/40">
-                          {formatCurrencyARS(client.vatAmount)}
+                        {/* IVA (Interactive Toggle SÍ 21% / NO + Automated Formula) */}
+                        <td className="py-2 px-3 text-right bg-[#111622]/40">
+                          {(() => {
+                            const hasVat = client.includesVat !== undefined ? client.includesVat : client.vatAmount > 0;
+                            return (
+                              <div className="flex flex-col items-end gap-1">
+                                <div className="inline-flex items-center rounded-lg bg-[#0d111a] p-0.5 border border-[#252f45]">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleClientFieldChange(originalIdx, 'includesVat', true)}
+                                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                                      hasVat
+                                        ? 'bg-emerald-600 text-white shadow-sm'
+                                        : 'text-slate-400 hover:text-white'
+                                    }`}
+                                    title="Cobrar con IVA (calcula automáticamente el 21%)"
+                                  >
+                                    SÍ (21%)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleClientFieldChange(originalIdx, 'includesVat', false)}
+                                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                                      !hasVat
+                                        ? 'bg-slate-700 text-slate-100 shadow-sm'
+                                        : 'text-slate-400 hover:text-white'
+                                    }`}
+                                    title="Sin IVA (no aplica el incremento del 21%)"
+                                  >
+                                    NO
+                                  </button>
+                                </div>
+                                <span className={`text-xs font-semibold ${hasVat ? 'text-emerald-300' : 'text-slate-500'}`}>
+                                  {hasVat ? formatCurrencyARS(client.vatAmount) : '$ 0 (Sin IVA)'}
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </td>
 
-                        {/* Retenciones */}
-                        <td className="py-2 px-3 text-right text-red-300 font-semibold bg-[#111622]/40">
-                          {formatCurrencyARS(client.withholdings)}
+                        {/* Retenciones (Manual Editable Input) */}
+                        <td className="py-2 px-3 text-right bg-[#111622]/40">
+                          <div className="relative">
+                            <span className="absolute left-2 top-1 text-red-400/70 text-xs">$</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="100"
+                              value={client.withholdings}
+                              onChange={(e) => handleClientFieldChange(originalIdx, 'withholdings', e.target.value)}
+                              placeholder="0"
+                              className="w-full bg-[#161c28] border border-[#2a344a] focus:border-amber-500 rounded-lg pl-5 pr-2 py-1 text-xs text-red-300 font-semibold text-right focus:outline-none transition-colors"
+                              title="Ingresar monto de retenciones manualmente"
+                            />
+                          </div>
                         </td>
 
                         {/* Total Neto (Automated Formula) */}

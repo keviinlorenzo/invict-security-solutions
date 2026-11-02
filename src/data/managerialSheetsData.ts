@@ -44,6 +44,7 @@ export interface ClientBillingItem {
   clientName: string;
   hourlyRate: number;
   totalHours: number;
+  includesVat?: boolean;
   vatAmount: number;
   withholdings: number;
   totalNet: number;
@@ -512,11 +513,12 @@ export function resetMonthDataToZero(period: string = getCurrentPeriodString()):
   return zeroedData;
 }
 
-// Interactive formula calculation for Client Billing (Tarifa * Horas + IVA - Retenciones)
+// Interactive formula calculation for Client Billing (Tarifa * Horas + IVA opcional 21% - Retenciones manuales)
 export function computeClientBillingFormulas(
   hourlyRate: number,
   totalHours: number,
-  customWithholdings?: number
+  customWithholdings?: number,
+  includesVat: boolean = true
 ): {
   subtotal: number;
   vatAmount: number;
@@ -524,11 +526,11 @@ export function computeClientBillingFormulas(
   totalNet: number;
 } {
   const subtotal = Math.round((hourlyRate || 0) * (totalHours || 0));
-  const vatAmount = Math.round(subtotal * 0.21); // Formula: IVA 21%
+  const vatAmount = includesVat ? Math.round(subtotal * 0.21) : 0; // Formula: IVA 21% si aplica, 0 si no aplica
   const withholdings =
     customWithholdings !== undefined
-      ? customWithholdings
-      : Math.round(subtotal * 0.04); // Formula: Retenciones ~4%
+      ? Math.max(0, Math.round(customWithholdings))
+      : 0; // Retenciones cargadas manualmente
   const totalNet = Math.max(0, Math.round(subtotal + vatAmount - withholdings));
   return { subtotal, vatAmount, withholdings, totalNet };
 }
