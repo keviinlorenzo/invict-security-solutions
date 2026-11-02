@@ -4,13 +4,13 @@
  * across static assets and APIs, and background push alerts for office workstations.
  */
 
-const CACHE_NAME = 'invict-cache-v4';
+const CACHE_NAME = 'invict-cache-v5';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
+  '/icons/icon-192-v2.png',
+  '/icons/icon-512-v2.png',
   '/brand/invict-emblem-white.png',
   '/brand/invict-emblem-color.png'
 ];
@@ -114,8 +114,8 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: data.body,
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+    icon: '/icons/icon-192-v2.png',
+    badge: '/icons/icon-192-v2.png',
     tag: data.tag || 'invict-notification',
     vibrate: [200, 100, 200],
     data: data.data || {},
