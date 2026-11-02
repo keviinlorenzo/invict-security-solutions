@@ -175,6 +175,8 @@ export function exportSalariesToCSV(salaries: EmployeeSalaryItem[], period: stri
     '#',
     'Apellido y Nombre',
     'Objetivo / Función',
+    'Horas Trabajadas',
+    'Valor Hora ($)',
     'Recibo ($)',
     'X ($)',
     'Sueldo Neto ($)',
@@ -188,10 +190,13 @@ export function exportSalariesToCSV(salaries: EmployeeSalaryItem[], period: stri
     const extAmt = s.extraAmount !== undefined ? s.extraAmount : 0;
     const netSalary = Math.round(recAmt + extAmt);
     const netoCobrado = Math.max(0, netSalary - s.advance);
+    const hoursLabel = s.hoursWorkedInput || (s.hoursWorked ? `${s.hoursWorked} hs` : '-');
     return [
       escapeCSV(s.index),
       escapeCSV(s.fullName),
       escapeCSV(s.objectiveOrRole),
+      escapeCSV(hoursLabel),
+      escapeCSV(s.hourlyRate || 0),
       escapeCSV(recAmt),
       escapeCSV(extAmt),
       escapeCSV(netSalary),

@@ -33,9 +33,12 @@ export interface EmployeeSalaryItem {
   index: number;
   fullName: string;
   objectiveOrRole: string;
-  receiptAmount?: number; // Monto que cobra por RECIBO (en blanco)
-  extraAmount?: number;   // Monto que cobra en X (por fuera del bono)
-  netSalary: number;      // SUELDO NETO = RECIBO + X
+  hoursWorked?: number;      // Horas trabajadas en decimal exacto (ej: 271:38 = 271.633333...)
+  hoursWorkedInput?: string; // Texto ingresado por el usuario (ej: "271:38" o "271:38hs" o "240")
+  hourlyRate?: number;       // Valor de la hora en $ ARS
+  receiptAmount?: number;    // Monto que cobra por RECIBO (en blanco)
+  extraAmount?: number;      // Monto que cobra en X (por fuera del bono)
+  netSalary: number;         // SUELDO NETO = Horas × Valor Hora (o Recibo + X)
   advance: number;
   receipt?: string;
   status: 'PAGO' | 'PENDIENTE';
@@ -46,6 +49,7 @@ export interface ClientBillingItem {
   clientName: string;
   hourlyRate: number;
   totalHours: number;
+  totalHoursInput?: string;  // Permite formato HHH:MM (ej: "271:38" o "271:38hs")
   includesVat?: boolean;
   vatAmount: number;
   withholdings: number;
@@ -53,6 +57,75 @@ export interface ClientBillingItem {
   status: 'PAGO' | 'IMPAGO';
   dueDate?: string;
   invoiceNumber?: string;
+}
+
+// Parsea horas en formato reloj (ej: "271:38", "271:38hs", "271h 38m") o número a horas decimales exactas
+export function parseFlexibleHours(rawInput: string | number | undefined): {
+  decimalHours: number;
+  hoursPart: number;
+  minutesPart: number;
+  isTimeFormat: boolean;
+  formattedLabel: string;
+} {
+  if (rawInput === undefined || rawInput === null || rawInput === '') {
+    return { decimalHours: 0, hoursPart: 0, minutesPart: 0, isTimeFormat: false, formattedLabel: '0 hs' };
+  }
+  if (typeof rawInput === 'number') {
+    const safe = Math.max(0, rawInput);
+    const h = Math.floor(safe);
+    const m = Math.round((safe - h) * 60);
+    return {
+      decimalHours: safe,
+      hoursPart: h,
+      minutesPart: m,
+      isTimeFormat: m > 0,
+      formattedLabel: m > 0 ? `${h}:${String(m).padStart(2, '0')} hs` : `${h} hs`,
+    };
+  }
+
+  const str = String(rawInput).trim().toLowerCase();
+  // Detectar formato HHH:MM o HHH:MMhs o HHHh MMm
+  if (str.includes(':')) {
+    const cleaned = str.replace(/[^\d:]/g, '');
+    const parts = cleaned.split(':');
+    const h = Math.max(0, parseInt(parts[0] || '0', 10) || 0);
+    const m = Math.max(0, parseInt(parts[1] || '0', 10) || 0);
+    const s = parts[2] ? Math.max(0, parseInt(parts[2], 10) || 0) : 0;
+    const dec = h + m / 60 + s / 3600;
+    return {
+      decimalHours: dec,
+      hoursPart: h,
+      minutesPart: m,
+      isTimeFormat: true,
+      formattedLabel: `${h}:${String(m).padStart(2, '0')} hs`,
+    };
+  }
+
+  const hmMatch = str.match(/^(\d+)\s*(?:hs|h|\s)\s*(\d+)/);
+  if (hmMatch) {
+    const h = parseInt(hmMatch[1], 10) || 0;
+    const m = parseInt(hmMatch[2], 10) || 0;
+    const dec = h + m / 60;
+    return {
+      decimalHours: dec,
+      hoursPart: h,
+      minutesPart: m,
+      isTimeFormat: true,
+      formattedLabel: `${h}:${String(m).padStart(2, '0')} hs`,
+    };
+  }
+
+  const numericStr = str.replace(/[^\d.,]/g, '').replace(',', '.');
+  const parsed = Math.max(0, parseFloat(numericStr) || 0);
+  const h = Math.floor(parsed);
+  const m = Math.round((parsed - h) * 60);
+  return {
+    decimalHours: parsed,
+    hoursPart: h,
+    minutesPart: m,
+    isTimeFormat: m > 0,
+    formattedLabel: m > 0 ? `${h}:${String(m).padStart(2, '0')} hs` : `${h} hs`,
+  };
 }
 
 export interface ClientProfitabilityItem {
@@ -503,6 +576,9 @@ export function resetMonthDataToZero(period: string = getCurrentPeriodString()):
     })),
     salaries: current.salaries.map(s => ({
       ...s,
+      hoursWorked: 0,
+      hoursWorkedInput: '0',
+      hourlyRate: 0,
       receiptAmount: 0,
       extraAmount: 0,
       netSalary: 0,
@@ -513,6 +589,7 @@ export function resetMonthDataToZero(period: string = getCurrentPeriodString()):
       ...c,
       hourlyRate: 0,
       totalHours: 0,
+      totalHoursInput: '0',
       vatAmount: 0,
       withholdings: 0,
       totalNet: 0,
@@ -764,19 +841,43 @@ export function importSalariesFromRows(rows: any[]): EmployeeSalaryItem[] {
 
     const name = getVal('nombre', 'apellido y nombre', 'vigilador', 'empleado', 'colaborador', 'personal') || `Colaborador #${idx + 1}`;
     const role = getVal('objetivo', 'funcion', 'objetivo / funcion', 'puesto', 'destino') || 'Vigilador General';
+    const rawHours = getVal('horas', 'horas trabajadas', 'hs', 'total horas', 'cantidad horas');
+    const rawRate = getVal('valor hora', 'valor hora $', 'tarifa hora', 'precio hora', '$ hora');
     const rawRecibo = getVal('recibo', 'recibo $', 'en blanco', 'recibo en blanco');
     const rawExtra = getVal('x', 'x $', 'fuera de bono', 'extra');
     const rawNet = getVal('sueldo neto', 'neto', 'sueldo', 'importe neto', 'neto cobrado');
     const rawAdv = getVal('anticipo', 'adelanto', 'anticipos');
     const statusVal = String(getVal('estado', 'status')).toUpperCase();
 
+    const parsedHoursInfo = parseFlexibleHours(rawHours);
+    const parsedRate = Math.max(0, parseFloat(String(rawRate).replace(/\./g, '').replace(',', '.')) || 0);
     const parsedRecibo = parseFloat(String(rawRecibo).replace(/\./g, '').replace(',', '.'));
     const parsedExtra = parseFloat(String(rawExtra).replace(/\./g, '').replace(',', '.')) || 0;
     const parsedNet = parseFloat(String(rawNet).replace(/\./g, '').replace(',', '.')) || 550000;
 
-    const receiptAmount = !isNaN(parsedRecibo) && parsedRecibo > 0 ? Math.max(0, parsedRecibo) : Math.max(0, parsedNet - parsedExtra);
-    const extraAmount = Math.max(0, parsedExtra);
-    const netSalary = Math.round(receiptAmount + extraAmount);
+    const computedFromHours =
+      parsedHoursInfo.decimalHours > 0 && parsedRate > 0
+        ? Math.round(parsedHoursInfo.decimalHours * parsedRate)
+        : 0;
+
+    let receiptAmount = !isNaN(parsedRecibo) && parsedRecibo >= 0 ? Math.max(0, parsedRecibo) : 0;
+    let extraAmount = Math.max(0, parsedExtra);
+    let netSalary = 0;
+
+    if (computedFromHours > 0) {
+      netSalary = computedFromHours;
+      if (receiptAmount > 0 && receiptAmount <= computedFromHours) {
+        extraAmount = Math.max(0, computedFromHours - receiptAmount);
+      } else if (receiptAmount === 0 && extraAmount === 0) {
+        extraAmount = computedFromHours;
+      }
+    } else {
+      if (isNaN(parsedRecibo)) {
+        receiptAmount = Math.max(0, parsedNet - extraAmount);
+      }
+      netSalary = Math.round(receiptAmount + extraAmount);
+    }
+
     const advance = Math.max(0, parseFloat(String(rawAdv).replace(/\./g, '').replace(',', '.')) || 0);
 
     return {
@@ -784,6 +885,9 @@ export function importSalariesFromRows(rows: any[]): EmployeeSalaryItem[] {
       index: idx + 1,
       fullName: String(name).trim(),
       objectiveOrRole: String(role).trim(),
+      hoursWorked: parsedHoursInfo.decimalHours,
+      hoursWorkedInput: rawHours ? String(rawHours).trim() : (parsedHoursInfo.decimalHours > 0 ? parsedHoursInfo.formattedLabel.replace(' hs', '') : ''),
+      hourlyRate: parsedRate,
       receiptAmount,
       extraAmount,
       netSalary,
