@@ -175,23 +175,28 @@ export function exportSalariesToCSV(salaries: EmployeeSalaryItem[], period: stri
     '#',
     'Apellido y Nombre',
     'Objetivo / Función',
+    'Recibo ($)',
+    'X ($)',
     'Sueldo Neto ($)',
     'Anticipo Solicitado ($)',
     'Neto Cobrado ($)',
-    'Recibo N°',
     'Estado Pago',
   ];
 
   const rows = salaries.map((s) => {
-    const netoCobrado = Math.max(0, s.netSalary - s.advance);
+    const recAmt = s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary;
+    const extAmt = s.extraAmount !== undefined ? s.extraAmount : 0;
+    const netSalary = Math.round(recAmt + extAmt);
+    const netoCobrado = Math.max(0, netSalary - s.advance);
     return [
       escapeCSV(s.index),
       escapeCSV(s.fullName),
       escapeCSV(s.objectiveOrRole),
-      escapeCSV(s.netSalary),
+      escapeCSV(recAmt),
+      escapeCSV(extAmt),
+      escapeCSV(netSalary),
       escapeCSV(s.advance),
       escapeCSV(netoCobrado),
-      escapeCSV(s.receipt),
       escapeCSV(s.status),
     ].join(';');
   });

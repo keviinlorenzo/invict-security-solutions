@@ -315,20 +315,26 @@ export function exportSalariesToPDF(
   fileName = `INVICT_Planilla_Sueldos_${period}.pdf`
 ) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const totalNet = salaries.reduce((acc, s) => acc + s.netSalary, 0);
+  const totalRecibo = salaries.reduce((acc, s) => acc + (s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary), 0);
+  const totalExtra = salaries.reduce((acc, s) => acc + (s.extraAmount || 0), 0);
+  const totalNet = totalRecibo + totalExtra;
   const totalAdv = salaries.reduce((acc, s) => acc + s.advance, 0);
   const totalCobrado = Math.max(0, totalNet - totalAdv);
 
   const tableRows: any[] = salaries.map((s) => {
-    const netoCobrado = Math.max(0, s.netSalary - s.advance);
+    const recAmt = s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary;
+    const extAmt = s.extraAmount !== undefined ? s.extraAmount : 0;
+    const netSueldo = Math.round(recAmt + extAmt);
+    const netoCobrado = Math.max(0, netSueldo - s.advance);
     return [
       s.index,
       s.fullName,
       s.objectiveOrRole,
-      formatCurrencyARS(s.netSalary),
+      formatCurrencyARS(recAmt),
+      formatCurrencyARS(extAmt),
+      formatCurrencyARS(netSueldo),
       formatCurrencyARS(s.advance),
       formatCurrencyARS(netoCobrado),
-      s.receipt,
       s.status,
     ];
   });
@@ -337,10 +343,11 @@ export function exportSalariesToPDF(
     '',
     'TOTALES CONSOLIDADOS',
     '',
+    formatCurrencyARS(totalRecibo),
+    formatCurrencyARS(totalExtra),
     formatCurrencyARS(totalNet),
     formatCurrencyARS(totalAdv),
     formatCurrencyARS(totalCobrado),
-    '',
     '',
   ]);
 
@@ -350,10 +357,11 @@ export function exportSalariesToPDF(
       '#',
       'Apellido y Nombre',
       'Objetivo / Función',
+      'Recibo ($)',
+      'X ($)',
       'Sueldo Neto ($)',
-      'Anticipo Solicitado ($)',
+      'Anticipo ($)',
       'Neto Cobrado ($)',
-      'Recibo N°',
       'Estado',
     ]],
     body: tableRows,
@@ -369,13 +377,14 @@ export function exportSalariesToPDF(
     alternateRowStyles: { fillColor: [248, 250, 252] },
     columnStyles: {
       0: { cellWidth: 8, halign: 'center' },
-      1: { cellWidth: 50, fontStyle: 'bold' },
-      2: { cellWidth: 60 },
-      3: { cellWidth: 32, halign: 'right', fontStyle: 'bold' },
-      4: { cellWidth: 30, halign: 'right' },
-      5: { cellWidth: 34, halign: 'right', fontStyle: 'bold' },
-      6: { cellWidth: 30, halign: 'center' },
-      7: { cellWidth: 24, halign: 'center' },
+      1: { cellWidth: 46, fontStyle: 'bold' },
+      2: { cellWidth: 52 },
+      3: { cellWidth: 28, halign: 'right' },
+      4: { cellWidth: 28, halign: 'right' },
+      5: { cellWidth: 30, halign: 'right', fontStyle: 'bold' },
+      6: { cellWidth: 26, halign: 'right' },
+      7: { cellWidth: 30, halign: 'right', fontStyle: 'bold' },
+      8: { cellWidth: 20, halign: 'center' },
     },
     margin: { bottom: 18, left: 14, right: 14 },
   });

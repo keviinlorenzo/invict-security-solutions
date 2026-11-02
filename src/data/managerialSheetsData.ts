@@ -33,9 +33,11 @@ export interface EmployeeSalaryItem {
   index: number;
   fullName: string;
   objectiveOrRole: string;
-  netSalary: number; // ONLY Sueldo Neto as requested
+  receiptAmount?: number; // Monto que cobra por RECIBO (en blanco)
+  extraAmount?: number;   // Monto que cobra en X (por fuera del bono)
+  netSalary: number;      // SUELDO NETO = RECIBO + X
   advance: number;
-  receipt: string;
+  receipt?: string;
   status: 'PAGO' | 'PENDIENTE';
 }
 
@@ -200,9 +202,10 @@ const INITIAL_OCTOBER_DATA: ManagerialMonthData = {
       index: 1,
       fullName: 'Aguero, Luciano',
       objectiveOrRole: 'Vigilador General - Bodegas Luján',
+      receiptAmount: 400000,
+      extraAmount: 110000,
       netSalary: 510000,
       advance: 50000,
-      receipt: 'REC-2026-1041',
       status: 'PAGO',
     },
     {
@@ -210,9 +213,10 @@ const INITIAL_OCTOBER_DATA: ManagerialMonthData = {
       index: 2,
       fullName: 'Morales, Cristian',
       objectiveOrRole: 'Vigilador Principal - Kraft San Martín',
+      receiptAmount: 450000,
+      extraAmount: 140000,
       netSalary: 590000,
       advance: 0,
-      receipt: 'REC-2026-1042',
       status: 'PAGO',
     },
     {
@@ -220,9 +224,10 @@ const INITIAL_OCTOBER_DATA: ManagerialMonthData = {
       index: 3,
       fullName: 'Gomez, Roberto',
       objectiveOrRole: 'Custodia Móvil - Ronda Nocturna',
+      receiptAmount: 465000,
+      extraAmount: 150000,
       netSalary: 615000,
       advance: 40000,
-      receipt: 'REC-2026-1043',
       status: 'PAGO',
     },
     {
@@ -230,9 +235,10 @@ const INITIAL_OCTOBER_DATA: ManagerialMonthData = {
       index: 4,
       fullName: 'Fernandez, Claudio',
       objectiveOrRole: 'Vigilador - Fuesmen Maipú',
+      receiptAmount: 430000,
+      extraAmount: 135000,
       netSalary: 565000,
       advance: 0,
-      receipt: 'REC-2026-1044',
       status: 'PAGO',
     },
     {
@@ -240,9 +246,10 @@ const INITIAL_OCTOBER_DATA: ManagerialMonthData = {
       index: 5,
       fullName: 'Benitez, Marcos',
       objectiveOrRole: 'Supervisor de Servicios - Base Central',
+      receiptAmount: 540000,
+      extraAmount: 180000,
       netSalary: 720000,
       advance: 60000,
-      receipt: 'REC-2026-1045',
       status: 'PAGO',
     },
     {
@@ -250,9 +257,10 @@ const INITIAL_OCTOBER_DATA: ManagerialMonthData = {
       index: 6,
       fullName: 'Rodriguez, Walter',
       objectiveOrRole: 'Vigilador Control Acceso - Parque Ind. Godoy Cruz',
+      receiptAmount: 420000,
+      extraAmount: 137000,
       netSalary: 557000,
       advance: 0,
-      receipt: 'REC-2026-1046',
       status: 'PENDIENTE',
     },
     {
@@ -260,9 +268,10 @@ const INITIAL_OCTOBER_DATA: ManagerialMonthData = {
       index: 7,
       fullName: 'Perez, Marcelo',
       objectiveOrRole: 'Vigilador Operativo - Logística Cuyo S.A.',
+      receiptAmount: 440000,
+      extraAmount: 134000,
       netSalary: 574000,
       advance: 35000,
-      receipt: 'REC-2026-1047',
       status: 'PAGO',
     },
   ],
@@ -494,6 +503,8 @@ export function resetMonthDataToZero(period: string = getCurrentPeriodString()):
     })),
     salaries: current.salaries.map(s => ({
       ...s,
+      receiptAmount: 0,
+      extraAmount: 0,
       netSalary: 0,
       advance: 0,
       status: 'PENDIENTE',
@@ -733,12 +744,19 @@ export function importSalariesFromRows(rows: any[]): EmployeeSalaryItem[] {
 
     const name = getVal('nombre', 'apellido y nombre', 'vigilador', 'empleado', 'colaborador', 'personal') || `Colaborador #${idx + 1}`;
     const role = getVal('objetivo', 'funcion', 'objetivo / funcion', 'puesto', 'destino') || 'Vigilador General';
+    const rawRecibo = getVal('recibo', 'recibo $', 'en blanco', 'recibo en blanco');
+    const rawExtra = getVal('x', 'x $', 'fuera de bono', 'extra');
     const rawNet = getVal('sueldo neto', 'neto', 'sueldo', 'importe neto', 'neto cobrado');
     const rawAdv = getVal('anticipo', 'adelanto', 'anticipos');
-    const receipt = getVal('recibo', 'n recibo', 'comprobante') || `REC-IMP-${1000 + idx + 1}`;
     const statusVal = String(getVal('estado', 'status')).toUpperCase();
 
-    const netSalary = Math.max(0, parseFloat(String(rawNet).replace(/\./g, '').replace(',', '.')) || 550000);
+    const parsedRecibo = parseFloat(String(rawRecibo).replace(/\./g, '').replace(',', '.'));
+    const parsedExtra = parseFloat(String(rawExtra).replace(/\./g, '').replace(',', '.')) || 0;
+    const parsedNet = parseFloat(String(rawNet).replace(/\./g, '').replace(',', '.')) || 550000;
+
+    const receiptAmount = !isNaN(parsedRecibo) && parsedRecibo > 0 ? Math.max(0, parsedRecibo) : Math.max(0, parsedNet - parsedExtra);
+    const extraAmount = Math.max(0, parsedExtra);
+    const netSalary = Math.round(receiptAmount + extraAmount);
     const advance = Math.max(0, parseFloat(String(rawAdv).replace(/\./g, '').replace(',', '.')) || 0);
 
     return {
@@ -746,9 +764,10 @@ export function importSalariesFromRows(rows: any[]): EmployeeSalaryItem[] {
       index: idx + 1,
       fullName: String(name).trim(),
       objectiveOrRole: String(role).trim(),
+      receiptAmount,
+      extraAmount,
       netSalary,
       advance,
-      receipt: String(receipt).trim(),
       status: statusVal.includes('PAG') ? 'PAGO' : 'PENDIENTE',
     };
   });
@@ -914,16 +933,21 @@ export function generatePlainTextTable(
 
   const renderSueldos = () => {
     let out = `### SUELDOS PERSONAL (${period})\n`;
-    out += `| # | Apellido y Nombre | Objetivo / Función | Sueldo Neto $ | Anticipo $ | Neto Cobrado $ | Recibo | Estado |\n`;
-    out += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+    out += `| # | Apellido y Nombre | Objetivo / Función | Recibo $ | X $ | Sueldo Neto $ | Anticipo $ | Neto Cobrado $ | Estado |\n`;
+    out += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
     data.salaries.forEach(s => {
-      const netCobrado = Math.max(0, s.netSalary - s.advance);
-      out += `| ${s.index} | ${s.fullName} | ${s.objectiveOrRole} | ${formatARS(s.netSalary)} | ${formatARS(s.advance)} | ${formatARS(netCobrado)} | ${s.receipt} | ${s.status} |\n`;
+      const recAmt = s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary;
+      const extAmt = s.extraAmount !== undefined ? s.extraAmount : 0;
+      const netSueldo = recAmt + extAmt;
+      const netCobrado = Math.max(0, netSueldo - s.advance);
+      out += `| ${s.index} | ${s.fullName} | ${s.objectiveOrRole} | ${formatARS(recAmt)} | ${formatARS(extAmt)} | ${formatARS(netSueldo)} | ${formatARS(s.advance)} | ${formatARS(netCobrado)} | ${s.status} |\n`;
     });
-    const totalNeto = data.salaries.reduce((a, b) => a + b.netSalary, 0);
+    const totalRecibo = data.salaries.reduce((a, b) => a + (b.receiptAmount !== undefined ? b.receiptAmount : b.netSalary), 0);
+    const totalExtra = data.salaries.reduce((a, b) => a + (b.extraAmount || 0), 0);
+    const totalNeto = totalRecibo + totalExtra;
     const totalAnticipos = data.salaries.reduce((a, b) => a + b.advance, 0);
     const totalCobrado = Math.max(0, totalNeto - totalAnticipos);
-    out += `| - | **TOTALES** | - | **${formatARS(totalNeto)}** | **${formatARS(totalAnticipos)}** | **${formatARS(totalCobrado)}** | - | - |\n`;
+    out += `| - | **TOTALES** | - | **${formatARS(totalRecibo)}** | **${formatARS(totalExtra)}** | **${formatARS(totalNeto)}** | **${formatARS(totalAnticipos)}** | **${formatARS(totalCobrado)}** | - |\n`;
     return out;
   };
 

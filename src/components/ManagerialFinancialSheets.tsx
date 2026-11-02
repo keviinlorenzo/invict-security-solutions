@@ -377,7 +377,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
   };
 
   // -------------------------------------------------------------
-  // 2. SUELDOS PERSONAL - STRICTLY SUELDO NETO (NO SUELDO BRUTO)
+  // 2. SUELDOS PERSONAL - RECIBO + X = SUELDO NETO
   // -------------------------------------------------------------
   const handleSalaryFieldChange = (
     index: number,
@@ -386,19 +386,29 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
   ) => {
     const updatedSalaries = [...sheetsData.salaries];
     const item = { ...updatedSalaries[index] };
+    const currentReceipt = item.receiptAmount !== undefined ? item.receiptAmount : item.netSalary;
+    const currentExtra = item.extraAmount !== undefined ? item.extraAmount : 0;
 
     if (field === 'fullName') {
       item.fullName = String(value);
     } else if (field === 'objectiveOrRole') {
       item.objectiveOrRole = String(value);
+    } else if (field === 'receiptAmount') {
+      const rec = Math.max(0, parseFloat(String(value)) || 0);
+      item.receiptAmount = rec;
+      item.extraAmount = currentExtra;
+      item.netSalary = Math.round(rec + currentExtra);
+    } else if (field === 'extraAmount') {
+      const ext = Math.max(0, parseFloat(String(value)) || 0);
+      item.receiptAmount = currentReceipt;
+      item.extraAmount = ext;
+      item.netSalary = Math.round(currentReceipt + ext);
     } else if (field === 'netSalary') {
       const net = Math.max(0, parseFloat(String(value)) || 0);
       item.netSalary = net;
     } else if (field === 'advance') {
       const adv = Math.max(0, parseFloat(String(value)) || 0);
       item.advance = adv;
-    } else if (field === 'receipt') {
-      item.receipt = String(value);
     } else if (field === 'status') {
       item.status = value as 'PAGO' | 'PENDIENTE';
     }
@@ -409,21 +419,23 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
 
   const handleAddSalaryRow = () => {
     const newIdx = sheetsData.salaries.length + 1;
-    const defaultNet = 580000;
+    const defaultRecibo = 450000;
+    const defaultExtra = 130000;
 
     const newRow: EmployeeSalaryItem = {
       id: `sal-${Date.now()}`,
       index: newIdx,
       fullName: 'Nuevo Vigilador / Colaborador',
       objectiveOrRole: 'Vigilador General - Objetivo Operativo',
-      netSalary: defaultNet,
+      receiptAmount: defaultRecibo,
+      extraAmount: defaultExtra,
+      netSalary: defaultRecibo + defaultExtra,
       advance: 0,
-      receipt: `REC-${currentPeriod.replace('-', '')}-${1040 + newIdx}`,
       status: 'PENDIENTE',
     };
     const updated = [...sheetsData.salaries, newRow];
     updateAndSaveData({ ...sheetsData, salaries: updated });
-    if (onNotify) onNotify('¡Colaborador agregado a la planilla de sueldos netos!');
+    if (onNotify) onNotify('¡Colaborador agregado con cálculo automático Recibo + X = Sueldo Neto!');
   };
 
   const handleDeleteSalaryRow = (index: number) => {
@@ -1290,10 +1302,10 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
               <div>
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
                   <UserCheck className="w-4 h-4 text-amber-400" />
-                  <span>Planilla Interactiva: Sueldos Personal (Sueldo Neto)</span>
+                  <span>Planilla Interactiva: Sueldos Personal (Recibo + X = Sueldo Neto)</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Visualización y control de <strong>Sueldo Neto</strong> directo, anticipos y saldo líquido a percibir por cada colaborador.
+                  Registra el importe de <strong>RECIBO</strong> (en blanco) y la columna <strong>X</strong> (por fuera del bono). Ambas se suman automáticamente para brindar el <strong>Sueldo Neto</strong>.
                 </p>
               </div>
 
@@ -1388,21 +1400,28 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                 <thead>
                   <tr className="bg-[#161b26] border-b border-[#252c3e] text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
                     <th className="py-2.5 px-2.5 text-center w-10">#</th>
-                    <th className="py-2.5 px-3 min-w-[200px]">Apellido y Nombre</th>
-                    <th className="py-2.5 px-3 min-w-[220px]">Objetivo / Función</th>
+                    <th className="py-2.5 px-3 min-w-[190px]">Apellido y Nombre</th>
+                    <th className="py-2.5 px-3 min-w-[200px]">Objetivo / Función</th>
                     <th className="py-2.5 px-3 text-right min-w-[130px]">
-                      <span className="block">Sueldo Neto ($)</span>
-                      <span className="text-[9px] text-blue-400 font-normal">Editable</span>
+                      <span className="block text-sky-300">Recibo ($)</span>
+                      <span className="text-[9px] text-sky-400 font-normal">En Blanco (Editable)</span>
+                    </th>
+                    <th className="py-2.5 px-3 text-right min-w-[125px]">
+                      <span className="block text-purple-300">X ($)</span>
+                      <span className="text-[9px] text-purple-400 font-normal">Fuera de Bono (Editable)</span>
+                    </th>
+                    <th className="py-2.5 px-3 text-right min-w-[135px]">
+                      <span className="block text-emerald-300">Sueldo Neto ($)</span>
+                      <span className="text-[9px] text-emerald-400 font-normal font-mono">fx: Recibo + X</span>
                     </th>
                     <th className="py-2.5 px-3 text-right min-w-[120px]">
                       <span className="block">Anticipo ($)</span>
                       <span className="text-[9px] text-amber-400 font-normal">Editable</span>
                     </th>
-                    <th className="py-2.5 px-3 text-right min-w-[130px]">
+                    <th className="py-2.5 px-3 text-right min-w-[135px]">
                       <span className="block">Neto Cobrado ($)</span>
                       <span className="text-[9px] text-emerald-400 font-normal font-mono">fx: Neto - Ant.</span>
                     </th>
-                    <th className="py-2.5 px-3 text-center min-w-[120px]">Recibo</th>
                     <th className="py-2.5 px-3 text-center min-w-[100px]">Estado</th>
                     <th className="py-2.5 px-2 text-center w-10"></th>
                   </tr>
@@ -1410,7 +1429,10 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                 <tbody className="divide-y divide-[#1e2433] font-mono">
                   {filteredSalaries.map((sal) => {
                     const originalIdx = sheetsData.salaries.findIndex((s) => s.id === sal.id);
-                    const netCobrado = Math.max(0, sal.netSalary - sal.advance);
+                    const recAmt = sal.receiptAmount !== undefined ? sal.receiptAmount : sal.netSalary;
+                    const extAmt = sal.extraAmount !== undefined ? sal.extraAmount : 0;
+                    const computedNetSalary = Math.round(recAmt + extAmt);
+                    const netCobrado = Math.max(0, computedNetSalary - sal.advance);
                     return (
                       <tr key={sal.id} className="hover:bg-[#161b26]/70 transition-colors group">
                         <td className="py-2 px-2.5 text-center text-slate-500 font-sans">
@@ -1437,19 +1459,41 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                           />
                         </td>
 
-                        {/* Sueldo Neto (Direct editable, Sueldo Bruto removed completely) */}
+                        {/* RECIBO (En blanco) */}
                         <td className="py-2 px-3 text-right">
                           <div className="relative">
-                            <span className="absolute left-2 top-1 text-slate-500 text-xs">$</span>
+                            <span className="absolute left-2 top-1 text-sky-400/70 text-xs">$</span>
                             <input
                               type="number"
                               min="0"
                               step="1000"
-                              value={sal.netSalary}
-                              onChange={(e) => handleSalaryFieldChange(originalIdx, 'netSalary', e.target.value)}
-                              className="w-full bg-[#161c28] border border-transparent focus:border-amber-500 rounded-lg pl-5 pr-2 py-1 text-xs text-emerald-300 text-right font-bold focus:outline-none transition-colors"
+                              value={recAmt}
+                              onChange={(e) => handleSalaryFieldChange(originalIdx, 'receiptAmount', e.target.value)}
+                              className="w-full bg-[#161c28] border border-[#253248] focus:border-sky-500 rounded-lg pl-5 pr-2 py-1 text-xs text-sky-200 text-right font-semibold focus:outline-none transition-colors"
+                              title="Monto cobrado por recibo en blanco"
                             />
                           </div>
+                        </td>
+
+                        {/* X (Por fuera del bono) */}
+                        <td className="py-2 px-3 text-right">
+                          <div className="relative">
+                            <span className="absolute left-2 top-1 text-purple-400/70 text-xs">$</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1000"
+                              value={extAmt}
+                              onChange={(e) => handleSalaryFieldChange(originalIdx, 'extraAmount', e.target.value)}
+                              className="w-full bg-[#161c28] border border-[#2d2546] focus:border-purple-500 rounded-lg pl-5 pr-2 py-1 text-xs text-purple-200 text-right font-semibold focus:outline-none transition-colors"
+                              title="Monto cobrado en X (por fuera del bono)"
+                            />
+                          </div>
+                        </td>
+
+                        {/* Sueldo Neto (Automated Formula: Recibo + X) */}
+                        <td className="py-2 px-3 text-right text-emerald-300 font-bold bg-emerald-950/15">
+                          {formatCurrencyARS(computedNetSalary)}
                         </td>
 
                         {/* Anticipo */}
@@ -1467,19 +1511,9 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                           </div>
                         </td>
 
-                        {/* Neto Cobrado (Automated Formula: Neto - Anticipo) */}
-                        <td className="py-2 px-3 text-right text-emerald-400 font-bold bg-emerald-950/20">
+                        {/* Neto Cobrado (Automated Formula: Sueldo Neto - Anticipo) */}
+                        <td className="py-2 px-3 text-right text-emerald-400 font-bold bg-emerald-950/25">
                           {formatCurrencyARS(netCobrado)}
-                        </td>
-
-                        {/* Recibo */}
-                        <td className="py-2 px-3 text-center">
-                          <input
-                            type="text"
-                            value={sal.receipt}
-                            onChange={(e) => handleSalaryFieldChange(originalIdx, 'receipt', e.target.value)}
-                            className="w-full bg-[#161c28] border border-transparent focus:border-amber-500 rounded-lg px-2 py-1 text-[11px] text-slate-400 text-center focus:outline-none transition-colors"
-                          />
                         </td>
 
                         {/* Estado */}
@@ -1515,20 +1549,43 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                 <tfoot>
                   <tr className="bg-[#151a26] border-t-2 border-[#263148] font-mono font-bold text-xs">
                     <td colSpan={3} className="py-3 px-3 text-white uppercase font-sans">
-                      TOTAL SUELDOS NETOS ({filteredSalaries.length} colaboradores)
+                      TOTAL SUELDOS ({filteredSalaries.length} colaboradores)
+                    </td>
+                    <td className="py-3 px-3 text-right text-sky-300">
+                      {formatCurrencyARS(
+                        filteredSalaries.reduce((acc, s) => acc + (s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary), 0)
+                      )}
+                    </td>
+                    <td className="py-3 px-3 text-right text-purple-300">
+                      {formatCurrencyARS(
+                        filteredSalaries.reduce((acc, s) => acc + (s.extraAmount || 0), 0)
+                      )}
                     </td>
                     <td className="py-3 px-3 text-right text-emerald-400 text-sm">
-                      {formatCurrencyARS(filteredSalaries.reduce((acc, s) => acc + s.netSalary, 0))}
+                      {formatCurrencyARS(
+                        filteredSalaries.reduce(
+                          (acc, s) => acc + ((s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary) + (s.extraAmount || 0)),
+                          0
+                        )
+                      )}
                     </td>
                     <td className="py-3 px-3 text-right text-amber-400">
                       {formatCurrencyARS(filteredSalaries.reduce((acc, s) => acc + s.advance, 0))}
                     </td>
                     <td className="py-3 px-3 text-right text-emerald-400 text-sm">
                       {formatCurrencyARS(
-                        filteredSalaries.reduce((acc, s) => acc + Math.max(0, s.netSalary - s.advance), 0)
+                        filteredSalaries.reduce(
+                          (acc, s) =>
+                            acc +
+                            Math.max(
+                              0,
+                              (s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary) + (s.extraAmount || 0) - s.advance
+                            ),
+                          0
+                        )
                       )}
                     </td>
-                    <td colSpan={3}></td>
+                    <td colSpan={2}></td>
                   </tr>
                 </tfoot>
               </table>
