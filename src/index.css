@@ -1,1 +1,22 @@
 @import "tailwindcss";
+
+html,
+body {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  touch-action: manipulation;
+}
+
+#root {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+/* Ensure smooth scrolling and mobile friendly tap targets */
+* {
+  -webkit-tap-highlight-color: transparent;
+}

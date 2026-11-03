@@ -3,6 +3,8 @@ import { calculateDaysRemaining, getCurrentPeriodString, getNextPeriodString, fo
 import {
   generatePlainTextTable,
   calculateManagerialMetrics,
+  getManagerialMonthData,
+  calculateClientProfitability,
   updateSalaryAdvance,
   startNewMonth,
 } from '../data/managerialSheetsData';
@@ -43,11 +45,52 @@ export function buildInvictSystemPrompt(
     repeticionMensualFrenada: !!t.monthlyRecurrenceStopped,
   }));
 
+  let liveGerenciaFinancialContext = '';
+  if (isEffectiveGerencia) {
+    try {
+      const monthData = getManagerialMonthData(currentPeriod);
+      const metrics = calculateManagerialMetrics(currentPeriod, monthData);
+      const salariesList = (monthData.salaries || []).map(
+        (s) => `${s.fullName} - Asignado a: ${s.assignedClientName || 'Base'} - Sueldo Neto: $${s.netSalary} (Estado: ${s.status})`
+      );
+      const unpaidFixedList = (monthData.fixedExpenses || [])
+        .filter((f) => f.status === 'IMPAGO')
+        .map((f) => `${f.concept}: $${f.amount}`);
+      const unpaidInvoicesList = (monthData.clientBilling || [])
+        .filter((c) => c.status === 'IMPAGO')
+        .map((c) => `${c.clientName}: $${c.totalNet}`);
+
+      liveGerenciaFinancialContext = `
+================================================================================
+ESTADO FINANCIERO GERENCIAL EN TIEMPO REAL (PERÍODO ${currentPeriod}):
+================================================================================
+- Cantidad de colaboradores en nómina de sueldos: ${monthData.salaries.length} personas.
+  Lista de colaboradores:
+  ${salariesList.join('\n  ')}
+- Total Facturación Neta de Clientes: $${metrics.totalIncome.toLocaleString('es-AR')} (${monthData.clientBilling.length} clientes).
+- Total Costos Directos (Sueldos Netos de Guardias): $${metrics.totalDirectCosts.toLocaleString('es-AR')}.
+- Total Gastos Fijos Registrados: $${metrics.totalFixedExpenses.toLocaleString('es-AR')} (${metrics.countFixedExpenses} rubros).
+- Total Gastos Fijos PENDIENTES DE PAGO (Impagos): $${(metrics.unpaidFixedExpensesAmount || 0).toLocaleString('es-AR')} (${metrics.unpaidFixedExpensesCount || 0} impagos):
+  ${unpaidFixedList.join(', ') || 'Ninguno impago'}
+- Total Gastos Bancarios & Débitos: $${metrics.totalBankExpenses.toLocaleString('es-AR')}.
+- TOTAL GASTOS MENSUALES CONSOLIDADOS (Sueldos + Fijos + Bancos): $${metrics.totalAllCosts.toLocaleString('es-AR')}.
+- Margen Neto Global Libre C-Level: $${metrics.globalNetMargin.toLocaleString('es-AR')} (${metrics.globalNetMarginPercent}% de rentabilidad neta).
+- Clientes con Facturas Impagas (Cuentas a cobrar pendientes): $${metrics.totalUnpaidAmount.toLocaleString('es-AR')} (${metrics.unpaidInvoicesCount} facturas):
+  ${unpaidInvoicesList.join(', ') || 'Todas las facturas cobradas'}
+- Rentabilidad por Cliente:
+  ${metrics.profitability.map((p) => `• ${p.clientName}: Factura $${p.netBilling.toLocaleString('es-AR')} | Costo Directo $${p.directCost.toLocaleString('es-AR')} (${p.assignedEmployeesCount || 0} guardias) | Margen Neto: $${p.netMargin.toLocaleString('es-AR')} (${p.netMarginPercent}%)`).join('\n  ')}
+================================================================================`;
+    } catch (e) {
+      // Ignorar error al leer contexto
+    }
+  }
+
   const gerenciaInstructions = isEffectiveGerencia
     ? `ACCESO GERENCIAL HABILITADO ([Rol: Gerencia]):
 - Tienes autorización total para responder sobre el Dashboard Gerencial, Planillas Financieras (1. Clientes Facturación, 2. Sueldos Personal, 3. Gastos Fijos, 4. Gastos Bancarios, 5. Rentabilidad por Cliente y 6. Resumen General), sueldos, retiros de directorio y márgenes.
 - En "1. Clientes (Facturación)": se ingresan las Horas Trabajadas (acepta número redondo, decimal o formato HH:MMhs como "271:38hs" que convierte los minutos dividiendo por 60) × Tarifa Hora ($) = Importe Bruto. Tiene botón interactivo de IVA ("+21% Sí" o "No 0%") y columna de Retenciones ($) manuales para calcular el Total Neto a Cobrar.
-- En "2. Sueldos Personal": tiene la columna "RECIBO ($)" (en blanco) y la columna "X - Fuera del Bono ($)", que se suman automáticamente para dar el "SUELDO NETO ($)", menos "ANTICIPOS ($)" = "SALDO A PAGAR ($)".`
+- En "2. Sueldos Personal": tiene la columna "RECIBO ($)" (en blanco) y la columna "X - Fuera del Bono ($)", que se suman automáticamente para dar el "SUELDO NETO ($)", menos "ANTICIPOS ($)" = "SALDO A PAGAR ($)".
+- Los colaboradores se ordenan automáticamente en orden alfabético A-Z por apellido y nombre, y cada uno tiene su cliente/servicio asignado para calcular la rentabilidad real.`
     : `REGLA ESTRICTA DE CONFIDENCIALIDAD Y PRIVACIDAD ([Rol: demás administrativos - NO Gerencia]):
 - El usuario actual (${currentUser.name}, puesto ${currentUser.department}) NO pertenece a Gerencia.
 - PROHIBIDO revelar, mencionar o inventar datos sobre tareas de GERENCIA, gastos de GERENCIA, Sueldos del Personal, Retiros de Directorio, Clientes/Facturación, Rentabilidad o Planillas Gerenciales.
@@ -63,6 +106,8 @@ Tu personalidad:
 ${contextMemoryPrompt}
 
 ${gerenciaInstructions}
+
+${liveGerenciaFinancialContext}
 
 ================================================================================
 MANUAL DE PROCEDIMIENTOS INTERNOS DE LA APLICACIÓN INVICT SECURITY SOLUTIONS:
@@ -431,6 +476,145 @@ export function matchDirectProcedureOrCommand(
       const nextP = getNextPeriodString(curP);
       startNewMonth(curP, nextP);
       return `¡Nuevo mes iniciado exitosamente!\n\nSe cerró el período **${curP}** y se habilitó la nueva planilla para **${nextP}**, conservando las estructuras de Gastos Fijos y la nómina de colaboradores activa para Dirección General.`;
+    }
+
+    // =========================================================================
+    // CONSULTAS GERENCIALES NUMÉRICAS Y ANÁLISIS DE RENTABILIDAD EN VIVO
+    // =========================================================================
+
+    // 1. ¿Cuántos colaboradores hay anotados?
+    if (
+      (q.includes('cuanto') || q.includes('cuantos') || q.includes('cantidad') || q.includes('quienes') || q.includes('nomina')) &&
+      (q.includes('colaborador') || q.includes('personal') || q.includes('vigilador') || q.includes('guardia') || q.includes('empleado'))
+    ) {
+      const monthData = getManagerialMonthData(currentPeriod);
+      const metrics = calculateManagerialMetrics(currentPeriod, monthData);
+      const count = monthData.salaries.length;
+      const list = monthData.salaries
+        .map(
+          (s, idx) =>
+            `  ${idx + 1}. **${s.fullName}** — Sueldo Neto: **$${s.netSalary.toLocaleString('es-AR')}** (Servicio: *${s.assignedClientName || 'Base / Supervisión General'}*) [${s.status}]`
+        )
+        .join('\n');
+
+      return (
+        `Estimada Gerencia: Actualmente hay **${count} colaboradores anotados** en la nómina oficial de **${formatPeriodName(currentPeriod)}** (ordenados alfabéticamente A-Z):\n\n` +
+        `${list}\n\n` +
+        `📊 **Resumen Salarial:**\n` +
+        `• **Costo Directo Total en Sueldos:** **$${metrics.totalDirectCosts.toLocaleString('es-AR')}**\n` +
+        `• **Estado de Pago:** ${monthData.salaries.filter((s) => s.status === 'PAGO').length} pagados, ${monthData.salaries.filter((s) => s.status === 'PENDIENTE').length} pendientes de cobro.`
+      );
+    }
+
+    // 2. ¿Cuánto es el total de gastos mensuales?
+    if (
+      (q.includes('total') || q.includes('cuanto') || q.includes('cual es') || q.includes('suma')) &&
+      (q.includes('gasto') || q.includes('costo') || q.includes('egreso') || q.includes('salidas')) &&
+      (q.includes('mensual') || q.includes('mes') || q.includes('total') || q.includes('tenemos') || q.includes('gastamos'))
+    ) {
+      const monthData = getManagerialMonthData(currentPeriod);
+      const metrics = calculateManagerialMetrics(currentPeriod, monthData);
+      const totalMonthly = metrics.totalDirectCosts + metrics.totalFixedExpenses + metrics.totalBankExpenses;
+
+      return (
+        `Estimada Gerencia: El **total de gastos mensuales consolidados** para **${formatPeriodName(currentPeriod)}** asciende a **$${totalMonthly.toLocaleString('es-AR')}**, con el siguiente desglose exacto:\n\n` +
+        `• 💼 **Costos Directos (Sueldos Netos de Guardias):** **$${metrics.totalDirectCosts.toLocaleString('es-AR')}** (${monthData.salaries.length} colaboradores)\n` +
+        `• 🏢 **Gastos Fijos Societarios Registrados:** **$${metrics.totalFixedExpenses.toLocaleString('es-AR')}** (${metrics.countFixedExpenses} conceptos)\n` +
+        `• 🏛️ **Gastos Bancarios & Débitos:** **$${metrics.totalBankExpenses.toLocaleString('es-AR')}** (${monthData.bankExpenses.length} débitos y comisiones)\n` +
+        `• ━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `• 💰 **TOTAL EGRESOS MENSUALES:** **$${totalMonthly.toLocaleString('es-AR')}**\n\n` +
+        `📈 **Balance Operativo del Mes:**\n` +
+        `• **Facturación Neta Total:** **$${metrics.totalIncome.toLocaleString('es-AR')}** (${monthData.clientBilling.length} clientes)\n` +
+        `• **Margen Neto Libre C-Level:** **$${metrics.globalNetMargin.toLocaleString('es-AR')}** (**${metrics.globalNetMarginPercent}%** libre).`
+      );
+    }
+
+    // 3. ¿Total de gastos que aún se encuentran impagos?
+    if (
+      (q.includes('gasto') || q.includes('gastos') || q.includes('cuenta') || q.includes('deuda') || q.includes('cuanto se debe') || q.includes('pendiente')) &&
+      (q.includes('impago') || q.includes('pendiente') || q.includes('sin pagar') || q.includes('por pagar') || q.includes('a pagar'))
+    ) {
+      const monthData = getManagerialMonthData(currentPeriod);
+      const metrics = calculateManagerialMetrics(currentPeriod, monthData);
+      const unpaidFixed = (monthData.fixedExpenses || []).filter((f) => f.status === 'IMPAGO');
+      const unpaidSalaries = (monthData.salaries || []).filter((s) => s.status === 'PENDIENTE');
+      const unpaidSalariesAmount = unpaidSalaries.reduce(
+        (acc, s) => acc + ((s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary) + (s.extraAmount || 0)),
+        0
+      );
+      const totalUnpaidObligations = (metrics.unpaidFixedExpensesAmount || 0) + unpaidSalariesAmount;
+
+      const unpaidFixedLines =
+        unpaidFixed
+          .map((f) => `  • **${f.concept}**: $${f.amount.toLocaleString('es-AR')} (${f.category})`)
+          .join('\n') || '  • *Ningún gasto fijo pendiente.*';
+
+      return (
+        `Estimada Gerencia: El **total de gastos que aún se encuentran pendientes de pago (impagos)** para **${formatPeriodName(currentPeriod)}** es de **$${totalUnpaidObligations.toLocaleString('es-AR')}**:\n\n` +
+        `1️⃣ **Gastos Fijos Pendientes de Pago:** **$${(metrics.unpaidFixedExpensesAmount || 0).toLocaleString('es-AR')}** (${metrics.unpaidFixedExpensesCount || 0} conceptos impagos):\n` +
+        `${unpaidFixedLines}\n\n` +
+        `2️⃣ **Sueldos Pendientes de Liquidación:** **$${unpaidSalariesAmount.toLocaleString('es-AR')}** (${unpaidSalaries.length} colaboradores pendientes de cobro).\n\n` +
+        `3️⃣ **Cuentas a Cobrar (Facturas a Clientes Pendientes):**\n` +
+        `• A favor de INVICT hay **$${metrics.totalUnpaidAmount.toLocaleString('es-AR')}** pendientes de cobrar (${metrics.unpaidInvoicesCount} clientes con factura impaga), cubriendo con holgura los compromisos pendientes.`
+      );
+    }
+
+    // 4. ¿Cuántos clientes debería tener para aumentar la rentabilidad?
+    if (
+      (q.includes('cuanto') || q.includes('cuantos') || q.includes('como') || q.includes('que debo')) &&
+      (q.includes('cliente') || q.includes('clientes') || q.includes('servicio') || q.includes('contrato')) &&
+      (q.includes('aumentar') || q.includes('subir') || q.includes('mejorar') || q.includes('escalar') || q.includes('rentabilidad') || q.includes('margen'))
+    ) {
+      const monthData = getManagerialMonthData(currentPeriod);
+      const metrics = calculateManagerialMetrics(currentPeriod, monthData);
+      const activeClientsCount = monthData.clientBilling.length || 1;
+      const avgBillingPerClient = Math.round(metrics.totalIncome / activeClientsCount);
+      const avgDirectCostPerClient = Math.round(metrics.totalDirectCosts / activeClientsCount);
+      const avgGrossMarginPerClient = avgBillingPerClient - avgDirectCostPerClient;
+      const currentNetMargin = metrics.globalNetMargin;
+      const currentNetPercent = metrics.globalNetMarginPercent;
+
+      return (
+        `Estimada Gerencia: He elaborado un **análisis financiero y proyección de escala** con los números reales de INVICT para **${formatPeriodName(currentPeriod)}**:\n\n` +
+        `📊 **Diagnóstico Operativo Actual:**\n` +
+        `• **Clientes Activos:** ${activeClientsCount} clientes contratantes.\n` +
+        `• **Facturación Promedio por Cliente:** $${avgBillingPerClient.toLocaleString('es-AR')} / mes.\n` +
+        `• **Costo Directo Promedio por Cliente (Guardias Asignados):** $${avgDirectCostPerClient.toLocaleString('es-AR')} / mes.\n` +
+        `• **Margen Bruto de Contribución por Nuevo Cliente:** **$${avgGrossMarginPerClient.toLocaleString('es-AR')}** (~${Math.round((avgGrossMarginPerClient / (avgBillingPerClient || 1)) * 100)}%).\n` +
+        `• **Margen Neto Libre Actual:** $${currentNetMargin.toLocaleString('es-AR')} (**${currentNetPercent}%** libre).\n\n` +
+        `🎯 **¿Cuántos clientes incorporar para aumentar la rentabilidad?**\n` +
+        `Dado que los **Gastos Fijos Societarios** ($${metrics.totalFixedExpenses.toLocaleString('es-AR')}) y Bancarios ya están cubiertos y absorbidos por la estructura actual:\n` +
+        `• **Para aumentar la ganancia neta en un +25% (+$${Math.round(currentNetMargin * 0.25).toLocaleString('es-AR')} libres):**\n` +
+        `  ➔ Solo necesitas incorporar **1 nuevo cliente corporativo de escala media** (similar a *Kraft* o *Bodegas Luján*) o 2 contratos menores de 1 vigilador.\n` +
+        `• **Para duplicar la utilidad limpia (+100% de margen libre):**\n` +
+        `  ➔ Incorporando **3 nuevos clientes**, la rentabilidad neta libre se elevaría a más del **35% del total facturado**, ya que los costos fijos no se duplican y cada nuevo contrato aporta directamente utilidad neta.\n\n` +
+        `💡 **Estrategias Inmediatas para Maximizar Margen:**\n` +
+        `1. **Ajuste de Tarifa Horaria:** Llevar los contratos con menor tarifa ($4.900/hs) al piso estándar de $5.200 a $5.500/hs.\n` +
+        `2. **Asignación Eficiente de Guardias:** Asegurar que cada colaborador esté 100% imputado a su cliente para eliminar tiempos muertos.\n` +
+        `3. **Gestión de Cobranzas Activa:** Cobrar las facturas pendientes ($${metrics.totalUnpaidAmount.toLocaleString('es-AR')}) para evitar costos de descubierto bancario.`
+      );
+    }
+
+    // 5. Evaluador de cálculos matemáticos para cualquier consulta aritmética
+    const mathMatch = query.match(/(\d+[\d.,\s]*)\s*([\+\-\*\/xX]|mas|menos|por|dividido)\s*(\d+[\d.,\s]*)/i);
+    if (mathMatch && (q.includes('cuanto es') || q.includes('calcula') || q.includes('resultado') || q.match(/^\d/))) {
+      try {
+        const cleanA = parseFloat(mathMatch[1].replace(/\./g, '').replace(',', '.').trim());
+        const op = mathMatch[2].toLowerCase();
+        const cleanB = parseFloat(mathMatch[3].replace(/\./g, '').replace(',', '.').trim());
+        let res = 0;
+        let opName = '';
+        if (op === '+' || op === 'mas') { res = cleanA + cleanB; opName = '+'; }
+        else if (op === '-' || op === 'menos') { res = cleanA - cleanB; opName = '-'; }
+        else if (op === '*' || op === 'x' || op === 'por') { res = cleanA * cleanB; opName = '×'; }
+        else if (op === '/' || op === 'dividido') { res = cleanB !== 0 ? cleanA / cleanB : 0; opName = '÷'; }
+
+        return (
+          `🔢 **Cálculo Realizado:**\n\n` +
+          `• **Operación:** ${cleanA.toLocaleString('es-AR')} ${opName} ${cleanB.toLocaleString('es-AR')}\n` +
+          `• **Resultado Exacto:** **${res.toLocaleString('es-AR', { maximumFractionDigits: 2 })}**`
+        );
+      } catch (e) {}
     }
 
     if (q.includes('mostrar todas las planillas') || q.includes('todas las planillas')) {

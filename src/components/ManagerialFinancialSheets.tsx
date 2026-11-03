@@ -38,6 +38,7 @@ import {
   parseFlexibleHours,
   saveManagerialMonthData,
   getManagerialMonthData,
+  sortSalariesAlphabetically,
   ManagerialMonthData,
   EmployeeSalaryItem,
   FixedExpenseItem,
@@ -239,6 +240,15 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
   const [targetEmployee, setTargetEmployee] = useState('');
   const [advanceAmountInput, setAdvanceAmountInput] = useState('50000');
 
+  // New Collaborator Modal State (Auto-sort A-Z & Client Assignment)
+  const [isAddCollaboratorModalOpen, setIsAddCollaboratorModalOpen] = useState(false);
+  const [newCollabName, setNewCollabName] = useState('');
+  const [newCollabClientId, setNewCollabClientId] = useState('general');
+  const [newCollabRole, setNewCollabRole] = useState('Vigilador General');
+  const [newCollabRecibo, setNewCollabRecibo] = useState('450000');
+  const [newCollabExtra, setNewCollabExtra] = useState('130000');
+  const [newCollabStatus, setNewCollabStatus] = useState<'PENDIENTE' | 'PAGO'>('PENDIENTE');
+
   // Dynamic metrics calculated directly from current interactive sheetsData
   const metrics = useMemo(
     () => calculateManagerialMetrics(currentPeriod, sheetsData),
@@ -404,6 +414,12 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
 
     if (field === 'fullName') {
       item.fullName = String(value);
+    } else if (field === 'assignedClientId') {
+      const chosenClient = sheetsData.clientBilling.find(c => c.id === value);
+      item.assignedClientId = String(value);
+      item.assignedClientName = chosenClient ? chosenClient.clientName : (value === 'general' ? 'Supervisión / Base General' : '');
+    } else if (field === 'assignedClientName') {
+      item.assignedClientName = String(value);
     } else if (field === 'objectiveOrRole') {
       item.objectiveOrRole = String(value);
     } else if (field === 'receiptAmount') {
@@ -430,25 +446,61 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
     updateAndSaveData({ ...sheetsData, salaries: updatedSalaries });
   };
 
-  const handleAddSalaryRow = () => {
-    const newIdx = sheetsData.salaries.length + 1;
-    const defaultRecibo = 450000;
-    const defaultExtra = 130000;
+  // Reordena alfabéticamente (A-Z) la lista de colaboradores
+  const handleSortSalaries = () => {
+    const sorted = sortSalariesAlphabetically(sheetsData.salaries);
+    updateAndSaveData({ ...sheetsData, salaries: sorted });
+    if (onNotify) onNotify('¡Nómina de colaboradores ordenada alfabéticamente por apellido y nombre (A-Z)!');
+  };
+
+  const handleOpenAddCollaboratorModal = () => {
+    setNewCollabName('');
+    setNewCollabClientId(sheetsData.clientBilling[0]?.id || 'general');
+    setNewCollabRole('Vigilador General');
+    setNewCollabRecibo('450000');
+    setNewCollabExtra('130000');
+    setNewCollabStatus('PENDIENTE');
+    setIsAddCollaboratorModalOpen(true);
+  };
+
+  const handleConfirmAddCollaborator = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = newCollabName.trim();
+    if (!cleanName) {
+      if (onNotify) onNotify('Por favor ingrese el apellido y nombre del colaborador.');
+      return;
+    }
+
+    const rec = Math.max(0, parseFloat(newCollabRecibo) || 0);
+    const ext = Math.max(0, parseFloat(newCollabExtra) || 0);
+    const chosenClient = sheetsData.clientBilling.find(c => c.id === newCollabClientId);
+    const clientName = chosenClient ? chosenClient.clientName : (newCollabClientId === 'general' ? 'Supervisión / Base General' : '');
 
     const newRow: EmployeeSalaryItem = {
       id: `sal-${Date.now()}`,
-      index: newIdx,
-      fullName: 'Nuevo Vigilador / Colaborador',
-      objectiveOrRole: 'Vigilador General - Objetivo Operativo',
-      receiptAmount: defaultRecibo,
-      extraAmount: defaultExtra,
-      netSalary: defaultRecibo + defaultExtra,
+      index: sheetsData.salaries.length + 1,
+      fullName: cleanName,
+      objectiveOrRole: newCollabRole.trim() || 'Vigilador General',
+      assignedClientId: newCollabClientId,
+      assignedClientName: clientName,
+      receiptAmount: rec,
+      extraAmount: ext,
+      netSalary: rec + ext,
       advance: 0,
-      status: 'PENDIENTE',
+      status: newCollabStatus,
     };
-    const updated = [...sheetsData.salaries, newRow];
-    updateAndSaveData({ ...sheetsData, salaries: updated });
-    if (onNotify) onNotify('¡Colaborador agregado con columnas RECIBO ($) y X ($) sincronizadas!');
+
+    // Al agregar nuevo colaborador, ordenarlo sistemáticamente por abecedario A-Z dentro de la lista existente
+    const sorted = sortSalariesAlphabetically([...sheetsData.salaries, newRow]);
+    updateAndSaveData({ ...sheetsData, salaries: sorted });
+    setIsAddCollaboratorModalOpen(false);
+    if (onNotify) {
+      onNotify(`¡Colaborador "${cleanName}" registrado, asignado a ${clientName || 'Base'} y ordenado en el abecedario (A-Z)!`);
+    }
+  };
+
+  const handleAddSalaryRow = () => {
+    handleOpenAddCollaboratorModal();
   };
 
   const handleDeleteSalaryRow = (index: number) => {
@@ -907,7 +959,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
           </div>
         </div>
 
-        {/* Card 3: Gastos Fijos & Bancos */}
+        {/* Card 3: Gastos Fijos (Total Registrados vs Total Pendientes de Pago) */}
         <div
           onClick={() => setActiveSheetTab('gastos_fijos')}
           className={`p-4 rounded-2xl border transition-all cursor-pointer ${
@@ -918,18 +970,32 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
         >
           <div className="flex items-center justify-between text-slate-400 mb-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-purple-400">
-              Gastos Fijos + Bancarios
+              Gastos Fijos Registrados
             </span>
             <div className="p-1.5 rounded-lg bg-purple-950/60 text-purple-400 border border-purple-800/40">
               <PieChart className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black font-mono text-white">
-            {formatCurrencyARS(totalFixedExpenses + totalBankExpenses)}
+          <div className="text-2xl font-black font-mono text-white flex items-baseline justify-between">
+            <span>{formatCurrencyARS(totalFixedExpenses)}</span>
+            <span className="text-[11px] font-semibold text-slate-400 font-sans">
+              ({metrics.countFixedExpenses ?? sheetsData.fixedExpenses.length} registrados)
+            </span>
           </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2 font-mono">
-            <span>Fijos: {formatCurrencyARS(totalFixedExpenses)}</span>
-            <span className="text-cyan-400">Bancos: {formatCurrencyARS(totalBankExpenses)}</span>
+          <div className="mt-2 pt-1.5 border-t border-[#1e2638] flex flex-col gap-0.5 text-[10px] font-mono">
+            <div className="flex items-center justify-between">
+              <span className="text-amber-400 font-semibold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Pendientes de Pago:
+              </span>
+              <span className="font-bold text-amber-300">
+                {formatCurrencyARS(metrics.unpaidFixedExpensesAmount || 0)} ({metrics.unpaidFixedExpensesCount || 0} impagos)
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-slate-400">
+              <span className="text-emerald-400">Pagados: {formatCurrencyARS(metrics.paidFixedExpensesAmount || 0)}</span>
+              <span className="text-cyan-400">Bancos: {formatCurrencyARS(totalBankExpenses)}</span>
+            </div>
           </div>
         </div>
 
@@ -1404,7 +1470,15 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                 </button>
 
                 <button
-                  onClick={handleAddSalaryRow}
+                  onClick={handleSortSalaries}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-amber-300 font-bold text-xs border border-amber-800/40 shadow transition-all cursor-pointer active:scale-95"
+                  title="Ordenar toda la nómina alfabéticamente (A-Z) por apellido y nombre"
+                >
+                  <span>🔤 Ordenar A-Z</span>
+                </button>
+
+                <button
+                  onClick={handleOpenAddCollaboratorModal}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#202738] hover:bg-[#2b354d] text-white font-bold text-xs border border-[#2e3b54] shadow transition-all cursor-pointer active:scale-95"
                 >
                   <Plus className="w-3.5 h-3.5 text-emerald-400" />
@@ -1457,7 +1531,8 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                   <tr className="bg-[#161b26] border-b border-[#252c3e] text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
                     <th className="py-2.5 px-2.5 text-center w-10">#</th>
                     <th className="py-2.5 px-3 min-w-[180px]">Apellido y Nombre</th>
-                    <th className="py-2.5 px-3 min-w-[180px]">Objetivo / Función</th>
+                    <th className="py-2.5 px-3 min-w-[180px]">Servicio / Cliente Asignado</th>
+                    <th className="py-2.5 px-3 min-w-[170px]">Objetivo / Función</th>
                     <th className="py-2.5 px-3 text-right min-w-[130px]">
                       <span className="block text-sky-300">Recibo ($)</span>
                       <span className="text-[9px] text-sky-400 font-normal">En Blanco (Editable)</span>
@@ -1501,8 +1576,29 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                             type="text"
                             value={sal.fullName}
                             onChange={(e) => handleSalaryFieldChange(originalIdx, 'fullName', e.target.value)}
+                            onBlur={handleSortSalaries}
                             className="w-full bg-[#161c28] border border-transparent focus:border-amber-500 rounded-lg px-2.5 py-1 text-xs text-white font-bold focus:outline-none transition-colors"
+                            title="Nombre del colaborador. Al salir del campo se reordena alfabéticamente A-Z."
                           />
+                        </td>
+
+                        {/* Servicio / Cliente Asignado */}
+                        <td className="py-2 px-3 font-sans">
+                          <select
+                            value={sal.assignedClientId || 'general'}
+                            onChange={(e) => handleSalaryFieldChange(originalIdx, 'assignedClientId', e.target.value)}
+                            className="w-full bg-[#161c28] border border-[#263148] focus:border-amber-500 rounded-lg px-2.5 py-1 text-xs text-amber-300 font-semibold focus:outline-none transition-colors cursor-pointer"
+                            title="Asignar el cliente o servicio para computar costos directos y rentabilidad real"
+                          >
+                            <option value="general" className="bg-[#121620] text-slate-300">
+                              🏛️ Supervisión / Base General
+                            </option>
+                            {sheetsData.clientBilling.map((cl) => (
+                              <option key={cl.id} value={cl.id} className="bg-[#121620] text-white">
+                                🏢 {cl.clientName}
+                              </option>
+                            ))}
+                          </select>
                         </td>
 
                         {/* Objective or Function */}
@@ -2161,10 +2257,10 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
               <div>
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
                   <TrendingUp className="w-4 h-4 text-emerald-400" />
-                  <span>Planilla Analítica: Rentabilidad por Cliente</span>
+                  <span>Planilla Analítica: Rentabilidad por Cliente (Números Reales por Servicio)</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Margen bruto y neto por contrato: Facturación neta menos costo directo de guardia y absorción proporcional de gastos societarios.
+                  Cálculo basado en <strong>números reales</strong>: Facturación neta por contrato menos costo directo real de los colaboradores asignados a cada objetivo y absorción proporcional de costos societarios.
                 </p>
               </div>
 
@@ -2206,11 +2302,22 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-[#161b26] border-b border-[#252c3e] text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                    <th className="py-2.5 px-3 min-w-[200px]">Cliente</th>
-                    <th className="py-2.5 px-3 text-right min-w-[140px]">Facturación Neta</th>
-                    <th className="py-2.5 px-3 text-right min-w-[140px]">Costo Directo</th>
-                    <th className="py-2.5 px-3 text-right min-w-[140px]">Margen Bruto</th>
-                    <th className="py-2.5 px-3 text-right min-w-[150px]">Margen Neto (%)</th>
+                    <th className="py-2.5 px-3 min-w-[200px]">Cliente / Servicio</th>
+                    <th className="py-2.5 px-3 min-w-[170px] text-center">Colaboradores Asignados</th>
+                    <th className="py-2.5 px-3 text-right min-w-[130px]">Facturación Neta</th>
+                    <th className="py-2.5 px-3 text-right min-w-[140px]">
+                      <span className="block text-amber-300">Costo Directo Real</span>
+                      <span className="text-[9px] text-amber-400 font-normal">fx: Sueldos Asignados</span>
+                    </th>
+                    <th className="py-2.5 px-3 text-right min-w-[135px]">
+                      <span className="block text-blue-300">Margen Bruto Real</span>
+                      <span className="text-[9px] text-blue-400 font-normal">fx: Fact. - Costo Dir.</span>
+                    </th>
+                    <th className="py-2.5 px-3 text-right min-w-[130px]">
+                      <span className="block text-slate-300">Fijos / Indirectos</span>
+                      <span className="text-[9px] text-slate-400 font-normal">Prorrateo</span>
+                    </th>
+                    <th className="py-2.5 px-3 text-right min-w-[150px]">Margen Neto Real (%)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#1e2433] font-mono">
@@ -2219,14 +2326,36 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                       <td className="py-2.5 px-3 font-sans font-bold text-white">
                         {item.clientName}
                       </td>
+                      <td className="py-2.5 px-3 text-center font-sans">
+                        {item.assignedEmployeesCount && item.assignedEmployeesCount > 0 ? (
+                          <div className="inline-flex flex-col items-center">
+                            <span className="px-2 py-0.5 rounded-full bg-blue-950/70 border border-blue-800/60 text-blue-300 text-[10px] font-bold">
+                              👤 {item.assignedEmployeesCount} vigilador{item.assignedEmployeesCount === 1 ? '' : 'es'}
+                            </span>
+                            {item.assignedEmployeeNames && item.assignedEmployeeNames.length > 0 && (
+                              <span className="text-[9px] text-slate-400 truncate max-w-[160px] mt-0.5" title={item.assignedEmployeeNames.join(', ')}>
+                                {item.assignedEmployeeNames.join(', ')}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-500 italic">
+                            Sin vigilador asignado
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2.5 px-3 text-right text-slate-200">
                         {formatCurrencyARS(item.netBilling)}
                       </td>
-                      <td className="py-2.5 px-3 text-right text-amber-300">
+                      <td className="py-2.5 px-3 text-right text-amber-300 font-semibold">
                         {formatCurrencyARS(item.directCost)}
                       </td>
                       <td className="py-2.5 px-3 text-right text-blue-300 font-semibold">
-                        {formatCurrencyARS(item.grossMargin)}
+                        <span>{formatCurrencyARS(item.grossMargin)}</span>
+                        <span className="block text-[10px] text-blue-400/80">({item.grossMarginPercent ?? 0}%)</span>
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-slate-400">
+                        {formatCurrencyARS(item.allocatedFixedCost || 0)}
                       </td>
                       <td className="py-2.5 px-3 text-right font-bold">
                         <span
@@ -2248,6 +2377,9 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                     <td className="py-3 px-3 text-white uppercase font-sans">
                       TOTALES CONSOLIDADOS ({filteredProfitability.length})
                     </td>
+                    <td className="py-3 px-3 text-center text-slate-400 font-sans text-[11px]">
+                      {filteredProfitability.reduce((a, b) => a + (b.assignedEmployeesCount || 0), 0)} asignados
+                    </td>
                     <td className="py-3 px-3 text-right text-slate-200">
                       {formatCurrencyARS(filteredProfitability.reduce((a, b) => a + b.netBilling, 0))}
                     </td>
@@ -2256,6 +2388,9 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                     </td>
                     <td className="py-3 px-3 text-right text-blue-300">
                       {formatCurrencyARS(filteredProfitability.reduce((a, b) => a + b.grossMargin, 0))}
+                    </td>
+                    <td className="py-3 px-3 text-right text-slate-400">
+                      {formatCurrencyARS(filteredProfitability.reduce((a, b) => a + (b.allocatedFixedCost || 0), 0))}
                     </td>
                     <td className="py-3 px-3 text-right text-emerald-400 text-sm">
                       {formatCurrencyARS(filteredProfitability.reduce((a, b) => a + b.netMargin, 0))}
@@ -2605,6 +2740,148 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                   className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold shadow transition-all cursor-pointer"
                 >
                   Guardar Anticipo
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: REGISTRAR NUEVO COLABORADOR (AUTO-SORT A-Z) */}
+      {/* ============================================================== */}
+      {isAddCollaboratorModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in">
+          <div
+            className="w-full max-w-lg bg-[#121620] border border-[#2b3752] rounded-3xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 bg-[#171d2c] border-b border-[#252f44] flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <UserCheck className="w-5 h-5 text-amber-400" />
+                <span>Registrar Nuevo Colaborador</span>
+              </h3>
+              <button
+                onClick={() => setIsAddCollaboratorModalOpen(false)}
+                className="text-slate-400 hover:text-white text-xs cursor-pointer"
+              >
+                ✕ Cancelar
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmAddCollaborator} className="p-5 space-y-4 text-xs">
+              <p className="text-slate-300 leading-relaxed">
+                Al registrar al colaborador, el sistema lo <strong>ordenará automáticamente por abecedario (A-Z)</strong> dentro de la nómina y computará su costo directo sobre el cliente asignado para la rentabilidad real.
+              </p>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1.5">
+                  Apellido y Nombre:
+                </label>
+                <input
+                  type="text"
+                  value={newCollabName}
+                  onChange={(e) => setNewCollabName(e.target.value)}
+                  placeholder="ej: Gomez, Martin o Alvarez, Lucas"
+                  className="w-full px-3.5 py-2.5 bg-[#171c26] border border-[#2c3850] rounded-xl text-white text-sm font-semibold focus:outline-none focus:border-amber-500"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1.5">
+                  Servicio / Cliente Asignado:
+                </label>
+                <select
+                  value={newCollabClientId}
+                  onChange={(e) => setNewCollabClientId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#171c26] border border-[#2c3850] rounded-xl text-amber-300 font-bold text-xs focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="general" className="bg-[#121620] text-slate-300">
+                    🏛️ Supervisión / Base General (Costo indirecto)
+                  </option>
+                  {sheetsData.clientBilling.map((cl) => (
+                    <option key={cl.id} value={cl.id} className="bg-[#121620] text-white">
+                      🏢 {cl.clientName}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  El sueldo neto de este colaborador se imputará automáticamente como costo directo al cliente seleccionado.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1.5">
+                  Objetivo / Función Operativa:
+                </label>
+                <input
+                  type="text"
+                  value={newCollabRole}
+                  onChange={(e) => setNewCollabRole(e.target.value)}
+                  placeholder="ej: Vigilador General - Puesto Nocturno"
+                  className="w-full px-3.5 py-2.5 bg-[#171c26] border border-[#2c3850] rounded-xl text-white text-xs focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sky-300 font-bold mb-1.5">
+                    Recibo ($ en blanco):
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={newCollabRecibo}
+                    onChange={(e) => setNewCollabRecibo(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#171c26] border border-[#2c3850] rounded-xl text-sky-200 font-mono text-sm font-bold focus:outline-none focus:border-sky-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-purple-300 font-bold mb-1.5">
+                    X ($ fuera de bono):
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={newCollabExtra}
+                    onChange={(e) => setNewCollabExtra(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#171c26] border border-[#2c3850] rounded-xl text-purple-200 font-mono text-sm font-bold focus:outline-none focus:border-purple-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1.5">Estado de Pago Inicial:</label>
+                <select
+                  value={newCollabStatus}
+                  onChange={(e) => setNewCollabStatus(e.target.value as 'PENDIENTE' | 'PAGO')}
+                  className="w-full px-3.5 py-2.5 bg-[#171c26] border border-[#2c3850] rounded-xl text-white text-xs font-semibold focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="PENDIENTE" className="bg-[#121620]">⏳ PENDIENTE</option>
+                  <option value="PAGO" className="bg-[#121620]">✅ PAGO</option>
+                </select>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddCollaboratorModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-slate-400 hover:text-white"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-[#BE2629] hover:bg-[#a52023] text-white font-bold text-xs shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Guardar y Ordenar A-Z</span>
                 </button>
               </div>
             </form>

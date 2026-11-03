@@ -33,12 +33,24 @@ export interface EmployeeSalaryItem {
   index: number;
   fullName: string;
   objectiveOrRole: string;
+  assignedClientId?: string; // ID del cliente asignado en ClientBillingItem (ej: "cl-1", "cl-2") o "general"
+  assignedClientName?: string; // Nombre del servicio / cliente asignado
   receiptAmount?: number; // Monto que cobra por RECIBO (en blanco)
   extraAmount?: number;   // Monto que cobra en X (por fuera del bono)
   netSalary: number;      // SUELDO NETO = Recibo + X
   advance: number;
   receipt?: string;
   status: 'PAGO' | 'PENDIENTE';
+}
+
+/**
+ * Ordena la lista de colaboradores estrictamente en orden alfabético (A-Z)
+ * por su Apellido y Nombre, reasignando correlativamente los índices # 1..N.
+ */
+export function sortSalariesAlphabetically(salaries: EmployeeSalaryItem[]): EmployeeSalaryItem[] {
+  return [...salaries]
+    .sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'es', { sensitivity: 'base' }))
+    .map((s, idx) => ({ ...s, index: idx + 1 }));
 }
 
 export interface ClientBillingItem {
@@ -127,11 +139,16 @@ export function parseFlexibleHours(rawInput: string | number | undefined): {
 
 export interface ClientProfitabilityItem {
   clientName: string;
+  clientId?: string;
   netBilling: number;
   directCost: number;
   grossMargin: number;
+  grossMarginPercent?: number;
+  allocatedFixedCost?: number;
   netMargin: number;
   netMarginPercent: number;
+  assignedEmployeesCount?: number;
+  assignedEmployeeNames?: string[];
 }
 
 export interface GeneralSummaryItem {
@@ -272,6 +289,8 @@ const INITIAL_OCTOBER_DATA: ManagerialMonthData = {
       index: 1,
       fullName: 'Aguero, Luciano',
       objectiveOrRole: 'Vigilador General - Bodegas Luján',
+      assignedClientId: 'cl-2',
+      assignedClientName: 'Bodegas Luján de Cuyo',
       receiptAmount: 400000,
       extraAmount: 110000,
       netSalary: 510000,
@@ -279,43 +298,12 @@ const INITIAL_OCTOBER_DATA: ManagerialMonthData = {
       status: 'PAGO',
     },
     {
-      id: 'sal-2',
-      index: 2,
-      fullName: 'Morales, Cristian',
-      objectiveOrRole: 'Vigilador Principal - Kraft San Martín',
-      receiptAmount: 450000,
-      extraAmount: 140000,
-      netSalary: 590000,
-      advance: 0,
-      status: 'PAGO',
-    },
-    {
-      id: 'sal-3',
-      index: 3,
-      fullName: 'Gomez, Roberto',
-      objectiveOrRole: 'Custodia Móvil - Ronda Nocturna',
-      receiptAmount: 465000,
-      extraAmount: 150000,
-      netSalary: 615000,
-      advance: 40000,
-      status: 'PAGO',
-    },
-    {
-      id: 'sal-4',
-      index: 4,
-      fullName: 'Fernandez, Claudio',
-      objectiveOrRole: 'Vigilador - Fuesmen Maipú',
-      receiptAmount: 430000,
-      extraAmount: 135000,
-      netSalary: 565000,
-      advance: 0,
-      status: 'PAGO',
-    },
-    {
       id: 'sal-5',
-      index: 5,
+      index: 2,
       fullName: 'Benitez, Marcos',
       objectiveOrRole: 'Supervisor de Servicios - Base Central',
+      assignedClientId: 'general',
+      assignedClientName: 'Supervisión / Base General',
       receiptAmount: 540000,
       extraAmount: 180000,
       netSalary: 720000,
@@ -323,26 +311,69 @@ const INITIAL_OCTOBER_DATA: ManagerialMonthData = {
       status: 'PAGO',
     },
     {
-      id: 'sal-6',
-      index: 6,
-      fullName: 'Rodriguez, Walter',
-      objectiveOrRole: 'Vigilador Control Acceso - Parque Ind. Godoy Cruz',
-      receiptAmount: 420000,
-      extraAmount: 137000,
-      netSalary: 557000,
+      id: 'sal-4',
+      index: 3,
+      fullName: 'Fernandez, Claudio',
+      objectiveOrRole: 'Vigilador - Fuesmen Maipú',
+      assignedClientId: 'cl-3',
+      assignedClientName: 'Fuesmen Sede Central',
+      receiptAmount: 430000,
+      extraAmount: 135000,
+      netSalary: 565000,
       advance: 0,
-      status: 'PENDIENTE',
+      status: 'PAGO',
+    },
+    {
+      id: 'sal-3',
+      index: 4,
+      fullName: 'Gomez, Roberto',
+      objectiveOrRole: 'Custodia Móvil - Ronda Nocturna',
+      assignedClientId: 'general',
+      assignedClientName: 'Móvil / Ronda Central',
+      receiptAmount: 465000,
+      extraAmount: 150000,
+      netSalary: 615000,
+      advance: 40000,
+      status: 'PAGO',
+    },
+    {
+      id: 'sal-2',
+      index: 5,
+      fullName: 'Morales, Cristian',
+      objectiveOrRole: 'Vigilador Principal - Kraft San Martín',
+      assignedClientId: 'cl-1',
+      assignedClientName: 'Kraft San Martín S.A.',
+      receiptAmount: 450000,
+      extraAmount: 140000,
+      netSalary: 590000,
+      advance: 0,
+      status: 'PAGO',
     },
     {
       id: 'sal-7',
-      index: 7,
+      index: 6,
       fullName: 'Perez, Marcelo',
       objectiveOrRole: 'Vigilador Operativo - Logística Cuyo S.A.',
+      assignedClientId: 'cl-5',
+      assignedClientName: 'Logística Cuyo S.A.',
       receiptAmount: 440000,
       extraAmount: 134000,
       netSalary: 574000,
       advance: 35000,
       status: 'PAGO',
+    },
+    {
+      id: 'sal-6',
+      index: 7,
+      fullName: 'Rodriguez, Walter',
+      objectiveOrRole: 'Vigilador Control Acceso - Parque Ind. Godoy Cruz',
+      assignedClientId: 'cl-4',
+      assignedClientName: 'Parque Industrial Godoy Cruz',
+      receiptAmount: 420000,
+      extraAmount: 137000,
+      netSalary: 557000,
+      advance: 0,
+      status: 'PENDIENTE',
     },
   ],
   clientBilling: [
@@ -677,36 +708,101 @@ export function computeFixedExpenseFormulas(
 }
 
 // Calculate Client Profitability (Rentabilidad por Cliente) based on real loaded data
+// Vincula los colaboradores asignados específicamente a cada servicio / cliente
 export function calculateClientProfitability(data: ManagerialMonthData): ClientProfitabilityItem[] {
-  const realTotalDirectCosts = (data.salaries || []).reduce(
-    (acc, s) => acc + ((s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary) + (s.extraAmount || 0)),
-    0
-  );
-  const realTotalOverhead =
-    (data.fixedExpenses || []).reduce((acc, f) => acc + (f.amount || 0), 0) +
-    (data.bankExpenses || []).reduce((acc, b) => acc + (b.amount || 0), 0);
+  const salaries = data.salaries || [];
+  const clientBilling = data.clientBilling || [];
+  const fixedExpenses = data.fixedExpenses || [];
+  const bankExpenses = data.bankExpenses || [];
 
-  const totalBillingAll = (data.clientBilling || []).reduce(
+  const totalBillingAll = clientBilling.reduce(
     (acc, c) => acc + (c.totalNet !== undefined ? c.totalNet : c.hourlyRate * c.totalHours),
     0
   );
 
-  return (data.clientBilling || []).map(c => {
+  // Mapear colaboradores asignados por cliente
+  const clientAssignedMap = new Map<string, { employees: EmployeeSalaryItem[]; directCost: number }>();
+  for (const c of clientBilling) {
+    clientAssignedMap.set(c.id, { employees: [], directCost: 0 });
+  }
+
+  const unassignedSalaries: EmployeeSalaryItem[] = [];
+
+  for (const s of salaries) {
+    const salaryCost = (s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary) + (s.extraAmount || 0);
+
+    // 1. Coincidencia por ID de cliente asignado
+    let matchedClient = clientBilling.find(c => s.assignedClientId && c.id === s.assignedClientId);
+
+    // 2. Coincidencia por nombre exacto de cliente asignado
+    if (!matchedClient && s.assignedClientName) {
+      const normName = s.assignedClientName.toLowerCase().trim();
+      matchedClient = clientBilling.find(
+        c => c.clientName.toLowerCase().trim() === normName || c.clientName.toLowerCase().includes(normName)
+      );
+    }
+
+    // 3. Coincidencia inteligente por objetivo / función
+    if (!matchedClient && s.objectiveOrRole) {
+      const objLower = s.objectiveOrRole.toLowerCase();
+      matchedClient = clientBilling.find(c => {
+        const cLower = c.clientName.toLowerCase();
+        const cleanName = cLower.replace(/s\.a\.|de cuyo|sede central|san mart[ií]n/g, '').trim();
+        const words = cleanName.split(/\s+/).filter(w => w.length >= 4);
+        return words.some(w => objLower.includes(w));
+      });
+    }
+
+    if (matchedClient) {
+      const entry = clientAssignedMap.get(matchedClient.id);
+      if (entry) {
+        entry.employees.push(s);
+        entry.directCost += salaryCost;
+      }
+    } else {
+      unassignedSalaries.push(s);
+    }
+  }
+
+  // Costo de colaboradores generales (supervisores, base, rondas generales no asignados a un único cliente)
+  const totalUnassignedSalariesCost = unassignedSalaries.reduce(
+    (acc, s) => acc + ((s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary) + (s.extraAmount || 0)),
+    0
+  );
+
+  // Gastos societarios generales a prorratear (gastos fijos + bancarios + personal de base/supervisión general)
+  const realTotalOverhead =
+    fixedExpenses.reduce((acc, f) => acc + (f.amount || 0), 0) +
+    bankExpenses.reduce((acc, b) => acc + (b.amount || 0), 0) +
+    totalUnassignedSalariesCost;
+
+  return clientBilling.map(c => {
     const netBilling = c.totalNet !== undefined ? c.totalNet : c.hourlyRate * c.totalHours;
-    const share = totalBillingAll > 0 ? netBilling / totalBillingAll : 0;
-    const directCost = Math.round(realTotalDirectCosts * share);
+    const assignedInfo = clientAssignedMap.get(c.id);
+    const directCost = assignedInfo ? assignedInfo.directCost : 0;
+    const assignedEmployees = assignedInfo ? assignedInfo.employees : [];
+
     const grossMargin = netBilling - directCost;
+    const grossMarginPercent = netBilling > 0 ? Math.round((grossMargin / netBilling) * 100) : 0;
+
+    // Prorrateo proporcional de costos fijos e indirectos según volumen de facturación
+    const share = totalBillingAll > 0 ? netBilling / totalBillingAll : 0;
     const allocatedFixedCost = Math.round(realTotalOverhead * share);
     const netMargin = grossMargin - allocatedFixedCost;
     const netMarginPercent = netBilling > 0 ? Math.round((netMargin / netBilling) * 100) : 0;
 
     return {
       clientName: c.clientName,
+      clientId: c.id,
       netBilling,
       directCost,
       grossMargin,
+      grossMarginPercent,
+      allocatedFixedCost,
       netMargin,
       netMarginPercent,
+      assignedEmployeesCount: assignedEmployees.length,
+      assignedEmployeeNames: assignedEmployees.map(e => e.fullName),
     };
   });
 }
@@ -731,8 +827,16 @@ export function calculateManagerialMetrics(
     0
   );
 
-  // Total Gastos Fijos Reales
-  const totalFixedExpenses = (data.fixedExpenses || []).reduce((acc, curr) => acc + (curr.amount || 0), 0);
+  // Total Gastos Fijos Reales y desglose de Pagados vs Pendientes/Impagos
+  const fixedExpensesList = data.fixedExpenses || [];
+  const countFixedExpenses = fixedExpensesList.length;
+  const totalFixedExpenses = fixedExpensesList.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+  const unpaidFixed = fixedExpensesList.filter(f => f.status === 'IMPAGO');
+  const unpaidFixedExpensesAmount = unpaidFixed.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+  const unpaidFixedExpensesCount = unpaidFixed.length;
+  const paidFixed = fixedExpensesList.filter(f => f.status === 'PAGO');
+  const paidFixedExpensesAmount = paidFixed.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+  const paidFixedExpensesCount = paidFixed.length;
 
   // Total Gastos Bancarios Reales
   const totalBankExpenses = (data.bankExpenses || []).reduce((acc, curr) => acc + (curr.amount || 0), 0);
@@ -780,13 +884,13 @@ export function calculateManagerialMetrics(
       concept: 'Costos Directos (Personal de Guardia)',
       amount: totalDirectCosts,
       percentage: totalIncome > 0 ? Math.round((totalDirectCosts / totalIncome) * 100) : 0,
-      notes: 'Sueldos y pagos de vigilancia física',
+      notes: `${(data.salaries || []).length} colaboradores en nómina`,
     },
     {
       concept: 'Gastos Fijos Societarios',
       amount: totalFixedExpenses,
       percentage: totalIncome > 0 ? Math.round((totalFixedExpenses / totalIncome) * 100) : 0,
-      notes: `${data.fixedExpenses.length} conceptos societarios`,
+      notes: `${countFixedExpenses} registrados (${unpaidFixedExpensesCount} pendientes)`,
     },
     {
       concept: 'Gastos Bancarios & Débitos',
@@ -808,12 +912,18 @@ export function calculateManagerialMetrics(
     totalIncome,
     totalDirectCosts,
     totalFixedExpenses,
+    countFixedExpenses,
+    unpaidFixedExpensesAmount,
+    unpaidFixedExpensesCount,
+    paidFixedExpensesAmount,
+    paidFixedExpensesCount,
     totalBankExpenses,
     totalAllCosts: totalDirectCosts + totalFixedExpenses + totalBankExpenses,
     globalNetMargin,
     globalNetMarginPercent,
     unpaidInvoices,
     totalUnpaidAmount,
+    unpaidInvoicesCount: unpaidInvoices.length,
     costDistribution,
     generalSummary,
   };

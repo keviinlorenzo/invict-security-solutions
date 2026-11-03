@@ -133,9 +133,9 @@ export const Header: React.FC<HeaderProps> = ({
   const totalAlertsCount = delayedTasks.length + personalMentions.length;
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between px-3 sm:px-6 py-2.5 bg-[#0d0f14] border-b border-[#222734] shadow-sm select-none">
+    <header className="sticky top-0 z-30 flex items-center justify-between px-2.5 sm:px-6 py-2 sm:py-2.5 bg-[#0d0f14] border-b border-[#222734] shadow-sm select-none w-full max-w-full overflow-x-hidden">
       {/* Zone 1: INVICT Logo & Institutional Tag */}
-      <div className="flex items-center gap-3 sm:gap-4">
+      <div className="flex items-center gap-2 sm:gap-4 shrink-0">
         <div
           onClick={onNavigateToFeed}
           className="group cursor-pointer transition-transform duration-300 ease-out hover:scale-[1.04] active:scale-95 flex items-center"
@@ -159,7 +159,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Zone 2: Period Navigation, Universal Search & Active Persona Switcher */}
-      <div className="flex items-center gap-2 sm:gap-2.5 flex-1 max-w-2xl mx-2 sm:mx-4">
+      <div className="flex items-center gap-1.5 sm:gap-2.5 flex-1 max-w-2xl mx-1 sm:mx-4 min-w-0">
         {/* Monthly Period Selector directly in Header */}
         <HeaderPeriodSelector
           currentPeriod={currentPeriod}
@@ -364,12 +364,11 @@ export const Header: React.FC<HeaderProps> = ({
         {onOpenPwaModal && (
           <button
             onClick={onOpenPwaModal}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-300 hover:text-white bg-emerald-950/30 hover:bg-emerald-950/60 border border-emerald-700/60 rounded-xl transition-all active:scale-95 cursor-pointer shadow-sm"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-300 hover:text-white bg-emerald-950/30 hover:bg-emerald-950/60 border border-emerald-700/60 rounded-xl transition-all active:scale-95 cursor-pointer shadow-sm"
             title="Instalar la aplicación en este celular o computadora (PWA)"
           >
             <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
             <span className="hidden sm:inline">Instalar App</span>
-            <span className="sm:hidden text-[10px]">App</span>
           </button>
         )}
 
@@ -389,7 +388,7 @@ export const Header: React.FC<HeaderProps> = ({
         {onOpenEmailAlertsModal && (
           <button
             onClick={onOpenEmailAlertsModal}
-            className="relative p-2 rounded-xl bg-[#161a23] hover:bg-[#1f2533] border border-[#262c3b] text-slate-300 hover:text-white transition-colors cursor-pointer"
+            className="hidden sm:inline-flex relative p-2 rounded-xl bg-[#161a23] hover:bg-[#1f2533] border border-[#262c3b] text-slate-300 hover:text-white transition-colors cursor-pointer"
             title="Alertas por Correo Electrónico emitidas por menciones @"
           >
             <Mail className="w-4 h-4 text-emerald-400" />

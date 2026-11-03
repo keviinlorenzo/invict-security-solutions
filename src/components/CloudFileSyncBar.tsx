@@ -53,9 +53,9 @@ export const CloudFileSyncBar: React.FC<CloudFileSyncBarProps> = ({
             <span className={`text-[9px] font-black uppercase px-1.5 py-0.2 rounded border ${currentMeta.badge}`}>
               {currentMeta.label}
             </span>
-            <span className="text-slate-400">·</span>
-            <span className="text-slate-300">
-              Las modificaciones que realice se reflejan al instante con su nombre, fecha y horario.
+            <span className="hidden sm:inline text-slate-400">·</span>
+            <span className="hidden sm:inline text-slate-300">
+              Las modificaciones se reflejan en tiempo real.
             </span>
           </div>
         </div>

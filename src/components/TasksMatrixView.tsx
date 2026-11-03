@@ -519,7 +519,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
         </div>
 
         {/* Post Quick KPIs */}
-        <div className="flex items-center gap-2 self-start md:self-center shrink-0">
+        <div className="flex items-center gap-2 self-start md:self-center shrink-0 flex-wrap">
           <div className="px-3 py-1.5 bg-[#0e121a] border border-[#202737] rounded-xl text-center min-w-[70px]">
             <span className="text-[10px] text-slate-400 block uppercase font-mono">Total</span>
             <span className="text-sm font-bold text-white font-mono">{activeStats.total}</span>
