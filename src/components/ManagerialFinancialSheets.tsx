@@ -175,12 +175,14 @@ interface ManagerialFinancialSheetsProps {
   currentPeriod: string;
   onPeriodChange?: (period: string) => void;
   onNotify?: (msg: string) => void;
+  isReadOnly?: boolean;
 }
 
 export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps> = ({
   currentPeriod,
   onPeriodChange,
   onNotify,
+  isReadOnly = false,
 }) => {
   const [activeSheetTab, setActiveSheetTab] = useState<
     'clientes' | 'sueldos' | 'gastos_fijos' | 'gastos_bancarios' | 'rentabilidad' | 'alertas' | 'resumen'
@@ -271,6 +273,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
 
   // Persist and synchronize state
   const updateAndSaveData = (newData: ManagerialMonthData) => {
+    if (isReadOnly) return;
     setSheetsData(newData);
     saveManagerialMonthData(currentPeriod, newData);
   };
@@ -845,13 +848,32 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
         onChange={handleImportBankExpensesFile}
       />
 
+      {/* Sub Gerencia Read-Only Alert Banner */}
+      {isReadOnly && (
+        <div className="p-4 rounded-2xl bg-rose-950/70 border border-rose-800/80 text-rose-200 flex items-center justify-between gap-3 text-xs shadow-lg animate-in fade-in">
+          <div className="flex items-center gap-2.5">
+            <Lock className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>
+              <strong>Planillas en Modo Solo Lectura (Sub Gerencia / Vicepresidencia):</strong> Visualización ejecutiva, auditoría y exportación habilitadas. Toda modificación, alta de colaboradores/gastos o cierre de mes está reservada a la Gerencia General (Yamila y Domingo).
+            </span>
+          </div>
+          <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-900 text-rose-200 border border-rose-700 shrink-0">
+            SOLO VISTA
+          </span>
+        </div>
+      )}
+
       {/* 1. Header Banner & Excel Action Controls */}
       <div className="p-5 bg-gradient-to-r from-[#171a26] via-[#1b2132] to-[#171a26] border border-[#2d3852] rounded-3xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-            <span className="px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full flex items-center gap-1">
+            <span className={`px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-full flex items-center gap-1 border ${
+              isReadOnly
+                ? 'bg-rose-950/80 text-rose-300 border-rose-700/80'
+                : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+            }`}>
               <Lock className="w-3 h-3" />
-              Exclusivo Gerencia General (C-Level)
+              {isReadOnly ? 'Sub Gerencia (Modo Auditoría / Solo Lectura)' : 'Exclusivo Gerencia General (C-Level)'}
             </span>
             <span className="text-xs text-slate-300 font-mono flex items-center gap-1.5 bg-[#141926] px-2.5 py-0.5 rounded-full border border-[#273248]">
               <Calendar className="w-3.5 h-3.5 text-blue-400" />
@@ -872,14 +894,16 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
 
         {/* Global Toolbar: Reiniciar a 0, Copiar Excel, Iniciar Mes */}
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <button
-            onClick={() => setIsResetConfirmModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-amber-200 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-700/60 rounded-xl shadow transition-all active:scale-95 cursor-pointer"
-            title="Reiniciar todos los números del mes a $0 para comenzar la carga desde cero"
-          >
-            <RotateCcw className="w-4 h-4 text-amber-400" />
-            <span>Reiniciar a Cero (0)</span>
-          </button>
+          {!isReadOnly && (
+            <button
+              onClick={() => setIsResetConfirmModalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-amber-200 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-700/60 rounded-xl shadow transition-all active:scale-95 cursor-pointer"
+              title="Reiniciar todos los números del mes a $0 para comenzar la carga desde cero"
+            >
+              <RotateCcw className="w-4 h-4 text-amber-400" />
+              <span>Reiniciar a Cero (0)</span>
+            </button>
+          )}
 
           <button
             onClick={() => handleCopyPlainText('todas')}
@@ -890,14 +914,16 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
             <span>Copiar Planillas (Excel)</span>
           </button>
 
-          <button
-            onClick={() => setIsNewMonthModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-200 bg-[#222a3d] hover:bg-[#2b354d] border border-[#344260] rounded-xl transition-all active:scale-95 cursor-pointer"
-            title="Cerrar el mes actual e iniciar el siguiente en blanco"
-          >
-            <Calendar className="w-4 h-4 text-blue-400" />
-            <span>Iniciar Nuevo Mes</span>
-          </button>
+          {!isReadOnly && (
+            <button
+              onClick={() => setIsNewMonthModalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-200 bg-[#222a3d] hover:bg-[#2b354d] border border-[#344260] rounded-xl transition-all active:scale-95 cursor-pointer"
+              title="Cerrar el mes actual e iniciar el siguiente en blanco"
+            >
+              <Calendar className="w-4 h-4 text-blue-400" />
+              <span>Iniciar Nuevo Mes</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1100,15 +1126,17 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
 
               {/* Action Buttons: Cargar Archivo, Exportar CSV/PDF, Agregar Cliente */}
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => clientFileInputRef.current?.click()}
-                  disabled={isFileLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-cyan-300 font-bold text-xs border border-cyan-800/40 shadow transition-all cursor-pointer active:scale-95"
-                  title="Cargar archivo Excel (.xlsx / .xls) o CSV con clientes para importación automática"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{isFileLoading ? 'Procesando...' : 'Cargar Archivo (Excel/CSV)'}</span>
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={() => clientFileInputRef.current?.click()}
+                    disabled={isFileLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-cyan-300 font-bold text-xs border border-cyan-800/40 shadow transition-all cursor-pointer active:scale-95"
+                    title="Cargar archivo Excel (.xlsx / .xls) o CSV con clientes para importación automática"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{isFileLoading ? 'Procesando...' : 'Cargar Archivo (Excel/CSV)'}</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => exportClientsToCSV(filteredClients, currentPeriod)}
@@ -1128,13 +1156,15 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                   <span>Exportar PDF (Filtrado)</span>
                 </button>
 
-                <button
-                  onClick={handleAddClientRow}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow transition-all cursor-pointer active:scale-95"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ Agregar Cliente</span>
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={handleAddClientRow}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow transition-all cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Agregar Cliente</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1433,15 +1463,17 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => salaryFileInputRef.current?.click()}
-                  disabled={isFileLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-cyan-300 font-bold text-xs border border-cyan-800/40 shadow transition-all cursor-pointer active:scale-95"
-                  title="Cargar archivo Excel (.xlsx / .xls) o CSV con la nómina de sueldos para importación automática"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{isFileLoading ? 'Procesando...' : 'Cargar Nómina (Excel/CSV)'}</span>
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={() => salaryFileInputRef.current?.click()}
+                    disabled={isFileLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-cyan-300 font-bold text-xs border border-cyan-800/40 shadow transition-all cursor-pointer active:scale-95"
+                    title="Cargar archivo Excel (.xlsx / .xls) o CSV con la nómina de sueldos para importación automática"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{isFileLoading ? 'Procesando...' : 'Cargar Nómina (Excel/CSV)'}</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => exportSalariesToCSV(filteredSalaries, currentPeriod)}
@@ -1461,13 +1493,15 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                   <span>Exportar PDF (Filtrado)</span>
                 </button>
 
-                <button
-                  onClick={() => setIsAdvanceModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-black font-bold text-xs shadow transition-all cursor-pointer active:scale-95"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Cargar Anticipo Específico</span>
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={() => setIsAdvanceModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-black font-bold text-xs shadow transition-all cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Cargar Anticipo Específico</span>
+                  </button>
+                )}
 
                 <button
                   onClick={handleSortSalaries}
@@ -1477,13 +1511,15 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                   <span>🔤 Ordenar A-Z</span>
                 </button>
 
-                <button
-                  onClick={handleOpenAddCollaboratorModal}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#202738] hover:bg-[#2b354d] text-white font-bold text-xs border border-[#2e3b54] shadow transition-all cursor-pointer active:scale-95"
-                >
-                  <Plus className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>+ Agregar Colaborador</span>
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={handleOpenAddCollaboratorModal}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#202738] hover:bg-[#2b354d] text-white font-bold text-xs border border-[#2e3b54] shadow transition-all cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>+ Agregar Colaborador</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1766,15 +1802,17 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => fixedFileInputRef.current?.click()}
-                  disabled={isFileLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-cyan-300 font-bold text-xs border border-cyan-800/40 shadow transition-all cursor-pointer active:scale-95"
-                  title="Cargar archivo Excel (.xlsx / .xls) o CSV con gastos fijos para importación automática"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{isFileLoading ? 'Procesando...' : 'Cargar Gastos Fijos (Excel/CSV)'}</span>
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={() => fixedFileInputRef.current?.click()}
+                    disabled={isFileLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-cyan-300 font-bold text-xs border border-cyan-800/40 shadow transition-all cursor-pointer active:scale-95"
+                    title="Cargar archivo Excel (.xlsx / .xls) o CSV con gastos fijos para importación automática"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{isFileLoading ? 'Procesando...' : 'Cargar Gastos Fijos (Excel/CSV)'}</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => exportFixedExpensesToCSV(filteredFixedExpenses, currentPeriod)}
@@ -1794,13 +1832,15 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                   <span>Exportar PDF (Filtrado)</span>
                 </button>
 
-                <button
-                  onClick={handleAddFixedExpenseRow}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow transition-all cursor-pointer active:scale-95"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ Agregar Gasto Fijo</span>
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={handleAddFixedExpenseRow}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow transition-all cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Agregar Gasto Fijo</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1974,15 +2014,17 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => bankFileInputRef.current?.click()}
-                  disabled={isFileLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-cyan-300 font-bold text-xs border border-cyan-800/40 shadow transition-all cursor-pointer active:scale-95"
-                  title="Cargar extracto bancario en Excel (.xlsx / .xls) o CSV sumándolo a los ya cargados este mes"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{isFileLoading ? 'Procesando...' : 'Cargar Extracto Bancario'}</span>
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={() => bankFileInputRef.current?.click()}
+                    disabled={isFileLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-cyan-300 font-bold text-xs border border-cyan-800/40 shadow transition-all cursor-pointer active:scale-95"
+                    title="Cargar extracto bancario en Excel (.xlsx / .xls) o CSV sumándolo a los ya cargados este mes"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{isFileLoading ? 'Procesando...' : 'Cargar Extracto Bancario'}</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => exportBankExpensesToCSV(filteredBankExpenses, currentPeriod)}
@@ -2002,13 +2044,15 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                   <span>Exportar PDF (Filtrado)</span>
                 </button>
 
-                <button
-                  onClick={handleAddBankExpenseRow}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow transition-all cursor-pointer active:scale-95"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ Agregar Movimiento Bancario</span>
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={handleAddBankExpenseRow}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow transition-all cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Agregar Movimiento Bancario</span>
+                  </button>
+                )}
               </div>
             </div>
 

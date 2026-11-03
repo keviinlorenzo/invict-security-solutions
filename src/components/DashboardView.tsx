@@ -36,6 +36,8 @@ interface DashboardViewProps {
   onResetFixedTasks?: () => void;
   onClearMonth?: () => void;
   onExportPeriod?: () => void;
+  isReadOnly?: boolean;
+  isSubGerencia?: boolean;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -54,6 +56,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onResetFixedTasks,
   onClearMonth,
   onExportPeriod,
+  isReadOnly = false,
+  isSubGerencia = false,
 }) => {
   // Filter tasks by current period first
   const periodTasks = tasks.filter(t => (t.monthPeriod || '2026-10') === currentPeriod);
@@ -101,13 +105,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const areasList: { id: AreaType; label: string }[] = [
     { id: 'TODOS', label: 'Toda la Empresa' },
-    { id: 'OPERACIONES', label: 'Operaciones (Puestos)' },
-    { id: 'SUPERVISIÓN', label: 'Supervisión' },
-    { id: 'RRHH', label: 'RR.HH.' },
-    { id: 'ADM', label: 'Administración' },
-    { id: 'AUX_ADM', label: 'Auxiliar Adm.' },
-    { id: 'SELECCION', label: 'Selección' },
-    { id: 'GERENCIA', label: 'Gerencia General' },
+    ...(!isSubGerencia ? [{ id: 'GERENCIA' as AreaType, label: 'Gerencia General' }] : []),
+    { id: 'SUB_GERENCIA' as AreaType, label: 'Sub Gerencia' },
+    { id: 'OPERACIONES' as AreaType, label: 'Operaciones (Puestos)' },
+    { id: 'SUPERVISIÓN' as AreaType, label: 'Supervisión' },
+    { id: 'RRHH' as AreaType, label: 'RR.HH.' },
+    { id: 'ADM' as AreaType, label: 'Administración' },
+    { id: 'AUX_ADM' as AreaType, label: 'Auxiliar Adm.' },
+    { id: 'SELECCION' as AreaType, label: 'Selección' },
   ];
 
   return (
@@ -116,8 +121,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <MonthlyPeriodSelector
         currentPeriod={currentPeriod}
         onPeriodChange={onPeriodChange}
-        onResetFixedTasks={onResetFixedTasks}
-        onClearMonth={onClearMonth}
+        onResetFixedTasks={isReadOnly || isSubGerencia ? undefined : onResetFixedTasks}
+        onClearMonth={isReadOnly || isSubGerencia ? undefined : onClearMonth}
         onExportPeriod={onExportPeriod}
         totalTasksInPeriod={periodTasks.length}
         fixedTasksCount={fixedTasksInPeriod.length}
@@ -127,16 +132,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 bg-gradient-to-r from-[#121620] via-[#161c29] to-[#121620] border border-[#22293b] rounded-2xl shadow-lg">
         <div>
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#BE2629]/20 text-[#BE2629] border border-[#BE2629]/30 rounded">
-              Auditoría en Tiempo Real
+            <span className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded border ${
+              isSubGerencia || isReadOnly
+                ? 'bg-rose-950/70 text-rose-300 border-rose-800/60'
+                : 'bg-[#BE2629]/20 text-[#BE2629] border-[#BE2629]/30'
+            }`}>
+              {isSubGerencia || isReadOnly ? 'Auditoría C-Level (Sub Gerencia • Solo Lectura)' : 'Auditoría en Tiempo Real'}
             </span>
             <span className="text-xs text-slate-300 font-semibold">{formatPeriodName(currentPeriod)}</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-            Panel de Supervisión Gerencial C-Level
+            {isSubGerencia
+              ? 'Panel de Supervisión Gerencial (Sub Gerencia / Vicepresidencia)'
+              : 'Panel de Supervisión Gerencial C-Level'}
           </h1>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
-            Control directo para Gerencia General (Yamila, Laura y Domingo). Métricas segregadas de Operaciones y Supervisión, contingencias de oficina y control presupuestario.
+            {isSubGerencia
+              ? 'Vista ejecutiva integral en modo solo lectura para Sub Gerencia (Laura). Supervisión transversal de Operaciones, métricas de áreas y control presupuestario sin capacidad de modificación de datos de Gerencia General.'
+              : 'Control directo para Gerencia General (Yamila y Domingo). Métricas segregadas de Operaciones y Supervisión, contingencias de oficina y control presupuestario.'}
           </p>
         </div>
 
@@ -466,6 +479,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               <p className="text-[11px] text-slate-400">
                 Liquidación de sueldos netos, compras de insumos comunes y control de legajos de colaboradores.
+              </p>
+            </div>
+
+            {/* Sub Gerencia / Vicepresidencia */}
+            <div className="p-3 bg-[#161b26] rounded-xl border border-[#252c3e] space-y-1.5">
+              <div className="flex items-center justify-between font-semibold text-slate-200">
+                <span className="flex items-center gap-1.5 text-rose-400">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Sub Gerencia / Vicepresidencia
+                </span>
+                <span className="text-rose-300 text-[11px] font-mono">
+                  Supervisión Activa
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Supervisión ejecutiva transversal de puestos operativos y control de gestión.
               </p>
             </div>
           </div>

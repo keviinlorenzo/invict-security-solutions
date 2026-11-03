@@ -29,6 +29,16 @@ export const DEFAULT_CORPORATE_ACCOUNTS: Array<AuthAccount & { defaultPassword: 
     personaId: 'p-yamila',
   },
   {
+    id: 'acc-subgerencia',
+    email: 'laura@invictsecurity.com.ar',
+    defaultPassword: 'Subgerencia2026!',
+    name: 'Laura (Sub Gerencia)',
+    profileType: 'SUB_GERENTE',
+    department: 'SUB_GERENCIA',
+    avatarBg: 'bg-rose-900',
+    personaId: 'p-laura',
+  },
+  {
     id: 'acc-operaciones',
     email: 'operaciones@invictsecurity.com.ar',
     defaultPassword: 'Operaciones2026!',
@@ -108,6 +118,15 @@ export const PROFILE_METADATA: Record<UserProfileType, {
     textColor: 'text-red-400',
     department: 'GERENCIA',
     description: 'Dirección Ejecutiva, control general de objetivos y auditoría integral.',
+  },
+  'SUB_GERENTE': {
+    label: 'SUB GERENCIA',
+    badge: 'bg-rose-950/80 text-rose-300 border-rose-600/70',
+    bgDark: 'bg-rose-950/50',
+    border: 'border-rose-600/70',
+    textColor: 'text-rose-400',
+    department: 'SUB_GERENCIA',
+    description: 'Sub Gerencia / Vicepresidencia. Control operativo y auditoría gerencial con acceso total.',
   },
   'operaciones': {
     label: 'Operaciones',
@@ -191,7 +210,10 @@ export function saveNewAccount(account: AuthAccount): void {
 
 export function determineProfileFromEmail(email: string): UserProfileType {
   const normalized = email.trim().toLowerCase();
-  if (normalized.includes('gerente') || normalized.includes('gerencia') || normalized.includes('yamila') || normalized.includes('laura') || normalized.includes('domingo') || normalized.includes('consultasinvict')) {
+  if (normalized.includes('subgeren') || normalized.includes('vicepresid') || normalized.includes('laura')) {
+    return 'SUB_GERENTE';
+  }
+  if (normalized.includes('gerente') || normalized.includes('gerencia') || normalized.includes('yamila') || normalized.includes('domingo') || normalized.includes('consultasinvict')) {
     return 'GERENTE';
   }
   if (normalized.includes('supervis') || normalized.includes('bilbao') || normalized.includes('tejera')) {

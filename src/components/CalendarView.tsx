@@ -109,6 +109,14 @@ export const AREA_CALENDAR_COLORS: Record<AreaType, {
     dot: 'bg-amber-500',
     badge: 'bg-amber-900/60 text-amber-200 border-amber-700/50',
   },
+  SUB_GERENCIA: {
+    name: 'Sub Gerencia / Vicepresidencia',
+    bg: 'bg-rose-950/40',
+    border: 'border-rose-600/50',
+    text: 'text-rose-300',
+    dot: 'bg-rose-500',
+    badge: 'bg-rose-900/60 text-rose-200 border-rose-700/50',
+  },
   TODOS: {
     name: 'Consolidado Global',
     bg: 'bg-slate-900/40',

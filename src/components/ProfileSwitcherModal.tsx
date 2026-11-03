@@ -22,6 +22,8 @@ export const ProfileSwitcherModal: React.FC<ProfileSwitcherModalProps> = ({
   if (!isOpen) return null;
 
   const isCurrentUserGerencia = currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE';
+  const isCurrentUserSubGerencia = currentPersona.department === 'SUB_GERENCIA' || currentPersona.profileType === 'SUB_GERENTE';
+  const isExecutive = isCurrentUserGerencia || isCurrentUserSubGerencia;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
@@ -42,6 +44,8 @@ export const ProfileSwitcherModal: React.FC<ProfileSwitcherModalProps> = ({
               <p className="text-xs text-slate-400 mt-0.5">
                 {isCurrentUserGerencia
                   ? 'Exclusivo Dirección General: selecciona con qué puesto deseas operar en la plataforma.'
+                  : isCurrentUserSubGerencia
+                  ? 'Sub Gerencia: control transversal sobre puestos operativos. El perfil de Gerencia General permanece privado.'
                   : 'Puesto Fijo Asignado. Tu cuenta no posee permisos para conmutar entre puestos.'}
               </p>
             </div>
@@ -54,12 +58,12 @@ export const ProfileSwitcherModal: React.FC<ProfileSwitcherModalProps> = ({
           </button>
         </div>
 
-        {/* Warning if not Gerencia */}
-        {!isCurrentUserGerencia && (
+        {/* Warning if not Executive */}
+        {!isExecutive && (
           <div className="mx-5 mt-4 p-3.5 rounded-2xl bg-amber-950/50 border border-amber-700/60 text-amber-200 text-xs flex items-center gap-3">
             <Shield className="w-5 h-5 text-amber-400 shrink-0" />
             <span>
-              <strong>Puesto Fijo Asignado:</strong> Estás conectado como <strong>{currentPersona.name}</strong> ({currentPersona.role}). Por normativa de seguridad, solo la Dirección General puede alternar entre puestos.
+              <strong>Puesto Fijo Asignado:</strong> Estás conectado como <strong>{currentPersona.name}</strong> ({currentPersona.role}). Por normativa de seguridad, solo la Dirección General / Sub Gerencia puede conmutar o supervisar otros puestos.
             </span>
           </div>
         )}
@@ -68,17 +72,20 @@ export const ProfileSwitcherModal: React.FC<ProfileSwitcherModalProps> = ({
         <div className="p-5 overflow-y-auto space-y-2.5">
           {personas.map((persona) => {
             const isSelected = persona.id === currentPersona.id;
-            const isGerencia = persona.department === 'GERENCIA';
+            const isGerenciaTarget = persona.department === 'GERENCIA' || persona.profileType === 'GERENTE';
+            const isSubGerenciaTarget = persona.department === 'SUB_GERENCIA' || persona.profileType === 'SUB_GERENTE';
+            const isBlockedForCurrent = (!isExecutive && !isSelected) || (isCurrentUserSubGerencia && isGerenciaTarget);
+
             return (
               <div
                 key={persona.id}
                 onClick={() => {
-                  if (!isCurrentUserGerencia) return;
+                  if (isBlockedForCurrent) return;
                   onSelectPersona(persona);
                   onClose();
                 }}
                 className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 transition-all ${
-                  !isCurrentUserGerencia && !isSelected ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+                  isBlockedForCurrent ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
                 } ${
                   isSelected
                     ? 'bg-[#1a2130] border-[#BE2629] shadow-md ring-1 ring-[#BE2629]/50'
@@ -94,10 +101,16 @@ export const ProfileSwitcherModal: React.FC<ProfileSwitcherModalProps> = ({
                       <span className="font-bold text-white text-sm">
                         {persona.name}
                       </span>
-                      {isGerencia && (
+                      {isGerenciaTarget && (
                         <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
                           <Crown className="w-3 h-3 text-amber-400" />
-                          Acceso C-Level Total
+                          Gerencia General
+                        </span>
+                      )}
+                      {isSubGerenciaTarget && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                          <Crown className="w-3 h-3 text-rose-400" />
+                          Sub Gerencia
                         </span>
                       )}
                     </div>

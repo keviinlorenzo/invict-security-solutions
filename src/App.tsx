@@ -1253,17 +1253,20 @@ export default function App() {
   const isCurrentUserGerencia = Boolean(
     currentPersona && (currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE')
   );
+  const isCurrentUserSubGerencia = Boolean(
+    currentPersona && (currentPersona.department === 'SUB_GERENCIA' || currentPersona.profileType === 'SUB_GERENTE')
+  );
+  const isCurrentUserExecutive = isCurrentUserGerencia || isCurrentUserSubGerencia;
 
-  // Aislamiento estricto de tareas, gastos, personal y actividad de Gerencia para los demás usuarios
+  // Aislamiento estricto de tareas, gastos, personal y actividad de Gerencia General (Yamila y Domingo) para los demás usuarios
   const isGerenciaTextMatch = (val?: string): boolean => {
     if (!val) return false;
     const lower = val.toLowerCase();
     return (
-      lower.includes('gerencia') ||
+      lower.includes('gerencia general') ||
       lower.includes('dirección general') ||
       lower.includes('direccion general') ||
       lower.includes('yamila') ||
-      lower.includes('laura') ||
       lower.includes('domingo')
     );
   };
@@ -1289,7 +1292,7 @@ export default function App() {
   }, [tasks, personas, isCurrentUserGerencia]);
 
   const visibleExpenses = useMemo(() => {
-    if (isCurrentUserGerencia) return expenses;
+    if (isCurrentUserExecutive) return expenses;
     const commonCategories: Expense['category'][] = [
       'Compras de Insumos',
       'Viáticos Operativos',
@@ -1303,7 +1306,7 @@ export default function App() {
       if (isGerenciaTextMatch(e.responsible)) return false;
       return true;
     });
-  }, [expenses, isCurrentUserGerencia]);
+  }, [expenses, isCurrentUserExecutive]);
 
   const visibleModifications = useMemo(() => {
     if (isCurrentUserGerencia) return cloudModifications;
@@ -1387,13 +1390,13 @@ export default function App() {
 
   // Garantizar que ningún puesto que no sea Gerencia acceda al Dashboard Gerencial ni al filtro de área GERENCIA
   useEffect(() => {
-    if (!isCurrentUserGerencia && activeTab === 'dashboard') {
+    if (!isCurrentUserExecutive && activeTab === 'dashboard') {
       setActiveTab('tasks');
     }
     if (!isCurrentUserGerencia && selectedArea === 'GERENCIA') {
-      setSelectedArea('OPERACIONES');
+      setSelectedArea(isCurrentUserSubGerencia ? 'SUB_GERENCIA' : 'OPERACIONES');
     }
-  }, [isCurrentUserGerencia, activeTab, selectedArea]);
+  }, [isCurrentUserGerencia, isCurrentUserSubGerencia, isCurrentUserExecutive, activeTab, selectedArea]);
 
   // Interfaz de inicio de sesión obligatoria
   if (!authSession) {
@@ -1472,8 +1475,8 @@ export default function App() {
         <Sidebar
           activeTab={activeTab}
           onTabChange={(tab) => {
-            if (tab === 'dashboard' && !isCurrentUserGerencia) {
-              showToast('Acceso Restringido: El Dashboard Gerencial es de uso exclusivo para Dirección General (C-Level).');
+            if (tab === 'dashboard' && !isCurrentUserExecutive) {
+              showToast('Acceso Restringido: El Dashboard Gerencial es de uso exclusivo para Dirección General y Sub Gerencia.');
               setActiveTab('tasks');
               return;
             }
@@ -1485,10 +1488,10 @@ export default function App() {
           unreadMentionsCount={unreadMentionsCount}
           currentPersona={currentPersona}
           onOpenProfileModal={() => {
-            if (currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE') {
+            if (isCurrentUserExecutive) {
               setIsProfileModalOpen(true);
             } else {
-              showToast('Acceso Bloqueado: Solo Gerencia General puede conmutar de puesto.');
+              showToast('Acceso Bloqueado: Solo Gerencia y Sub Gerencia pueden supervisar otros puestos.');
             }
           }}
           onOpenPersonnelModal={() => setIsPersonnelModalOpen(true)}
@@ -1543,7 +1546,7 @@ export default function App() {
               </div>
             )}
 
-            {activeTab === 'dashboard' && isCurrentUserGerencia ? (
+            {activeTab === 'dashboard' && isCurrentUserExecutive ? (
               <DashboardView
                 tasks={visibleTasks}
                 expenses={expenses}
@@ -1557,18 +1560,20 @@ export default function App() {
                 onOpenExportModal={() => setIsExportModalOpen(true)}
                 currentPeriod={currentPeriod}
                 onPeriodChange={handlePeriodChange}
-                onResetFixedTasks={handleResetFixedTasks}
+                onResetFixedTasks={isCurrentUserGerencia ? handleResetFixedTasks : undefined}
                 onClearMonth={isCurrentUserGerencia ? handleClearMonth : undefined}
                 onExportPeriod={handleExportCurrentPeriodCSV}
+                isReadOnly={isCurrentUserSubGerencia}
+                isSubGerencia={isCurrentUserSubGerencia}
               />
-            ) : activeTab === 'dashboard' && !isCurrentUserGerencia ? (
+            ) : activeTab === 'dashboard' && !isCurrentUserExecutive ? (
               <div className="p-8 rounded-3xl bg-[#121622] border border-amber-600/60 text-center max-w-xl mx-auto my-12 shadow-2xl space-y-4 animate-in fade-in">
                 <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/40">
                   <Lock className="w-6 h-6" />
                 </div>
-                <h2 className="text-lg font-black text-white">Acceso Restringido a Gerencia General</h2>
+                <h2 className="text-lg font-black text-white">Acceso Restringido a Dirección General</h2>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  El <strong>Dashboard Gerencial C-Level</strong> contiene métricas globales, auditoría de cuellos de botella y balances ejecutivos reservados exclusivamente para Dirección General.
+                  El <strong>Dashboard Gerencial C-Level</strong> contiene métricas globales, auditoría de cuellos de botella y balances ejecutivos reservados exclusivamente para Dirección General y Sub Gerencia.
                 </p>
                 <button
                   onClick={() => setActiveTab('tasks')}
@@ -1594,8 +1599,8 @@ export default function App() {
                 lastModification={visibleModifications[0] || null}
                 currentPeriod={currentPeriod}
                 onPeriodChange={handlePeriodChange}
-                onResetFixedTasks={handleResetFixedTasks}
-                onRenewWeeklyNextMonth={handleRenewWeeklyNextMonth}
+                onResetFixedTasks={isCurrentUserGerencia ? handleResetFixedTasks : undefined}
+                onRenewWeeklyNextMonth={isCurrentUserExecutive ? handleRenewWeeklyNextMonth : undefined}
                 onToggleWeeklyRecurrence={handleToggleWeeklyRecurrence}
                 onToggleMonthlyRecurrence={handleToggleMonthlyRecurrence}
                 onClearMonth={isCurrentUserGerencia ? handleClearMonth : undefined}
@@ -1725,8 +1730,13 @@ export default function App() {
         onSelectPersona={(p) => {
           setCurrentPersona(p);
           const pIsGerencia = p.department === 'GERENCIA' || p.profileType === 'GERENTE';
-          if (!pIsGerencia && activeTab === 'dashboard') {
+          const pIsSubGerencia = p.department === 'SUB_GERENCIA' || p.profileType === 'SUB_GERENTE';
+          const pIsExecutive = pIsGerencia || pIsSubGerencia;
+          if (!pIsExecutive && activeTab === 'dashboard') {
             setActiveTab('tasks');
+          }
+          if (!pIsGerencia && selectedArea === 'GERENCIA') {
+            setSelectedArea(pIsSubGerencia ? 'SUB_GERENCIA' : (p.department as AreaType) || 'OPERACIONES');
           }
         }}
         onOpenPersonnelModal={() => {
@@ -1824,8 +1834,8 @@ export default function App() {
       <MobileNavBar
         activeTab={activeTab}
         onTabChange={(tab) => {
-          if (tab === 'dashboard' && !isCurrentUserGerencia) {
-            showToast('Acceso Restringido: El Dashboard Gerencial es exclusivo de Dirección General.');
+          if (tab === 'dashboard' && !isCurrentUserExecutive) {
+            showToast('Acceso Restringido: El Dashboard Gerencial es exclusivo de Dirección General y Sub Gerencia.');
             setActiveTab('tasks');
             return;
           }
@@ -1837,10 +1847,10 @@ export default function App() {
         unreadMentionsCount={unreadMentionsCount}
         currentPersona={currentPersona}
         onOpenProfileModal={() => {
-          if (isCurrentUserGerencia) {
+          if (isCurrentUserExecutive) {
             setIsProfileModalOpen(true);
           } else {
-            showToast('Acceso Bloqueado: Solo Gerencia General puede conmutar de puesto.');
+            showToast('Acceso Bloqueado: Solo Gerencia y Sub Gerencia pueden supervisar otros puestos.');
           }
         }}
         onOpenPersonnelModal={() => setIsPersonnelModalOpen(true)}

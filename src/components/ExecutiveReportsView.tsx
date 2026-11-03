@@ -50,7 +50,8 @@ const DEFAULT_POST_METADATA: Record<AreaType, { name: string; fallbackOfficer: s
   ADM: { name: 'Administración', fallbackOfficer: 'Giuliana', color: '#3B82F6' },
   AUX_ADM: { name: 'Auxiliar Administrativo', fallbackOfficer: 'Kevin', color: '#06B6D4' },
   SELECCION: { name: 'Selección de Personal', fallbackOfficer: 'Mariana', color: '#A855F7' },
-  GERENCIA: { name: 'Gerencia General (C-Level)', fallbackOfficer: 'Yamila / Laura / Domingo', color: '#BE2629' },
+  SUB_GERENCIA: { name: 'Sub Gerencia / Vicepresidencia', fallbackOfficer: 'Laura', color: '#F43F5E' },
+  GERENCIA: { name: 'Gerencia General (C-Level)', fallbackOfficer: 'Yamila / Domingo', color: '#BE2629' },
   TODOS: { name: 'Consolidado General', fallbackOfficer: 'Directorio', color: '#94A3B8' },
 };
 
@@ -123,13 +124,14 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
     ADM: { name: DEFAULT_POST_METADATA.ADM.name, officer: getOfficerForArea('ADM'), color: DEFAULT_POST_METADATA.ADM.color },
     AUX_ADM: { name: DEFAULT_POST_METADATA.AUX_ADM.name, officer: getOfficerForArea('AUX_ADM'), color: DEFAULT_POST_METADATA.AUX_ADM.color },
     SELECCION: { name: DEFAULT_POST_METADATA.SELECCION.name, officer: getOfficerForArea('SELECCION'), color: DEFAULT_POST_METADATA.SELECCION.color },
+    SUB_GERENCIA: { name: DEFAULT_POST_METADATA.SUB_GERENCIA.name, officer: getOfficerForArea('SUB_GERENCIA'), color: DEFAULT_POST_METADATA.SUB_GERENCIA.color },
     GERENCIA: { name: DEFAULT_POST_METADATA.GERENCIA.name, officer: getOfficerForArea('GERENCIA'), color: DEFAULT_POST_METADATA.GERENCIA.color },
     TODOS: { name: DEFAULT_POST_METADATA.TODOS.name, officer: 'Directorio', color: DEFAULT_POST_METADATA.TODOS.color },
   };
 
   const areas: AreaType[] = isGerencia
-    ? ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION', 'GERENCIA']
-    : ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION'];
+    ? ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION', 'SUB_GERENCIA', 'GERENCIA']
+    : ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION', 'SUB_GERENCIA'];
   const areaBreakdown = areas.map(areaKey => {
     const aTasks = periodTasks.filter(t => t.area === areaKey);
     const total = aTasks.length;

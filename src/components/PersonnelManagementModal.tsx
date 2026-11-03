@@ -373,6 +373,7 @@ export const PersonnelManagementModal: React.FC<PersonnelManagementModalProps> =
                           if (dept === 'ADM') prof = 'administración';
                           if (dept === 'AUX_ADM') prof = 'auxiliar';
                           if (dept === 'SELECCION') prof = 'selección';
+                          if (dept === 'SUB_GERENCIA') prof = 'SUB_GERENTE';
                           if (dept === 'GERENCIA') prof = 'GERENTE';
                           setNewPostData({ ...newPostData, department: dept, profileType: prof });
                         }}
@@ -383,6 +384,7 @@ export const PersonnelManagementModal: React.FC<PersonnelManagementModalProps> =
                         <option value="ADM">ADM</option>
                         <option value="AUX_ADM">AUX_ADM</option>
                         <option value="SELECCION">SELECCION</option>
+                        <option value="SUB_GERENCIA">SUB_GERENCIA</option>
                         <option value="GERENCIA">GERENCIA</option>
                       </select>
                     </div>

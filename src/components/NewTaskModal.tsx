@@ -158,6 +158,7 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
                 <option value="ADM">Administración (ADM)</option>
                 <option value="AUX_ADM">Auxiliar Administrativo</option>
                 <option value="SELECCION">Selección de Personal</option>
+                <option value="SUB_GERENCIA">Sub Gerencia / Vicepresidencia</option>
                 {isGerencia && (
                   <option value="GERENCIA">Gerencia General (Privado)</option>
                 )}

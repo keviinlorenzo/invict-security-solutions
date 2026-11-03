@@ -113,6 +113,10 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
   const isGerencia = Boolean(
     currentPersona && (currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE')
   );
+  const isSubGerencia = Boolean(
+    currentPersona && (currentPersona.department === 'SUB_GERENCIA' || currentPersona.profileType === 'SUB_GERENTE')
+  );
+  const isExecutive = isGerencia || isSubGerencia;
 
   // If user is NOT Gerencia (demás administrativos), restrict to Gastos Comunes only and exclude Gerencia-responsible expenses
   const visibleExpenses = useMemo(() => {
@@ -409,7 +413,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
   return (
     <div className="space-y-6">
       {/* 1. Security & RBAC Status Banner */}
-      {!isGerencia ? (
+      {!isExecutive ? (
         <div className="p-4 rounded-2xl bg-[#141824] border border-[#2b354c] shadow-md space-y-2.5">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
@@ -454,8 +458,12 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
         <div className="space-y-3">
           <div className="p-3.5 rounded-2xl bg-gradient-to-r from-red-950/40 via-[#181a26] to-red-950/40 border border-[#BE2629]/50 shadow flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-2.5">
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[#BE2629]/20 text-[#BE2629] border border-[#BE2629]/40">
-                [Rol: Gerencia]
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                isSubGerencia
+                  ? 'bg-rose-950/80 text-rose-300 border border-rose-700/80'
+                  : 'bg-[#BE2629]/20 text-[#BE2629] border border-[#BE2629]/40'
+              }`}>
+                {isSubGerencia ? '[Rol: Sub Gerencia / Vicepresidencia]' : '[Rol: Gerencia General]'}
               </span>
               <div className="flex flex-col">
                 <span className="text-xs text-white font-bold flex items-center gap-1.5">
@@ -463,7 +471,9 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                   Módulo Gerencial: Gastos de Oficina & Planillas Interactivas (Excel)
                 </span>
                 <span className="text-[11px] text-slate-400 font-mono">
-                  Acceso exclusivo C-Level · Fórmulas de IVA, retenciones, extractos bancarios y sueldos netos
+                  {isSubGerencia
+                    ? 'Acceso C-Level en Modo Solo Lectura (Sub Gerencia) · Fórmulas de IVA, extractos y rentabilidad'
+                    : 'Acceso exclusivo C-Level · Fórmulas de IVA, retenciones, extractos bancarios y sueldos netos'}
                 </span>
               </div>
             </div>
@@ -504,20 +514,25 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
               <span>2. Planillas Gerenciales (Excel) - Clientes, Sueldos, Bancos</span>
-              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
-                Exclusivo Gerencia
+              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                isSubGerencia
+                  ? 'bg-rose-950 text-rose-300 border border-rose-800'
+                  : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+              }`}>
+                {isSubGerencia ? 'Sub Gerencia (Solo Vista)' : 'Exclusivo Gerencia'}
               </span>
             </button>
           </div>
         </div>
       )}
 
-      {/* RENDER PLANILLAS GERENCIALES (EXCEL) WHEN GERENCIA SELECTS THAT TAB */}
-      {isGerencia && gerenciaSectionTab === 'planillas_excel' ? (
+      {/* RENDER PLANILLAS GERENCIALES (EXCEL) WHEN GERENCIA OR SUB GERENCIA SELECTS THAT TAB */}
+      {isExecutive && gerenciaSectionTab === 'planillas_excel' ? (
         <ManagerialFinancialSheets
           currentPeriod={currentPeriod}
           onPeriodChange={onPeriodChange}
           onNotify={onNotify}
+          isReadOnly={isSubGerencia}
         />
       ) : (
         <>

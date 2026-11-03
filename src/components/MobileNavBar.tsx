@@ -51,16 +51,19 @@ export const MobileNavBar: React.FC<MobileNavBarProps> = ({
 }) => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const isGerencia = currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE';
+  const isSubGerencia = currentPersona.department === 'SUB_GERENCIA' || currentPersona.profileType === 'SUB_GERENTE';
+  const isExecutive = isGerencia || isSubGerencia;
 
   const areasList: { id: AreaType; label: string; icon: string }[] = [
     ...(isGerencia ? [{ id: 'GERENCIA' as AreaType, label: 'Gerencia (Privado)', icon: '👑' }] : []),
+    { id: 'SUB_GERENCIA', label: 'Sub Gerencia', icon: '👑' },
     { id: 'OPERACIONES', label: 'Operaciones', icon: '🛡️' },
     { id: 'SUPERVISIÓN', label: 'Supervisión Móvil', icon: '⭐' },
     { id: 'RRHH', label: 'Recursos Humanos', icon: '👥' },
     { id: 'ADM', label: 'Administración', icon: '💼' },
     { id: 'AUX_ADM', label: 'Auxiliar Adm.', icon: '📁' },
     { id: 'SELECCION', label: 'Selección', icon: '🎧' },
-    { id: 'TODOS', label: isGerencia ? 'Consolidado (Auditoría)' : 'Consolidado (Oficina)', icon: '🌐' },
+    { id: 'TODOS', label: isGerencia ? 'Consolidado (Auditoría)' : isSubGerencia ? 'Consolidado (Sub Gerencia)' : 'Consolidado (Oficina)', icon: '🌐' },
   ];
 
   return (
@@ -239,7 +242,7 @@ export const MobileNavBar: React.FC<MobileNavBarProps> = ({
                 Otros Módulos:
               </span>
 
-              {isGerencia && (
+              {isExecutive && (
                 <button
                   type="button"
                   onClick={() => {
@@ -254,7 +257,7 @@ export const MobileNavBar: React.FC<MobileNavBarProps> = ({
                 >
                   <div className="flex items-center gap-2">
                     <LayoutDashboard className="w-4 h-4 text-amber-400" />
-                    <span>Dashboard & Planillas Gerenciales</span>
+                    <span>{isSubGerencia ? 'Dashboard & Planillas (Solo Vista)' : 'Dashboard & Planillas Gerenciales'}</span>
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-400" />
                 </button>
@@ -315,7 +318,7 @@ export const MobileNavBar: React.FC<MobileNavBarProps> = ({
                 </button>
               )}
 
-              {isGerencia && onOpenProfileModal && (
+              {(isGerencia || isSubGerencia) && onOpenProfileModal && (
                 <button
                   type="button"
                   onClick={() => {
@@ -326,7 +329,7 @@ export const MobileNavBar: React.FC<MobileNavBarProps> = ({
                 >
                   <div className="flex items-center gap-2">
                     <ArrowRightLeft className="w-4 h-4 text-[#BE2629]" />
-                    <span>Cambiar de Puesto (Exclusivo Gerencia)</span>
+                    <span>{isGerencia ? 'Cambiar de Puesto (Exclusivo Gerencia)' : 'Inspeccionar Puestos de Trabajo'}</span>
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-400" />
                 </button>

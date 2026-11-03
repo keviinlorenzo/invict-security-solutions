@@ -1,5 +1,6 @@
 export type AreaType =
   | 'GERENCIA'
+  | 'SUB_GERENCIA'
   | 'RRHH'
   | 'ADM'
   | 'AUX_ADM'
@@ -28,6 +29,7 @@ export type UserProfileType =
   | 'supervisión'
   | 'operaciones'
   | 'recursos humanos'
+  | 'SUB_GERENTE'
   | 'GERENTE';
 
 export interface TaskComment {

@@ -4,6 +4,7 @@ import { supabase } from './supabaseClient';
 // Corporate Default Passwords per Profile
 export const DEFAULT_PROFILE_PASSWORDS: Record<UserProfileType, string> = {
   GERENTE: 'Gerencia2026!',
+  SUB_GERENTE: 'Subgerencia2026!',
   operaciones: 'Operaciones2026!',
   'recursos humanos': 'Rrhh2026!',
   'administración': 'Admin2026!',

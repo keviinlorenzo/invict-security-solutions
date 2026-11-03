@@ -92,6 +92,8 @@ export const Header: React.FC<HeaderProps> = ({
   const [showFixedPostAlert, setShowFixedPostAlert] = useState(false);
 
   const isGerencia = currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE';
+  const isSubGerencia = currentPersona.department === 'SUB_GERENCIA' || currentPersona.profileType === 'SUB_GERENTE';
+  const isExecutive = isGerencia || isSubGerencia;
   const effectiveArea: AreaType = (!isGerencia && selectedArea === 'GERENCIA')
     ? (currentPersona.department || 'OPERACIONES')
     : selectedArea;
@@ -191,7 +193,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative">
           <button
             onClick={() => {
-              if (!isGerencia) {
+              if (!isExecutive) {
                 setShowFixedPostAlert(prev => !prev);
                 setTimeout(() => setShowFixedPostAlert(false), 4500);
                 return;
@@ -199,13 +201,15 @@ export const Header: React.FC<HeaderProps> = ({
               setShowPersonaMenu(!showPersonaMenu);
             }}
             className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border transition-colors text-left cursor-pointer ${
-              !isGerencia
+              !isExecutive
                 ? 'bg-[#141822] hover:bg-[#191f2c] border-[#252f44]'
                 : 'bg-[#161a23] hover:bg-[#1f2533] border-[#262c3b]'
             }`}
             title={
               isGerencia
                 ? 'Conmutar entre puestos de la empresa (Exclusivo Gerencia General)'
+                : isSubGerencia
+                ? 'Inspeccionar y conmutar puestos operativos (Sub Gerencia)'
                 : 'Puesto Fijo Asignado. Solo Dirección General puede alternar puestos.'
             }
           >
@@ -225,7 +229,7 @@ export const Header: React.FC<HeaderProps> = ({
                 {currentPersona.role}
               </span>
             </div>
-            {isGerencia ? (
+            {isExecutive ? (
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 ml-1" />
             ) : (
               <Lock className="w-3 h-3 text-slate-500 ml-1" />
@@ -245,7 +249,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {isGerencia && showPersonaMenu && (
+          {isExecutive && showPersonaMenu && (
             <>
               <div
                 className="fixed inset-0 z-40"
@@ -257,11 +261,15 @@ export const Header: React.FC<HeaderProps> = ({
                     Cambiar Perfil de Usuario
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Permite experimentar la visión gerencial o administrativa
+                    {isGerencia
+                      ? 'Permite experimentar la visión gerencial o administrativa'
+                      : 'Inspección de puestos operativos (Gerencia General excluida)'}
                   </p>
                 </div>
                 <div className="max-h-72 overflow-y-auto">
-                  {allPersonas.map((persona) => {
+                  {allPersonas
+                    .filter(persona => isGerencia || (persona.department !== 'GERENCIA' && persona.profileType !== 'GERENTE'))
+                    .map((persona) => {
                     const isSelected = persona.id === currentPersona.id;
                     const meta = PROFILE_METADATA[persona.profileType || 'operaciones'];
                     return (
@@ -308,7 +316,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <span>Ver Todos los Puestos & Permisos</span>
                     </button>
                   )}
-                  {onOpenPersonnelModal && (
+                  {isGerencia && onOpenPersonnelModal && (
                     <button
                       onClick={() => {
                         setShowPersonaMenu(false);

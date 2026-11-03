@@ -56,6 +56,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isGerencia = Boolean(
     currentPersona && (currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE')
   );
+  const isSubGerencia = Boolean(
+    currentPersona && (currentPersona.department === 'SUB_GERENCIA' || currentPersona.profileType === 'SUB_GERENTE')
+  );
+  const isExecutive = isGerencia || isSubGerencia;
 
   const navItems: {
     id: ActiveTab;
@@ -68,7 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }[] = [
     {
       id: 'dashboard',
-      label: 'Dashboard Gerencial',
+      label: isSubGerencia ? 'Dashboard Gerencial (Solo Vista)' : 'Dashboard Gerencial',
       icon: <LayoutDashboard className="w-4 h-4" />,
       restrictedToGerencia: true,
       roleRequiredLabel: 'C-Level',
@@ -110,20 +114,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
-  // Only Gerencia General has access to Dashboard Gerencial
-  const visibleNavItems = navItems.filter((item) => !item.restrictedToGerencia || isGerencia);
+  // Gerencia General and Sub Gerencia have access to Dashboard Gerencial
+  const visibleNavItems = navItems.filter((item) => !item.restrictedToGerencia || isExecutive);
 
   const departmentFilters: { id: AreaType; label: string; icon: React.ReactNode }[] = [
     ...(isGerencia
       ? [{ id: 'GERENCIA' as AreaType, label: 'Gerencia General (Privado)', icon: <Crown className="w-3.5 h-3.5 text-amber-400" /> }]
       : []),
+    { id: 'SUB_GERENCIA' as AreaType, label: 'Sub Gerencia / Vicepresidencia', icon: <Crown className="w-3.5 h-3.5 text-rose-400" /> },
     { id: 'OPERACIONES', label: 'Operaciones (Puestos & Rondas)', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
     { id: 'SUPERVISIÓN', label: 'Supervisión en Terreno', icon: <Award className="w-3.5 h-3.5 text-amber-400" /> },
     { id: 'RRHH', label: 'Recursos Humanos (RR.HH.)', icon: <Users className="w-3.5 h-3.5" /> },
     { id: 'ADM', label: 'Administración (ADM)', icon: <Briefcase className="w-3.5 h-3.5" /> },
     { id: 'AUX_ADM', label: 'Auxiliar Administrativo', icon: <FileCheck className="w-3.5 h-3.5" /> },
     { id: 'SELECCION', label: 'Selección & Reclutamiento', icon: <Headphones className="w-3.5 h-3.5" /> },
-    { id: 'TODOS', label: isGerencia ? 'Consolidado (Auditoría Global)' : 'Consolidado (Oficina)', icon: <Compass className="w-3.5 h-3.5" /> },
+    { id: 'TODOS', label: isGerencia ? 'Consolidado (Auditoría Global)' : isSubGerencia ? 'Consolidado (Sub Gerencia)' : 'Consolidado (Oficina)', icon: <Compass className="w-3.5 h-3.5" /> },
   ];
 
   return (
@@ -139,9 +144,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${
                 isGerencia
                   ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                  : isSubGerencia
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
                   : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
               }`}>
-                {isGerencia ? 'ACCESO TOTAL' : currentPersona.department}
+                {isGerencia ? 'GERENCIA GENERAL' : isSubGerencia ? 'SUB GERENCIA' : currentPersona.department}
               </span>
             </div>
 
@@ -153,6 +160,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="text-xs font-bold text-white truncate flex items-center gap-1">
                   {currentPersona.name}
                   {isGerencia && <Crown className="w-3 h-3 text-amber-400 inline shrink-0" />}
+                  {isSubGerencia && <Crown className="w-3 h-3 text-rose-400 inline shrink-0" />}
                 </div>
                 <div className="text-[10px] text-slate-400 truncate">
                   {currentPersona.role}
@@ -170,13 +178,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span>Rotación de Personal</span>
                 </button>
               )}
-              {isGerencia && onOpenProfileModal ? (
+              {(isGerencia || isSubGerencia) && onOpenProfileModal ? (
                 <button
                   onClick={onOpenProfileModal}
                   className="w-full flex items-center justify-center gap-1.5 px-2 py-1 bg-[#1a2130] hover:bg-[#232d42] border border-[#273248] rounded-lg text-[11px] text-slate-300 hover:text-white transition-colors cursor-pointer"
                 >
                   <ArrowRightLeft className="w-3 h-3 text-[#BE2629]" />
-                  <span>Cambiar de Puesto</span>
+                  <span>{isGerencia ? 'Cambiar de Puesto' : 'Inspeccionar Puestos'}</span>
                 </button>
               ) : (
                 <div className="flex items-center justify-center gap-1.5 px-2 py-1 bg-[#121620] border border-[#202738] rounded-lg text-[10px] text-slate-400">

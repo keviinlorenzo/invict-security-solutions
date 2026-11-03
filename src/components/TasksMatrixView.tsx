@@ -30,7 +30,8 @@ import {
   Eye,
   EyeOff,
   User,
-  Smartphone
+  Smartphone,
+  Crown
 } from 'lucide-react';
 import { calculateDaysRemaining, formatDateLocale, formatPeriodName } from '../utils/dateUtils';
 import { getDayOfWeekLabel, getDayOfWeekFromDateString, isMonthlyTaskStoppedForPeriod } from '../utils/monthRenewalService';
@@ -131,11 +132,14 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   const isGerencia = Boolean(
     currentPersona && (currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE')
   );
+  const isSubGerencia = Boolean(
+    currentPersona && (currentPersona.department === 'SUB_GERENCIA' || currentPersona.profileType === 'SUB_GERENTE')
+  );
 
   // Helper to dynamically compute current assigned officers from allPersonas so any change by Gerencia is reflected immediately
   const getOfficersForArea = (area: AreaType, fallback: string): string => {
     if (!allPersonas || allPersonas.length === 0) return fallback;
-    if (area === 'TODOS') return isGerencia ? 'Gerencia General & Auditoría Integral' : 'Coordinación General de Oficina';
+    if (area === 'TODOS') return isGerencia ? 'Gerencia General & Auditoría Integral' : isSubGerencia ? 'Sub Gerencia & Supervisión Integral' : 'Coordinación General de Oficina';
     const matching = allPersonas.filter(p => p.department === area);
     if (matching.length > 0) {
       return matching.map(p => p.name).join(' / ');
@@ -150,13 +154,22 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
             id: 'GERENCIA' as AreaType,
             label: 'Gerencia General (Privado)',
             shortLabel: 'GERENCIA',
-            officer: getOfficersForArea('GERENCIA', 'Yamila / Laura / Domingo'),
+            officer: getOfficersForArea('GERENCIA', 'Yamila / Domingo'),
             icon: <Shield className="w-4 h-4 text-amber-400" />,
             description: 'Tareas estratégicas, confidenciales y de dirección exclusivas del sector de Gerencia General.',
             badgeClass: 'text-amber-300 bg-amber-950/70 border-amber-700/70',
           },
         ]
       : []),
+    {
+      id: 'SUB_GERENCIA' as AreaType,
+      label: 'Sub Gerencia / Vicepresidencia',
+      shortLabel: 'SUB GERENCIA',
+      officer: getOfficersForArea('SUB_GERENCIA', 'Laura'),
+      icon: <Crown className="w-4 h-4 text-rose-400" />,
+      description: 'Supervisión transversal, control de gestión y apoyo a la dirección ejecutiva.',
+      badgeClass: 'text-rose-300 bg-rose-950/70 border-rose-600/70',
+    },
     {
       id: 'OPERACIONES',
       label: 'Operaciones & Logística',
@@ -213,7 +226,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
     },
   ];
 
-  const activeTabId = (!isGerencia && selectedArea === 'GERENCIA') ? 'OPERACIONES' : (selectedArea || 'OPERACIONES');
+  const activeTabId = (!isGerencia && selectedArea === 'GERENCIA') ? (isSubGerencia ? 'SUB_GERENCIA' : 'OPERACIONES') : (selectedArea || 'OPERACIONES');
   const activeTabDef = postTabs.find(p => p.id === activeTabId) || postTabs[0];
   const effectiveSearch = (globalSearchTerm || localSearch).toLowerCase().trim();
 
