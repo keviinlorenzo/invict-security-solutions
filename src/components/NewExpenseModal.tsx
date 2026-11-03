@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Expense, ExpenseCategory, UserPersona, PaymentMethodType, ExpenseItemBreakdown } from '../types';
+import { scanAndAnalyzeReceiptFile } from '../utils/receiptScannerService';
 import {
   X,
   Receipt,
@@ -164,98 +165,65 @@ export const NewExpenseModal: React.FC<NewExpenseModalProps> = ({
     setAnalyzeSuccessMessage(null);
 
     try {
-      let fileData: string | undefined = undefined;
-      let extractedText: string = '';
-
-      if (file.type.startsWith('image/') || file.type === 'application/pdf') {
-        try {
-          fileData = await fileToBase64(file);
-        } catch (e) {
-          console.warn('Base64 conversion failed:', e);
-        }
-      }
-
-      extractedText = await extractTextFromFile(file);
-
-      // Call backend API /api/expenses/analyze-receipt
-      const res = await fetch('/api/expenses/analyze-receipt', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fileData,
-          fileName: file.name,
-          fileType: file.type,
-          extractedText,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`HTTP error ${res.status}`);
-      }
-
-      const responseJson = await res.json();
-      const data = responseJson.data;
+      const data = await scanAndAnalyzeReceiptFile(file);
 
       if (data) {
-        // 1. Merchant / Provider (Company issuing ticket)
+        // 1. Emisor / Comercio
         if (data.provider) {
           setProvider(data.provider);
         }
 
-        // 2. Final TOTAL Amount
+        // 2. Monto TOTAL real del comprobante
         if (data.totalAmount && data.totalAmount > 0) {
           setAmount(String(Math.round(data.totalAmount)));
         }
 
-        // 3. Invoice Number
+        // 3. Número de Comprobante / Factura
         if (data.invoiceNumber) {
           setInvoiceNumber(data.invoiceNumber);
         }
 
-        // 4. Date
+        // 4. Fecha de emisión
         if (data.date) {
           setDate(data.date);
           setPaymentDate(data.date);
           setCheckDeliveryDate(data.date);
         }
 
-        // 5. Category
+        // 5. Categoría
         if (data.category && GASTOS_COMUNES.includes(data.category as any)) {
           setCategory(data.category as ExpenseCategory);
         }
 
-        // 6. Payment Method
+        // 6. Método de pago
         if (data.paymentMethod) {
           setPaymentMethod(data.paymentMethod as PaymentMethodType);
         }
 
-        // 7. Items Breakdown
+        // 7. Ítems detallados
         if (Array.isArray(data.items) && data.items.length > 0) {
           setItems(data.items);
         }
 
         setPaymentStatus('Pagado');
+        const formattedTotal = Math.round(data.totalAmount || 0).toLocaleString('es-AR');
         setNotes(
-          `Comprobante verificado: ${file.name}. Comercio emisor: ${data.provider || 'Comercio local'}. Monto total analizado: $ ${Math.round(data.totalAmount || 0).toLocaleString('es-AR')}.`
+          `Comprobante verificado: ${file.name}. Comercio emisor: ${data.provider || 'Comercio local'}. Monto total analizado: $ ${formattedTotal}. Método: ${data.method || 'Auto'}`
         );
 
         setAnalyzeSuccessMessage(
           `✓ Comprobante "${file.name}" leído y analizado con éxito.\n` +
           `• Empresa/Comercio emisor: ${data.provider || 'Identificado'}\n` +
-          `• Monto TOTAL final: $ ${Math.round(data.totalAmount || 0).toLocaleString('es-AR')}\n` +
+          `• Monto TOTAL final: $ ${formattedTotal}\n` +
+          (data.invoiceNumber ? `• N° Comprobante: ${data.invoiceNumber}\n` : '') +
           `• ${data.items?.length || 0} ítems y productos detallados cargados en el desglose.`
         );
       }
     } catch (err: any) {
       console.warn('Error analyzing receipt document:', err);
-      // Fallback: populate basic info from filename
       const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
       const detectedName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
       setProvider(detectedName);
-      setAmount('38500');
-      setInvoiceNumber(`T-0001-${Math.floor(100000 + Math.random() * 900000)}`);
       setNotes(`Comprobante adjuntado: ${file.name}. Datos cargados para verificación manual.`);
       setAnalyzeSuccessMessage(`Archivo "${file.name}" cargado. Por favor verifica los campos y el monto total.`);
     } finally {

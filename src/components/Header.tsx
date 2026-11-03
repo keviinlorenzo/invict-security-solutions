@@ -135,7 +135,7 @@ export const Header: React.FC<HeaderProps> = ({
   const totalAlertsCount = delayedTasks.length + personalMentions.length;
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between px-2.5 sm:px-6 py-2 sm:py-2.5 bg-[#0d0f14] border-b border-[#222734] shadow-sm select-none w-full max-w-full overflow-x-hidden">
+    <header className="sticky top-0 z-50 flex items-center justify-between px-2.5 sm:px-6 py-2 sm:py-2.5 bg-[#0d0f14] border-b border-[#222734] shadow-sm select-none w-full max-w-full">
       {/* Zone 1: INVICT Logo & Institutional Tag */}
       <div className="flex items-center gap-2 sm:gap-4 shrink-0">
         <div

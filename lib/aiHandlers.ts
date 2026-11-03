@@ -214,7 +214,7 @@ Devuelve ÚNICAMENTE un JSON válido (sin formato markdown ni texto adicional) c
         }
 
         const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-2.5-flash',
           contents,
           config: {
             responseMimeType: 'application/json',
