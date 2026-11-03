@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { InvictLogo } from './InvictLogo';
-import { UserPersona, Task, InternalMessage } from '../types';
+import { UserPersona, Task, InternalMessage, AreaType } from '../types';
 import { HeaderPeriodSelector } from './HeaderPeriodSelector';
 import {
   Bell,
@@ -53,6 +53,7 @@ interface HeaderProps {
   onExportPeriodPDF?: () => void;
   totalEmailAlertsCount?: number;
   onSelectMentionMessage?: (messageId: string, taskId?: string) => void;
+  selectedArea?: AreaType;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -82,6 +83,7 @@ export const Header: React.FC<HeaderProps> = ({
   onExportPeriodPDF,
   totalEmailAlertsCount = 0,
   onSelectMentionMessage,
+  selectedArea = 'TODOS',
 }) => {
   const [showPersonaMenu, setShowPersonaMenu] = useState(false);
   const [showNotificationMenu, setShowNotificationMenu] = useState(false);
@@ -89,10 +91,16 @@ export const Header: React.FC<HeaderProps> = ({
   const [showFixedPostAlert, setShowFixedPostAlert] = useState(false);
 
   const isGerencia = currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE';
+  const effectiveArea: AreaType = (!isGerencia && selectedArea === 'GERENCIA')
+    ? (currentPersona.department || 'OPERACIONES')
+    : selectedArea;
 
-  // Compute urgent and delayed tasks for the notifications center
+  // Compute urgent and delayed tasks strictly synchronized with the selected Period and Area/Puesto in view
   const delayedTasks = tasks.filter(t => {
     if (t.status === 'Completada') return false;
+    if (!isGerencia && t.area === 'GERENCIA') return false;
+    if ((t.monthPeriod || '2026-10') !== currentPeriod) return false;
+    if (effectiveArea && effectiveArea !== 'TODOS' && t.area !== effectiveArea) return false;
     const { status } = calculateDaysRemaining(t.dueDate, t.completedDate);
     return status === 'vencida' || status === 'urgente_48h';
   });
@@ -420,10 +428,15 @@ export const Header: React.FC<HeaderProps> = ({
               />
               <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-[#121620] border border-[#2a3244] rounded-2xl shadow-2xl z-50 overflow-hidden">
                 <div className="px-4 py-3 bg-[#181d2a] border-b border-[#262e40] flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-[#BE2629]" />
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">
-                      Centro de Alertas Operativas
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-[#BE2629]" />
+                      <span className="text-xs font-bold text-white uppercase tracking-wider">
+                        Centro de Alertas Operativas
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-cyan-400 block mt-0.5">
+                      Sincronizado con vista: {effectiveArea === 'TODOS' ? 'Consolidado (Todos los puestos)' : `Puesto ${effectiveArea}`}
                     </span>
                   </div>
                   <span className="text-[10px] font-mono text-slate-400">
@@ -433,14 +446,14 @@ export const Header: React.FC<HeaderProps> = ({
 
                 <div className="max-h-80 overflow-y-auto divide-y divide-[#1f2535]">
 
-                  {/* Tareas Vencidas o en 48hs */}
+                  {/* Tareas Vencidas o en 48hs del puesto seleccionado */}
                   {delayedTasks.length > 0 && (
                     <div className="p-3">
                       <div className="flex items-center gap-1.5 text-amber-400 text-[11px] font-bold uppercase mb-1.5">
                         <Clock className="w-3.5 h-3.5 text-amber-400" />
-                        Tareas en Riesgo o Vencidas ({delayedTasks.length})
+                        Tareas en Riesgo o Vencidas · {effectiveArea === 'TODOS' ? 'Consolidado' : effectiveArea} ({delayedTasks.length})
                       </div>
-                      {delayedTasks.slice(0, 4).map(task => {
+                      {delayedTasks.map(task => {
                         const { label, badgeClass } = calculateDaysRemaining(task.dueDate, task.completedDate);
                         return (
                           <div

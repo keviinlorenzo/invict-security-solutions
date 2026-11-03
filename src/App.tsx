@@ -136,7 +136,12 @@ export default function App() {
 
   // UI state
   const [activeTab, setActiveTab] = useState<ActiveTab>('tasks');
-  const [selectedArea, setSelectedArea] = useState<AreaType>('TODOS');
+  const [selectedArea, setSelectedArea] = useState<AreaType>(() => {
+    const savedId = localStorage.getItem('invict_active_persona_id');
+    const list = localStorage.getItem('invict_personas') ? JSON.parse(localStorage.getItem('invict_personas')!) : USER_PERSONAS;
+    const active = list.find((p: UserPersona) => p.id === savedId) || list[0];
+    return (active?.department as AreaType) || 'TODOS';
+  });
   const [searchTerm, setSearchTerm] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -287,6 +292,7 @@ export default function App() {
     storeSession(session);
     setAuthSession(session);
     setCurrentPersona(user);
+    setSelectedArea((user.department as AreaType) || 'TODOS');
     const isUserGerencia = user.department === 'GERENCIA' || user.profileType === 'GERENTE';
     if (!isUserGerencia && activeTab === 'dashboard') {
       setActiveTab('tasks');
@@ -1071,9 +1077,11 @@ export default function App() {
     setActiveTab('feed');
   };
 
-  // Counters
+  // Counters synchronized with the selected Period and Area/Puesto in view
   const urgentTasksCount = visibleTasks.filter(t => {
     if (t.status === 'Completada') return false;
+    if ((t.monthPeriod || DEFAULT_PERIOD) !== currentPeriod) return false;
+    if (selectedArea && selectedArea !== 'TODOS' && t.area !== selectedArea) return false;
     return t.priority === 'Urgente';
   }).length;
 
@@ -1121,6 +1129,7 @@ export default function App() {
         allPersonas={personas}
         onSelectPersona={(p) => {
           setCurrentPersona(p);
+          setSelectedArea((p.department as AreaType) || 'TODOS');
           const pIsGerencia = p.department === 'GERENCIA' || p.profileType === 'GERENTE';
           if (!pIsGerencia && activeTab === 'dashboard') {
             setActiveTab('tasks');
@@ -1156,6 +1165,7 @@ export default function App() {
         onExportPeriodPDF={handleExportCurrentPeriodPDF}
         totalEmailAlertsCount={emailLogs.length}
         onSelectMentionMessage={handleNavigateToMentionMessage}
+        selectedArea={selectedArea}
       />
 
       {/* Body Layout */}
