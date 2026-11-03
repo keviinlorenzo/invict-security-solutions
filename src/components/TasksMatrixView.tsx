@@ -28,7 +28,9 @@ import {
   CheckSquare,
   Shield,
   Eye,
-  EyeOff
+  EyeOff,
+  User,
+  Smartphone
 } from 'lucide-react';
 import { calculateDaysRemaining, formatDateLocale, formatPeriodName } from '../utils/dateUtils';
 import { getDayOfWeekLabel, getDayOfWeekFromDateString, isMonthlyTaskStoppedForPeriod } from '../utils/monthRenewalService';
@@ -95,6 +97,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   onOpenAdminSheets,
 }) => {
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
+  const [mobileLayout, setMobileLayout] = useState<'cards' | 'table'>('cards');
   const [statusFilter, setStatusFilter] = useState<'TODOS' | 'SOLO_PENDIENTES' | TaskStatus>('TODOS');
   const [natureFilter, setNatureFilter] = useState<'TODAS' | TaskNature>('TODAS');
   const [deadlineQuickFilter, setDeadlineQuickFilter] = useState<'TODAS' | 'HOY' | '48HS' | 'VENCIDAS'>('TODAS');
@@ -589,6 +592,30 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
             </button>
           </div>
 
+          {/* Mobile Layout Switcher (Tarjetas vs Tabla en Celulares) */}
+          {viewMode === 'table' && (
+            <div className="flex md:hidden items-center bg-[#161b26] border border-[#263044] rounded-xl p-0.5">
+              <button
+                type="button"
+                onClick={() => setMobileLayout('cards')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  mobileLayout === 'cards' ? 'bg-[#BE2629] text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                📱 Tarjetas
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileLayout('table')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  mobileLayout === 'table' ? 'bg-[#BE2629] text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                💻 Tabla
+              </button>
+            </div>
+          )}
+
           {/* Quick Deadline Selector */}
           <div className="flex items-center gap-1 bg-[#161b26] border border-[#263044] rounded-xl px-2 py-1 text-xs">
             <span className="text-[11px] text-slate-400 font-semibold">Plazo:</span>
@@ -850,9 +877,176 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
 
       {/* 4. Data Presentation: Table or Kanban */}
       {viewMode === 'table' ? (
-        <div className="bg-[#121620] border border-[#22293b] rounded-2xl shadow overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+        <div className="space-y-3">
+          {/* Mobile Task Cards (Diseño Táctil y Sencillo para Celulares) */}
+          {mobileLayout === 'cards' && (
+            <div className="md:hidden space-y-2.5">
+              {filteredTasks.map((task) => {
+                const daysInfo = calculateDaysRemaining(task.dueDate, task.completedDate);
+                const isMonthlyStopped = Boolean(
+                  task.monthlyRecurrenceStopped ||
+                    isMonthlyTaskStoppedForPeriod(task.area, task.title, task.monthPeriod || currentPeriod, tasks)
+                );
+                return (
+                  <div
+                    key={task.id}
+                    onClick={() => onSelectTask(task)}
+                    className={`p-3.5 rounded-2xl border transition-all cursor-pointer active:scale-[0.99] space-y-2.5 ${
+                      task.status === 'Completada'
+                        ? 'bg-[#0f141f]/70 border-[#1f283c] opacity-80'
+                        : daysInfo.status === 'vencida'
+                        ? 'bg-[#181116] border-red-900/60 shadow-sm'
+                        : 'bg-[#121622] border-[#222b3d] hover:border-[#354360] shadow-sm'
+                    }`}
+                  >
+                    {/* Fila Superior: Área, Naturaleza, Prioridad y Estado de Vencimiento */}
+                    <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-[10px] text-slate-200 px-2 py-0.5 bg-[#1b2232] rounded border border-[#283248]">
+                          {task.area}
+                        </span>
+                        {renderNatureBadge(task.nature, task)}
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                            task.priority === 'Urgente'
+                              ? 'text-red-300 bg-red-950/70 border border-red-800'
+                              : task.priority === 'Alta'
+                              ? 'text-amber-300 bg-amber-950/50'
+                              : 'text-slate-400'
+                          }`}
+                        >
+                          {task.priority}
+                        </span>
+                      </div>
+
+                      <span
+                        className={`inline-flex items-center gap-1 font-mono text-[10px] font-semibold px-2 py-0.5 rounded border shrink-0 ${daysInfo.badgeClass}`}
+                      >
+                        {daysInfo.status === 'vencida' && <AlertTriangle className="w-3 h-3 text-red-400" />}
+                        {daysInfo.status === 'urgente_48h' && <Clock className="w-3 h-3 text-amber-400" />}
+                        {daysInfo.status === 'completada' && <Check className="w-3 h-3 text-emerald-400" />}
+                        {daysInfo.label}
+                      </span>
+                    </div>
+
+                    {/* Título & Detalle */}
+                    <div>
+                      <h4 className="text-sm font-bold text-white leading-snug">
+                        {task.title}
+                      </h4>
+                      {task.notes && (
+                        <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                          {task.notes}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Responsable & Fecha Límite */}
+                    <div className="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-[#1a2130]">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="text-slate-200 font-medium truncate">{task.assignee}</span>
+                      </div>
+                      <div className="font-mono text-[11px] text-slate-400 shrink-0 ml-2">
+                        Vence: <strong className="text-slate-200">{formatDateLocale(task.dueDate)}</strong>
+                      </div>
+                    </div>
+
+                    {/* Barra de Acciones Táctiles: Estado en 1 Clic + Repetición + Comentarios */}
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#1a2130]">
+                      <button
+                        type="button"
+                        onClick={(e) => handleCycleStatus(e, task)}
+                        className={`flex items-center gap-1.5 text-xs font-bold rounded-xl px-3 py-1.5 border transition-transform active:scale-95 cursor-pointer ${
+                          task.status === 'Completada'
+                            ? 'text-emerald-300 bg-emerald-950/80 border-emerald-700 shadow-sm'
+                            : task.status === 'En curso'
+                            ? 'text-blue-300 bg-blue-950/80 border-blue-700'
+                            : task.status === 'Urgente/Prioritaria'
+                            ? 'text-red-300 bg-red-950/80 border-red-700 animate-pulse'
+                            : 'text-slate-300 bg-[#161d2b] border-[#29364d]'
+                        }`}
+                        title="Toca para cambiar de estado"
+                      >
+                        {task.status === 'Completada' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                        <span>{task.status}</span>
+                      </button>
+
+                      <div className="flex items-center gap-1">
+                        {(task.nature || 'Fija Mensual') === 'Fija Mensual' && onToggleMonthlyRecurrence && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleMonthlyRecurrence(task, !isMonthlyStopped);
+                            }}
+                            className={`px-2 py-1 text-[11px] font-bold rounded-lg border transition-colors cursor-pointer ${
+                              isMonthlyStopped
+                                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60'
+                                : 'bg-amber-950/70 text-amber-200 border-amber-700/60'
+                            }`}
+                          >
+                            {isMonthlyStopped ? 'Reactivar' : 'Frenar'}
+                          </button>
+                        )}
+
+                        {task.nature === 'Fija Semanal' && onToggleWeeklyRecurrence && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleWeeklyRecurrence(task, !task.weeklyRecurrenceStopped);
+                            }}
+                            className={`px-2 py-1 text-[11px] font-bold rounded-lg border transition-colors cursor-pointer ${
+                              task.weeklyRecurrenceStopped
+                                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60'
+                                : 'bg-purple-950/70 text-purple-200 border-purple-700/60'
+                            }`}
+                          >
+                            {task.weeklyRecurrenceStopped ? 'Reactivar' : 'Parar'}
+                          </button>
+                        )}
+
+                        <span className="flex items-center gap-1 px-2 py-1 text-[11px] text-slate-400 bg-[#151c27] rounded-lg border border-[#232d3f]">
+                          <MessageSquare className="w-3 h-3" />
+                          <span>{task.commentsCount || 0}</span>
+                        </span>
+
+                        {onDeleteTask && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm(`¿Deseas retirar la tarea "${task.title}" de la planilla?`)) {
+                                onDeleteTask(task.id);
+                              }
+                            }}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-950/40"
+                            title="Eliminar tarea"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filteredTasks.length === 0 && (
+                <div className="p-8 text-center bg-[#121620] border border-[#22293b] rounded-2xl text-slate-400 text-xs">
+                  No hay tareas registradas con los filtros seleccionados.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Desktop Table View */}
+          <div className={`bg-[#121620] border border-[#22293b] rounded-2xl shadow overflow-hidden ${
+            mobileLayout === 'cards' ? 'hidden md:block' : 'block'
+          }`}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-[#161b26] border-b border-[#252c3e] text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
                   <th className="py-3 px-3.5">Puesto / Área</th>
@@ -1072,6 +1266,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
             </table>
           </div>
         </div>
+      </div>
       ) : (
         /* KANBAN VIEW */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

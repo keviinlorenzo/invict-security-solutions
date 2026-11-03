@@ -45,6 +45,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { setPersonaPassword, removePersonaCredential } from './utils/userCredentialsService';
 import { BonoChatAssistant } from './components/BonoChatAssistant';
 import { DesktopPwaInstallModal } from './components/DesktopPwaInstallModal';
+import { MobileNavBar } from './components/MobileNavBar';
 import {
   AuthSession,
   getStoredSession,
@@ -1496,7 +1497,7 @@ export default function App() {
         />
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto p-3 sm:p-6 bg-[#090b0f] flex flex-col justify-between">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 pb-24 md:pb-6 bg-[#090b0f] flex flex-col justify-between">
           <div className="max-w-7xl mx-auto w-full space-y-6">
             {/* Banner de Notificación de Mención (@) con acceso directo al mensaje */}
             {unreadDirectMentions.length > 0 && (
@@ -1817,6 +1818,34 @@ export default function App() {
         onOpenPwaModal={() => setIsDesktopPwaModalOpen(true)}
         onOpenNewTaskModal={() => setIsNewTaskModalOpen(true)}
         onOpenNewExpenseModal={() => setIsNewExpenseModalOpen(true)}
+      />
+
+      {/* Mobile Navigation Bar (Fixed for Smartphones) */}
+      <MobileNavBar
+        activeTab={activeTab}
+        onTabChange={(tab) => {
+          if (tab === 'dashboard' && !isCurrentUserGerencia) {
+            showToast('Acceso Restringido: El Dashboard Gerencial es exclusivo de Dirección General.');
+            setActiveTab('tasks');
+            return;
+          }
+          setActiveTab(tab);
+        }}
+        selectedArea={selectedArea}
+        onAreaChange={setSelectedArea}
+        urgentTasksCount={urgentTasksCount}
+        unreadMentionsCount={unreadMentionsCount}
+        currentPersona={currentPersona}
+        onOpenProfileModal={() => {
+          if (isCurrentUserGerencia) {
+            setIsProfileModalOpen(true);
+          } else {
+            showToast('Acceso Bloqueado: Solo Gerencia General puede conmutar de puesto.');
+          }
+        }}
+        onOpenPersonnelModal={() => setIsPersonnelModalOpen(true)}
+        onOpenPwaModal={() => setIsDesktopPwaModalOpen(true)}
+        onLogout={handleLogout}
       />
     </div>
   );

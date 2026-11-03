@@ -293,7 +293,7 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
     <>
       {/* Floating Action Button at Bottom Right */}
       {!isOpen && (
-        <div className="fixed bottom-6 right-6 z-40 flex items-center gap-3">
+        <div className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 flex items-center gap-3">
           {/* Reminder toast if there are urgent tasks - Clicking redirects directly to tasks panel */}
           {hasUnreadAlert && urgentUserTasks.length > 0 && (
             <div
@@ -342,7 +342,7 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
       {/* Expanded Chat Drawer / Modal */}
       {isOpen && (
         <div
-          className={`fixed bottom-6 right-6 z-50 w-[95vw] sm:w-[420px] bg-[#0e121a] border border-[#263248] rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200 ${
+          className={`fixed bottom-20 right-3 sm:bottom-6 sm:right-6 z-50 w-[94vw] sm:w-[420px] bg-[#0e121a] border border-[#263248] rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200 ${
             isMinimized ? 'h-16' : 'h-[580px] max-h-[85vh]'
           }`}
         >

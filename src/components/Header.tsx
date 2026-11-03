@@ -21,7 +21,8 @@ import {
   FileText,
   TrendingUp,
   Lock,
-  Laptop
+  Laptop,
+  Smartphone
 } from 'lucide-react';
 import { calculateDaysRemaining } from '../utils/dateUtils';
 import { PROFILE_METADATA } from '../utils/authService';
@@ -359,15 +360,16 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden md:inline">Nube Sincronizada</span>
         </div>
 
-        {/* Desktop PWA Install Button */}
+        {/* PWA Install Button (Mobile & Desktop) */}
         {onOpenPwaModal && (
           <button
             onClick={onOpenPwaModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:text-white bg-[#141926] hover:bg-emerald-950/60 border border-emerald-700/60 rounded-xl transition-all active:scale-95 cursor-pointer shadow-sm"
-            title="Instalar la aplicación en esta computadora de puesto (PWA nativa)"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-emerald-300 hover:text-white bg-emerald-950/30 hover:bg-emerald-950/60 border border-emerald-700/60 rounded-xl transition-all active:scale-95 cursor-pointer shadow-sm"
+            title="Instalar la aplicación en este celular o computadora (PWA)"
           >
-            <Laptop className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden lg:inline">Instalar en PC</span>
+            <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Instalar App</span>
+            <span className="sm:hidden text-[10px]">App</span>
           </button>
         )}
 
@@ -539,21 +541,6 @@ export const Header: React.FC<HeaderProps> = ({
             </>
           )}
         </div>
-
-        {/* Desktop App PWA Install Button */}
-        {onOpenPwaModal && (
-          <button
-            onClick={onOpenPwaModal}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-[#151a24] hover:bg-[#1d2433] text-slate-200 border border-[#263147] hover:border-[#BE2629]/50 transition-all cursor-pointer shadow-sm active:scale-95"
-            title="Instalar INVICT Security Solutions como aplicación nativa de escritorio (PWA)"
-          >
-            <Laptop className="w-3.5 h-3.5 text-[#BE2629]" />
-            <span className="hidden md:inline">App Escritorio</span>
-            <span className="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-              PWA
-            </span>
-          </button>
-        )}
 
         {/* Quick Action Add Button */}
         <div className="relative">

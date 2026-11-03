@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   X,
+  Smartphone,
   Laptop,
   Download,
   Monitor,
@@ -9,9 +10,11 @@ import {
   Shield,
   Layers,
   Sparkles,
-  HelpCircle,
-  Cpu,
-  Power
+  Share2,
+  PlusSquare,
+  Power,
+  ChevronRight,
+  Apple
 } from 'lucide-react';
 import { promptInstallPWA, isPWAInstalled } from '../utils/serviceWorkerManager';
 import { InvictLogo } from './InvictLogo';
@@ -27,7 +30,16 @@ export const DesktopPwaInstallModal: React.FC<DesktopPwaInstallModalProps> = ({
   onClose,
   onNotify,
 }) => {
-  const [activeOsTab, setActiveOsTab] = useState<'windows_chrome' | 'windows_edge' | 'macos'>('windows_chrome');
+  const detectDefaultTab = (): 'android' | 'ios' | 'desktop' => {
+    if (typeof navigator === 'undefined') return 'desktop';
+    const ua = navigator.userAgent.toLowerCase();
+    if (ua.includes('android')) return 'android';
+    if (ua.includes('iphone') || ua.includes('ipad') || ua.includes('ipod')) return 'ios';
+    return 'desktop';
+  };
+
+  const [activeTab, setActiveTab] = useState<'android' | 'ios' | 'desktop'>('desktop');
+  const [activeDesktopOs, setActiveDesktopOs] = useState<'windows_chrome' | 'windows_edge' | 'macos'>('windows_chrome');
   const [isInstalling, setIsInstalling] = useState(false);
   const [installStatus, setInstallStatus] = useState<string | null>(null);
   const [isStandalone, setIsStandalone] = useState(false);
@@ -35,6 +47,7 @@ export const DesktopPwaInstallModal: React.FC<DesktopPwaInstallModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setIsStandalone(isPWAInstalled());
+      setActiveTab(detectDefaultTab());
     }
   }, [isOpen]);
 
@@ -46,14 +59,14 @@ export const DesktopPwaInstallModal: React.FC<DesktopPwaInstallModalProps> = ({
     try {
       const outcome = await promptInstallPWA();
       if (outcome === 'accepted') {
-        setInstallStatus('¡Excelente! La aplicación se ha instalado correctamente en tu sistema operativo.');
-        onNotify?.('Aplicación instalada como App de escritorio nativa');
+        setInstallStatus('¡Excelente! La aplicación se ha instalado correctamente en tu dispositivo.');
+        onNotify?.('Aplicación instalada como App nativa');
         setIsStandalone(true);
       } else if (outcome === 'dismissed') {
         setInstallStatus('Se canceló la instalación. Puedes volver a intentarlo cuando desees.');
       } else {
         setInstallStatus(
-          'El navegador no mostró el diálogo automático (puede que ya esté instalada o estés en modo incógnito). Sigue los sencillos pasos manuales que figuran abajo según tu navegador.'
+          'Para completar la instalación en tu celular o computadora, sigue la guía paso a paso que figura debajo.'
         );
       }
     } catch (e) {
@@ -64,49 +77,49 @@ export const DesktopPwaInstallModal: React.FC<DesktopPwaInstallModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in">
       <div
-        className="w-full max-w-3xl bg-[#0f131c] border border-[#263248] rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
+        className="w-full max-w-2xl bg-[#0f131c] border border-[#263248] rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-5 bg-gradient-to-r from-[#141824] via-[#1a2030] to-[#141824] border-b border-[#252f44] flex items-center justify-between">
+        <div className="p-4 sm:p-5 bg-gradient-to-r from-[#141824] via-[#1a2030] to-[#141824] border-b border-[#252f44] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-[#BE2629]/20 text-[#BE2629] border border-[#BE2629]/30">
-              <Laptop className="w-6 h-6" />
+            <div className="p-2.5 rounded-2xl bg-[#BE2629]/20 text-[#BE2629] border border-[#BE2629]/30 shrink-0">
+              <Smartphone className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base sm:text-lg font-black text-white tracking-tight">
-                  Instalación de la App en Computadoras de Puesto (PWA)
+                  Instalar INVICT App en tu Celular o PC
                 </h3>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                  App Nativa de Escritorio
+                  App Móvil & Escritorio
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Guía oficial para implementar la plataforma en cada puesto de trabajo (Guardias, Operaciones, RRHH, Administración y Gerencia).
+                Accede a toda la plataforma con pantalla completa, sin barras de navegador y con carga ultrarrápida.
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-[#202737] transition-colors cursor-pointer"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-[#202737] transition-colors cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* 1-Click Install Banner */}
-        <div className="p-5 bg-[#141926] border-b border-[#222a3d] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
+        {/* 1-Click Install Banner for Android and Desktop Chrome */}
+        <div className="p-4 sm:p-5 bg-[#141926] border-b border-[#222a3d] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
             <InvictLogo size="sm" variant="isotype" />
             <div>
-              <h4 className="text-sm font-bold text-white">
-                {isStandalone ? 'Aplicación ya instalada en este equipo' : 'Instalación Rápida Automática'}
+              <h4 className="text-xs sm:text-sm font-bold text-white">
+                {isStandalone ? 'Aplicación ya instalada en este equipo' : 'Instalación Directa en 1 Clic'}
               </h4>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Crea un acceso directo en el Escritorio de Windows y ancla a la barra de tareas.
+              <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+                Agrega el icono de INVICT en la pantalla de inicio de tu celular o en el escritorio.
               </p>
             </div>
           </div>
@@ -114,175 +127,225 @@ export const DesktopPwaInstallModal: React.FC<DesktopPwaInstallModalProps> = ({
           <button
             onClick={handleTriggerInstall}
             disabled={isInstalling}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#BE2629] to-[#d62828] hover:brightness-110 active:scale-95 text-white font-bold text-xs shadow-lg shadow-red-950/60 flex items-center justify-center gap-2 transition-all cursor-pointer shrink-0 disabled:opacity-50"
+            className="px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#BE2629] to-[#d62828] hover:brightness-110 active:scale-95 text-white font-bold text-xs shadow-lg shadow-red-950/60 flex items-center justify-center gap-2 transition-all cursor-pointer shrink-0 disabled:opacity-50"
           >
             <Download className="w-4 h-4" />
-            <span>{isInstalling ? 'Instalando...' : 'Instalar en esta Computadora'}</span>
+            <span>{isInstalling ? 'Instalando...' : 'Instalar en este Dispositivo'}</span>
           </button>
         </div>
 
         {installStatus && (
-          <div className="mx-5 mt-4 p-3 rounded-xl bg-[#182133] border border-[#2b3a56] text-xs text-slate-200 flex items-start gap-2.5 animate-in fade-in">
+          <div className="mx-4 sm:mx-5 mt-3 p-3 rounded-xl bg-[#182133] border border-[#2b3a56] text-xs text-slate-200 flex items-start gap-2.5 animate-in fade-in">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
             <span>{installStatus}</span>
           </div>
         )}
 
-        {/* Navigation Tabs by Browser/OS */}
-        <div className="px-5 pt-4 bg-[#0d1017] border-b border-[#1c2434] flex items-center gap-2 overflow-x-auto">
+        {/* Navigation Tabs: Android / iPhone / PC */}
+        <div className="px-4 sm:px-5 pt-3 bg-[#0d1017] border-b border-[#1c2434] flex items-center gap-2 overflow-x-auto scrollbar-none">
           <button
-            onClick={() => setActiveOsTab('windows_chrome')}
-            className={`px-4 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2 cursor-pointer shrink-0 flex items-center gap-2 ${
-              activeOsTab === 'windows_chrome'
+            onClick={() => setActiveTab('android')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2 cursor-pointer shrink-0 flex items-center gap-1.5 ${
+              activeTab === 'android'
                 ? 'text-white border-[#BE2629] bg-[#141926]'
                 : 'text-slate-400 border-transparent hover:text-slate-200'
             }`}
           >
-            <Monitor className="w-4 h-4 text-blue-400" />
-            <span>Windows (Google Chrome)</span>
+            <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+            <span>📱 Celular Android</span>
           </button>
+
           <button
-            onClick={() => setActiveOsTab('windows_edge')}
-            className={`px-4 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2 cursor-pointer shrink-0 flex items-center gap-2 ${
-              activeOsTab === 'windows_edge'
+            onClick={() => setActiveTab('ios')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2 cursor-pointer shrink-0 flex items-center gap-1.5 ${
+              activeTab === 'ios'
                 ? 'text-white border-[#BE2629] bg-[#141926]'
                 : 'text-slate-400 border-transparent hover:text-slate-200'
             }`}
           >
-            <Monitor className="w-4 h-4 text-emerald-400" />
-            <span>Windows (Microsoft Edge)</span>
+            <Apple className="w-3.5 h-3.5 text-slate-200" />
+            <span>🍏 iPhone / iPad (iOS)</span>
           </button>
+
           <button
-            onClick={() => setActiveOsTab('macos')}
-            className={`px-4 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2 cursor-pointer shrink-0 flex items-center gap-2 ${
-              activeOsTab === 'macos'
+            onClick={() => setActiveTab('desktop')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2 cursor-pointer shrink-0 flex items-center gap-1.5 ${
+              activeTab === 'desktop'
                 ? 'text-white border-[#BE2629] bg-[#141926]'
                 : 'text-slate-400 border-transparent hover:text-slate-200'
             }`}
           >
-            <Laptop className="w-4 h-4 text-purple-400" />
-            <span>macOS (Chrome / Safari)</span>
+            <Laptop className="w-3.5 h-3.5 text-blue-400" />
+            <span>💻 Computadora (PC / Mac)</span>
           </button>
         </div>
 
         {/* Tab Contents */}
-        <div className="p-5 overflow-y-auto space-y-4 text-xs">
-          {activeOsTab === 'windows_chrome' && (
-            <div className="space-y-4">
+        <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs">
+          {/* TAB 1: CELULAR ANDROID */}
+          {activeTab === 'android' && (
+            <div className="space-y-3.5 animate-in fade-in">
               <div className="p-4 rounded-2xl bg-[#141926] border border-[#242e42] space-y-3">
-                <span className="font-bold text-white uppercase tracking-wider text-[11px] block text-[#BE2629]">
-                  Paso a paso en Google Chrome para cada PC:
+                <span className="font-bold text-white uppercase tracking-wider text-[11px] block text-emerald-400 flex items-center gap-1.5">
+                  <Smartphone className="w-4 h-4" />
+                  Instalación en Celular Android (Google Chrome o Samsung Internet):
                 </span>
-                <ol className="space-y-2.5 text-slate-300 list-decimal pl-4">
+                <ol className="space-y-3 text-slate-300 list-decimal pl-4 leading-relaxed">
                   <li>
-                    Abre la dirección web del sistema en <strong>Google Chrome</strong> en la computadora del puesto operativo.
+                    Si el botón superior <strong>"Instalar en este Dispositivo"</strong> no abrió el diálogo directo, abre el menú de tu navegador tocando los <strong>tres puntos verticales (⋮)</strong> en la esquina superior derecha de Chrome.
                   </li>
                   <li>
-                    En la barra de direcciones de Chrome (arriba a la derecha), busca el ícono de instalación que tiene forma de <strong>pantalla con una flecha hacia abajo</strong> (o presiona los tres puntos verticales ⋮ &gt; <em>"Instalar INVICT Security..."</em>).
+                    Busca y presiona la opción <strong>"Instalar aplicación"</strong> (o <strong>"Agregar a la pantalla principal"</strong>).
                   </li>
                   <li>
-                    Haz clic en <strong>"Instalar"</strong> en el cuadro emergente de confirmación.
+                    Confirma tocando <strong>"Instalar"</strong>.
                   </li>
                   <li>
-                    <strong>¡Listo!</strong> La aplicación se abrirá inmediatamente en una ventana dedicada e independiente sin la barra de direcciones web ni pestañas.
-                  </li>
-                  <li>
-                    Aparecerá un ícono con el escudo de INVICT en el <strong>Escritorio de Windows</strong> y podrás hacer clic derecho sobre él en la barra de tareas y elegir <em>"Anclar a la barra de tareas"</em>.
+                    <strong>¡Listo!</strong> La app se agregará a tu cajón de aplicaciones y a la pantalla de inicio de tu celular con el escudo de INVICT, abriendo a pantalla completa como cualquier app descargada de Google Play Store.
                   </li>
                 </ol>
               </div>
 
-              {/* Guard Station Recommendation */}
-              <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-800/50 text-amber-200 space-y-1">
-                <div className="flex items-center gap-2 font-bold text-xs text-amber-300">
-                  <Power className="w-4 h-4 text-amber-400" />
-                  <span>Recomendación para puestos de guardia (Kraft / Bodegas / Fuesmen)</span>
-                </div>
-                <p className="text-[11px] text-amber-200/80 leading-relaxed">
-                  Para que la app se abra automáticamente al encender la computadora del puesto: presiona <kbd className="px-1 py-0.5 rounded bg-black/40 font-mono text-[10px]">Win + R</kbd>, escribe <kbd className="px-1 py-0.5 rounded bg-black/40 font-mono text-[10px]">shell:startup</kbd> y arrastra el acceso directo de INVICT a esa carpeta. Así el vigilador siempre tendrá la matriz en pantalla.
+              <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-800/40 text-emerald-200 space-y-1">
+                <span className="font-bold text-xs text-emerald-300 block">✓ Ventajas en Celular:</span>
+                <p className="text-[11px] text-slate-300">
+                  • Vista táctil adaptada para operar con una sola mano.<br />
+                  • Sin barra de direcciones web que robe espacio en pantalla.<br />
+                  • Carga instantánea y acceso directo a tareas, planillas y novedades.
                 </p>
               </div>
             </div>
           )}
 
-          {activeOsTab === 'windows_edge' && (
-            <div className="space-y-4">
+          {/* TAB 2: IPHONE / IPAD */}
+          {activeTab === 'ios' && (
+            <div className="space-y-3.5 animate-in fade-in">
               <div className="p-4 rounded-2xl bg-[#141926] border border-[#242e42] space-y-3">
-                <span className="font-bold text-white uppercase tracking-wider text-[11px] block text-emerald-400">
-                  Paso a paso en Microsoft Edge:
+                <span className="font-bold text-white uppercase tracking-wider text-[11px] block text-cyan-400 flex items-center gap-1.5">
+                  <Apple className="w-4 h-4" />
+                  Instalación en iPhone o iPad (Safari iOS):
                 </span>
-                <ol className="space-y-2.5 text-slate-300 list-decimal pl-4">
+                <ol className="space-y-3 text-slate-300 list-decimal pl-4 leading-relaxed">
                   <li>
-                    Abre la aplicación en <strong>Microsoft Edge</strong>.
+                    Abre este sitio en <strong>Safari</strong> en tu iPhone o iPad.
                   </li>
                   <li>
-                    Haz clic en el ícono de tres puntos horizontales (<strong>...</strong>) en la esquina superior derecha.
+                    En la barra inferior de Safari, toca el botón de <strong>Compartir</strong> <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-blue-950 border border-blue-700 font-mono text-[11px] text-blue-300">⎋ Compartir</span> (el cuadrado con la flecha hacia arriba).
                   </li>
                   <li>
-                    Pasa el cursor por <strong>"Aplicaciones"</strong> y selecciona <strong>"Instalar este sitio como una aplicación"</strong> (o <em>"Instalar INVICT Security"</em>).
+                    Desliza hacia abajo en la lista de opciones y presiona <strong>"Agregar a inicio"</strong> (o <em>"Añadir a pantalla de inicio"</em> ⊞).
                   </li>
                   <li>
-                    En la ventana emergente, marca las casillas:
-                    <ul className="list-disc pl-4 mt-1 space-y-1 text-slate-400">
-                      <li>✓ Crear acceso directo en el escritorio</li>
-                      <li>✓ Anclar a la barra de tareas</li>
-                      <li>✓ Iniciar automáticamente al iniciar sesión en el dispositivo</li>
-                    </ul>
+                    En la esquina superior derecha, presiona <strong>"Agregar"</strong>.
                   </li>
                   <li>
-                    Haz clic en <strong>"Permitir"</strong>. La aplicación ahora se comporta 100% como un software de escritorio nativo.
+                    <strong>¡Listo!</strong> Quedará el icono oficial de <strong>INVICT</strong> en la pantalla de inicio de tu iPhone. Al abrirlo funcionará como una aplicación nativa sin marcos ni barra de Safari.
                   </li>
                 </ol>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-blue-950/30 border border-blue-800/40 text-blue-200 space-y-1">
+                <span className="font-bold text-xs text-blue-300 block">💡 Nota para iPhone:</span>
+                <p className="text-[11px] text-slate-300">
+                  Apple exige que la instalación de apps web en iOS se realice mediante el botón Compartir de Safari. El proceso toma solo 10 segundos y funciona en cualquier versión de iOS.
+                </p>
               </div>
             </div>
           )}
 
-          {activeOsTab === 'macos' && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-2xl bg-[#141926] border border-[#242e42] space-y-3">
-                <span className="font-bold text-white uppercase tracking-wider text-[11px] block text-purple-400">
-                  Instalación en computadoras Mac (Dirección / Gerencia):
-                </span>
-                <ol className="space-y-2.5 text-slate-300 list-decimal pl-4">
-                  <li>
-                    <strong>En Google Chrome para Mac:</strong> haz clic en el ícono de instalación en la barra de URL o ve a Menú ⋮ &gt; <em>"Instalar INVICT Security"</em>.
-                  </li>
-                  <li>
-                    <strong>En Safari (macOS Sonoma o posterior):</strong> haz clic en el menú <em>Archivo &gt; "Agregar al Dock"</em>.
-                  </li>
-                  <li>
-                    Se creará la app con el logo oficial en el Launchpad y en la barra Dock de macOS, abriéndose en modo ventana aislada sin interfaz de navegador.
-                  </li>
-                </ol>
+          {/* TAB 3: COMPUTADORA (WINDOWS / MAC) */}
+          {activeTab === 'desktop' && (
+            <div className="space-y-3.5 animate-in fade-in">
+              <div className="flex items-center gap-2 pb-1 border-b border-[#202738]">
+                <button
+                  onClick={() => setActiveDesktopOs('windows_chrome')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    activeDesktopOs === 'windows_chrome' ? 'bg-[#BE2629] text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Chrome
+                </button>
+                <button
+                  onClick={() => setActiveDesktopOs('windows_edge')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    activeDesktopOs === 'windows_edge' ? 'bg-[#BE2629] text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Edge
+                </button>
+                <button
+                  onClick={() => setActiveDesktopOs('macos')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    activeDesktopOs === 'macos' ? 'bg-[#BE2629] text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Mac
+                </button>
               </div>
+
+              {activeDesktopOs === 'windows_chrome' && (
+                <div className="p-4 rounded-2xl bg-[#141926] border border-[#242e42] space-y-2.5">
+                  <span className="font-bold text-white text-[11px] block text-[#BE2629]">
+                    Paso a paso en Google Chrome para PC:
+                  </span>
+                  <ol className="space-y-2 text-slate-300 list-decimal pl-4">
+                    <li>Haz clic en el icono de instalación en la barra de URL (arriba a la derecha) o menú ⋮ &gt; <em>"Instalar INVICT Security..."</em>.</li>
+                    <li>Haz clic en <strong>"Instalar"</strong>.</li>
+                    <li>Se creará el acceso directo en el Escritorio de Windows y podrás anclarlo a la barra de tareas.</li>
+                  </ol>
+                </div>
+              )}
+
+              {activeDesktopOs === 'windows_edge' && (
+                <div className="p-4 rounded-2xl bg-[#141926] border border-[#242e42] space-y-2.5">
+                  <span className="font-bold text-white text-[11px] block text-emerald-400">
+                    Paso a paso en Microsoft Edge:
+                  </span>
+                  <ol className="space-y-2 text-slate-300 list-decimal pl-4">
+                    <li>Menú (...) &gt; <strong>"Aplicaciones"</strong> &gt; <strong>"Instalar este sitio como una aplicación"</strong>.</li>
+                    <li>Marca "Crear acceso directo en el escritorio" y pulsa "Permitir".</li>
+                  </ol>
+                </div>
+              )}
+
+              {activeDesktopOs === 'macos' && (
+                <div className="p-4 rounded-2xl bg-[#141926] border border-[#242e42] space-y-2.5">
+                  <span className="font-bold text-white text-[11px] block text-purple-400">
+                    macOS (Safari / Chrome):
+                  </span>
+                  <p className="text-slate-300">
+                    En Safari: Menú Archivo &gt; <em>"Agregar al Dock"</em>. En Chrome: Menú ⋮ &gt; <em>"Instalar INVICT Security"</em>.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Advantages of PWA Desktop Mode */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-            <div className="p-3 rounded-xl bg-[#121622] border border-[#1e2738] space-y-1">
-              <span className="font-bold text-white block">Ventana Limpia</span>
-              <p className="text-[11px] text-slate-400">Sin distracciones, pestañas ajenas ni barras de navegación web.</p>
+          {/* Advantages */}
+          <div className="grid grid-cols-3 gap-2.5 pt-1">
+            <div className="p-2.5 rounded-xl bg-[#121622] border border-[#1e2738] text-center">
+              <span className="font-bold text-white block text-[11px]">📱 Pantalla Completa</span>
+              <span className="text-[10px] text-slate-400">Sin barras de navegador</span>
             </div>
-            <div className="p-3 rounded-xl bg-[#121622] border border-[#1e2738] space-y-1">
-              <span className="font-bold text-white block">Operatividad Offline</span>
-              <p className="text-[11px] text-slate-400">Service worker almacena en caché la matriz para seguir operando ante cortes de red.</p>
+            <div className="p-2.5 rounded-xl bg-[#121622] border border-[#1e2738] text-center">
+              <span className="font-bold text-white block text-[11px]">⚡ Carga Veloz</span>
+              <span className="text-[10px] text-slate-400">Caché offline nativa</span>
             </div>
-            <div className="p-3 rounded-xl bg-[#121622] border border-[#1e2738] space-y-1">
-              <span className="font-bold text-white block">Acceso en 1 Clic</span>
-              <p className="text-[11px] text-slate-400">Icono corporativo en el Escritorio para acceso veloz en cada cambio de guardia.</p>
+            <div className="p-2.5 rounded-xl bg-[#121622] border border-[#1e2738] text-center">
+              <span className="font-bold text-white block text-[11px]">🔔 Notificaciones</span>
+              <span className="text-[10px] text-slate-400">Alertas de tareas</span>
             </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-[#141824] border-t border-[#222a3d] flex items-center justify-between text-xs">
-          <span className="text-slate-400">
-            INVICT Security Solutions · Sistema PWA v1.0
+        <div className="p-3.5 sm:p-4 bg-[#141824] border-t border-[#222a3d] flex items-center justify-between text-xs">
+          <span className="text-slate-400 text-[11px]">
+            INVICT Security Solutions · App PWA Móvil & PC
           </span>
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-[#202737] hover:bg-[#283246] text-white font-bold transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-xl bg-[#202737] hover:bg-[#283246] text-white font-bold transition-colors cursor-pointer text-xs"
           >
             Entendido, Cerrar
           </button>
