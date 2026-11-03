@@ -6,7 +6,8 @@ import {
   EmployeeSalaryItem,
   FixedExpenseItem,
   BankExpenseItem,
-  ClientProfitabilityItem
+  ClientProfitabilityItem,
+  parseFlexibleHours
 } from '../data/managerialSheetsData';
 import { calculateDaysRemaining, formatCurrencyARS, formatDateLocale } from './dateUtils';
 
@@ -228,27 +229,34 @@ export function exportClientsToPDF(
 ) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const totalNetSum = clients.reduce((acc, c) => acc + c.totalNet, 0);
-  const totalHoursSum = clients.reduce((acc, c) => acc + c.totalHours, 0);
+  const totalHoursSum = clients.reduce(
+    (acc, c) => acc + parseFlexibleHours(c.totalHoursInput !== undefined ? c.totalHoursInput : c.totalHours).decimalHours,
+    0
+  );
 
-  const tableRows: any[] = clients.map((c, idx) => [
-    idx + 1,
-    c.clientName,
-    formatCurrencyARS(c.hourlyRate),
-    `${c.totalHours} hs`,
-    formatCurrencyARS(c.hourlyRate * c.totalHours),
-    formatCurrencyARS(c.vatAmount),
-    formatCurrencyARS(c.withholdings),
-    formatCurrencyARS(c.totalNet),
-    c.status,
-    c.invoiceNumber || '-',
-    c.dueDate || '-',
-  ]);
+  const tableRows: any[] = clients.map((c, idx) => {
+    const hInfo = parseFlexibleHours(c.totalHoursInput !== undefined ? c.totalHoursInput : c.totalHours);
+    const subtotal = Math.round(c.hourlyRate * hInfo.decimalHours);
+    return [
+      idx + 1,
+      c.clientName,
+      formatCurrencyARS(c.hourlyRate),
+      hInfo.formattedLabel,
+      formatCurrencyARS(subtotal),
+      formatCurrencyARS(c.vatAmount),
+      formatCurrencyARS(c.withholdings),
+      formatCurrencyARS(c.totalNet),
+      c.status,
+      c.invoiceNumber || '-',
+      c.dueDate || '-',
+    ];
+  });
 
   tableRows.push([
     '',
     'TOTAL FACTURACIÓN CLIENTES',
     '',
-    `${totalHoursSum} hs`,
+    parseFlexibleHours(totalHoursSum).formattedLabel,
     '',
     '',
     '',
@@ -324,15 +332,12 @@ export function exportSalariesToPDF(
   const tableRows: any[] = salaries.map((s) => {
     const recAmt = s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary;
     const extAmt = s.extraAmount !== undefined ? s.extraAmount : 0;
-    const netSueldo = Math.round(recAmt + extAmt);
+    const netSueldo = recAmt + extAmt;
     const netoCobrado = Math.max(0, netSueldo - s.advance);
-    const hoursLabel = s.hoursWorkedInput || (s.hoursWorked ? `${s.hoursWorked} hs` : '-');
     return [
       s.index,
       s.fullName,
       s.objectiveOrRole,
-      hoursLabel,
-      s.hourlyRate ? formatCurrencyARS(s.hourlyRate) : '-',
       formatCurrencyARS(recAmt),
       formatCurrencyARS(extAmt),
       formatCurrencyARS(netSueldo),
@@ -345,8 +350,6 @@ export function exportSalariesToPDF(
   tableRows.push([
     '',
     'TOTALES CONSOLIDADOS',
-    '',
-    '',
     '',
     formatCurrencyARS(totalRecibo),
     formatCurrencyARS(totalExtra),
@@ -362,8 +365,6 @@ export function exportSalariesToPDF(
       '#',
       'Apellido y Nombre',
       'Objetivo / Función',
-      'Horas',
-      'Valor Hora',
       'Recibo ($)',
       'X ($)',
       'Sueldo Neto ($)',
@@ -376,26 +377,24 @@ export function exportSalariesToPDF(
     headStyles: {
       fillColor: BRAND_RED,
       textColor: [255, 255, 255],
-      fontSize: 7.5,
+      fontSize: 8,
       fontStyle: 'bold',
       halign: 'center',
     },
-    bodyStyles: { fontSize: 7, textColor: [30, 41, 59] },
+    bodyStyles: { fontSize: 7.5, textColor: [30, 41, 59] },
     alternateRowStyles: { fillColor: [248, 250, 252] },
     columnStyles: {
-      0: { cellWidth: 7, halign: 'center' },
-      1: { cellWidth: 40, fontStyle: 'bold' },
-      2: { cellWidth: 44 },
-      3: { cellWidth: 20, halign: 'center' },
-      4: { cellWidth: 22, halign: 'right' },
-      5: { cellWidth: 25, halign: 'right' },
-      6: { cellWidth: 25, halign: 'right' },
-      7: { cellWidth: 27, halign: 'right', fontStyle: 'bold' },
-      8: { cellWidth: 23, halign: 'right' },
-      9: { cellWidth: 27, halign: 'right', fontStyle: 'bold' },
-      10: { cellWidth: 18, halign: 'center' },
+      0: { cellWidth: 8, halign: 'center' },
+      1: { cellWidth: 46, fontStyle: 'bold' },
+      2: { cellWidth: 54 },
+      3: { cellWidth: 28, halign: 'right' },
+      4: { cellWidth: 28, halign: 'right' },
+      5: { cellWidth: 30, halign: 'right', fontStyle: 'bold' },
+      6: { cellWidth: 26, halign: 'right' },
+      7: { cellWidth: 30, halign: 'right', fontStyle: 'bold' },
+      8: { cellWidth: 20, halign: 'center' },
     },
-    margin: { bottom: 18, left: 10, right: 10 },
+    margin: { bottom: 18, left: 14, right: 14 },
   });
 
   addWatermarkAndHeader(

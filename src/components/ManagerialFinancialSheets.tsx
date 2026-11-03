@@ -276,14 +276,19 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
     const updatedBilling = [...sheetsData.clientBilling];
     const item = { ...updatedBilling[index] };
     const currentIncludesVat = item.includesVat !== undefined ? item.includesVat : item.vatAmount > 0;
+    const effectiveHours =
+      item.totalHoursInput !== undefined
+        ? parseFlexibleHours(item.totalHoursInput).decimalHours
+        : item.totalHours;
 
     if (field === 'clientName') {
       item.clientName = String(value);
     } else if (field === 'hourlyRate') {
       const rate = Math.max(0, parseFloat(String(value)) || 0);
       item.hourlyRate = rate;
+      item.totalHours = effectiveHours;
       item.includesVat = currentIncludesVat;
-      const formulas = computeClientBillingFormulas(rate, item.totalHours, item.withholdings, currentIncludesVat);
+      const formulas = computeClientBillingFormulas(rate, effectiveHours, item.withholdings, currentIncludesVat);
       item.vatAmount = formulas.vatAmount;
       item.totalNet = formulas.totalNet;
     } else if (field === 'totalHours' || field === 'totalHoursInput') {
@@ -298,14 +303,16 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
     } else if (field === 'includesVat') {
       const nextIncludesVat = Boolean(value);
       item.includesVat = nextIncludesVat;
-      const formulas = computeClientBillingFormulas(item.hourlyRate, item.totalHours, item.withholdings, nextIncludesVat);
+      item.totalHours = effectiveHours;
+      const formulas = computeClientBillingFormulas(item.hourlyRate, effectiveHours, item.withholdings, nextIncludesVat);
       item.vatAmount = formulas.vatAmount;
       item.totalNet = formulas.totalNet;
     } else if (field === 'withholdings') {
       const ret = Math.max(0, parseFloat(String(value)) || 0);
       item.withholdings = ret;
+      item.totalHours = effectiveHours;
       item.includesVat = currentIncludesVat;
-      const formulas = computeClientBillingFormulas(item.hourlyRate, item.totalHours, ret, currentIncludesVat);
+      const formulas = computeClientBillingFormulas(item.hourlyRate, effectiveHours, ret, currentIncludesVat);
       item.vatAmount = formulas.vatAmount;
       item.totalNet = formulas.totalNet;
     } else if (field === 'status') {
@@ -383,7 +390,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
   };
 
   // -------------------------------------------------------------
-  // 2. SUELDOS PERSONAL - HORAS (ej: 271:38hs) × VALOR HORA ($) / RECIBO + X = SUELDO NETO
+  // 2. SUELDOS PERSONAL - RECIBO + X = SUELDO NETO
   // -------------------------------------------------------------
   const handleSalaryFieldChange = (
     index: number,
@@ -394,59 +401,16 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
     const item = { ...updatedSalaries[index] };
     const currentReceipt = item.receiptAmount !== undefined ? item.receiptAmount : item.netSalary;
     const currentExtra = item.extraAmount !== undefined ? item.extraAmount : 0;
-    const currentHours = item.hoursWorked || 0;
-    const currentRate = item.hourlyRate || 0;
 
     if (field === 'fullName') {
       item.fullName = String(value);
     } else if (field === 'objectiveOrRole') {
       item.objectiveOrRole = String(value);
-    } else if (field === 'hoursWorkedInput' || field === 'hoursWorked') {
-      const rawStr = String(value);
-      const parsed = parseFlexibleHours(rawStr);
-      item.hoursWorkedInput = rawStr;
-      item.hoursWorked = parsed.decimalHours;
-      if (parsed.decimalHours > 0 && currentRate > 0) {
-        const exactTotal = Math.round(parsed.decimalHours * currentRate);
-        item.netSalary = exactTotal;
-        if (currentReceipt > 0 && currentReceipt <= exactTotal) {
-          item.receiptAmount = currentReceipt;
-          item.extraAmount = Math.max(0, exactTotal - currentReceipt);
-        } else {
-          item.receiptAmount = 0;
-          item.extraAmount = exactTotal;
-        }
-      }
-    } else if (field === 'hourlyRate') {
-      const rate = Math.max(0, parseFloat(String(value)) || 0);
-      item.hourlyRate = rate;
-      if (currentHours > 0 && rate > 0) {
-        const exactTotal = Math.round(currentHours * rate);
-        item.netSalary = exactTotal;
-        if (currentReceipt > 0 && currentReceipt <= exactTotal) {
-          item.receiptAmount = currentReceipt;
-          item.extraAmount = Math.max(0, exactTotal - currentReceipt);
-        } else {
-          item.receiptAmount = 0;
-          item.extraAmount = exactTotal;
-        }
-      }
     } else if (field === 'receiptAmount') {
       const rec = Math.max(0, parseFloat(String(value)) || 0);
       item.receiptAmount = rec;
-      if (currentHours > 0 && currentRate > 0) {
-        const exactTotal = Math.round(currentHours * currentRate);
-        if (rec <= exactTotal) {
-          item.extraAmount = Math.max(0, exactTotal - rec);
-          item.netSalary = exactTotal;
-        } else {
-          item.extraAmount = currentExtra;
-          item.netSalary = Math.round(rec + currentExtra);
-        }
-      } else {
-        item.extraAmount = currentExtra;
-        item.netSalary = Math.round(rec + currentExtra);
-      }
+      item.extraAmount = currentExtra;
+      item.netSalary = Math.round(rec + currentExtra);
     } else if (field === 'extraAmount') {
       const ext = Math.max(0, parseFloat(String(value)) || 0);
       item.receiptAmount = currentReceipt;
@@ -476,9 +440,6 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
       index: newIdx,
       fullName: 'Nuevo Vigilador / Colaborador',
       objectiveOrRole: 'Vigilador General - Objetivo Operativo',
-      hoursWorked: 0,
-      hoursWorkedInput: '',
-      hourlyRate: 0,
       receiptAmount: defaultRecibo,
       extraAmount: defaultExtra,
       netSalary: defaultRecibo + defaultExtra,
@@ -487,7 +448,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
     };
     const updated = [...sheetsData.salaries, newRow];
     updateAndSaveData({ ...sheetsData, salaries: updated });
-    if (onNotify) onNotify('¡Colaborador agregado con soporte de horas exactas (ej: 271:38hs) × Valor Hora!');
+    if (onNotify) onNotify('¡Colaborador agregado con columnas RECIBO ($) y X ($) sincronizadas!');
   };
 
   const handleDeleteSalaryRow = (index: number) => {
@@ -1067,7 +1028,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                   <span>Planilla Interactiva: Clientes (Facturación)</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Modifica clientes, tarifas y horas directamente. Selecciona con un clic si aplica <strong>IVA (21%)</strong> (SÍ / NO) e ingresa las <strong>Retenciones</strong> manualmente para calcular el <strong>Total Neto</strong>.
+                  Modifica clientes, <strong>Tarifa Hora ($)</strong> y <strong>Horas Totales</strong> (soporta horas exactas con minutos sin decimales, ej: <strong>271:38hs</strong> o <strong>271:38</strong>). Selecciona si aplica <strong>IVA (21%)</strong> (SÍ / NO) e ingresa las <strong>Retenciones</strong> para calcular el <strong>Total Neto</strong>.
                 </p>
               </div>
 
@@ -1156,11 +1117,15 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                     <th className="py-2.5 px-3 min-w-[200px]">Cliente</th>
                     <th className="py-2.5 px-3 text-right min-w-[120px]">
                       <span className="block">Tarifa Hora ($)</span>
-                      <span className="text-[9px] text-blue-400 font-normal">Editable</span>
+                      <span className="text-[9px] text-blue-400 font-normal">Editable ($)</span>
                     </th>
-                    <th className="py-2.5 px-3 text-center min-w-[100px]">
-                      <span className="block">Horas Totales</span>
-                      <span className="text-[9px] text-blue-400 font-normal">Editable</span>
+                    <th className="py-2.5 px-3 text-center min-w-[125px]">
+                      <span className="block text-cyan-300">Horas Totales</span>
+                      <span className="text-[9px] text-cyan-400 font-normal font-mono">Ej: 720 o 271:38hs</span>
+                    </th>
+                    <th className="py-2.5 px-3 text-right min-w-[130px]">
+                      <span className="block text-sky-300">Subtotal ($)</span>
+                      <span className="text-[9px] text-sky-400 font-normal font-mono">fx: Horas × Tarifa</span>
                     </th>
                     <th className="py-2.5 px-3 text-right min-w-[175px]">
                       <span className="block">¿Cobra IVA (21%)?</span>
@@ -1181,6 +1146,10 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                 <tbody className="divide-y divide-[#1e2433] font-mono">
                   {filteredClients.map((client) => {
                     const originalIdx = sheetsData.clientBilling.findIndex((c) => c.id === client.id);
+                    const hInfo = parseFlexibleHours(
+                      client.totalHoursInput !== undefined ? client.totalHoursInput : client.totalHours
+                    );
+                    const subtotal = Math.round((client.hourlyRate || 0) * hInfo.decimalHours);
                     return (
                       <tr key={client.id} className="hover:bg-[#161b26]/70 transition-colors group">
                         {/* Cliente Name */}
@@ -1204,7 +1173,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                             <input
                               type="number"
                               min="0"
-                              step="100"
+                              step="any"
                               value={client.hourlyRate}
                               onChange={(e) => handleClientFieldChange(originalIdx, 'hourlyRate', e.target.value)}
                               className="w-full bg-[#161c28] border border-transparent focus:border-blue-500 rounded-lg pl-5 pr-2 py-1 text-xs text-slate-200 text-right focus:outline-none transition-colors"
@@ -1218,22 +1187,25 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                             type="text"
                             value={client.totalHoursInput !== undefined ? client.totalHoursInput : String(client.totalHours)}
                             onChange={(e) => handleClientFieldChange(originalIdx, 'totalHoursInput', e.target.value)}
-                            placeholder="Ej: 720 o 271:38"
-                            className="w-28 mx-auto bg-[#161c28] border border-transparent focus:border-blue-500 rounded-lg px-2 py-1 text-xs text-slate-200 text-center focus:outline-none transition-colors"
+                            placeholder="Ej: 720 o 271:38hs"
+                            className="w-28 mx-auto bg-[#161c28] border border-[#223446] focus:border-cyan-400 rounded-lg px-2 py-1 text-xs text-cyan-200 font-semibold text-center focus:outline-none transition-colors"
+                            title="Ingresar horas totales (ej: 720, 271:38hs o 271:38)"
                           />
-                          {(() => {
-                            const hInfo = parseFlexibleHours(
-                              client.totalHoursInput !== undefined ? client.totalHoursInput : client.totalHours
-                            );
-                            if (hInfo.isTimeFormat) {
-                              return (
-                                <span className="block text-[9px] text-cyan-400 mt-0.5 font-mono">
-                                  {hInfo.hoursPart}h {hInfo.minutesPart}m ({hInfo.decimalHours.toFixed(2)} hs)
-                                </span>
-                              );
-                            }
-                            return null;
-                          })()}
+                          {hInfo.isTimeFormat && (
+                            <span className="block text-[9px] text-cyan-400 mt-0.5 font-mono">
+                              {hInfo.hoursPart}h {hInfo.minutesPart}m ({hInfo.decimalHours.toFixed(2)} hs)
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Subtotal (Horas × Tarifa Hora) */}
+                        <td className="py-2 px-3 text-right text-sky-300 font-semibold bg-[#111622]/30">
+                          <div>{formatCurrencyARS(subtotal)}</div>
+                          {hInfo.isTimeFormat && (
+                            <span className="block text-[9px] text-sky-400/80 font-mono">
+                              {hInfo.formattedLabel} × {formatCurrencyARS(client.hourlyRate)}
+                            </span>
+                          )}
                         </td>
 
                         {/* IVA (Interactive Toggle SÍ 21% / NO + Automated Formula) */}
@@ -1334,8 +1306,28 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                       TOTAL CLIENTES FILTRADOS ({filteredClients.length})
                     </td>
                     <td className="py-3 px-3 text-right text-slate-400">-</td>
-                    <td className="py-3 px-3 text-center text-slate-300">
-                      {filteredClients.reduce((acc, c) => acc + c.totalHours, 0)} hs
+                    <td className="py-3 px-3 text-center text-cyan-300">
+                      {(() => {
+                        const totalDecHours = filteredClients.reduce(
+                          (acc, c) =>
+                            acc +
+                            parseFlexibleHours(
+                              c.totalHoursInput !== undefined ? c.totalHoursInput : c.totalHours
+                            ).decimalHours,
+                          0
+                        );
+                        return parseFlexibleHours(totalDecHours).formattedLabel;
+                      })()}
+                    </td>
+                    <td className="py-3 px-3 text-right text-sky-300">
+                      {formatCurrencyARS(
+                        filteredClients.reduce((acc, c) => {
+                          const h = parseFlexibleHours(
+                            c.totalHoursInput !== undefined ? c.totalHoursInput : c.totalHours
+                          ).decimalHours;
+                          return acc + Math.round((c.hourlyRate || 0) * h);
+                        }, 0)
+                      )}
                     </td>
                     <td className="py-3 px-3 text-right text-slate-300">
                       {formatCurrencyARS(filteredClients.reduce((acc, c) => acc + c.vatAmount, 0))}
@@ -1366,10 +1358,10 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
               <div>
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
                   <UserCheck className="w-4 h-4 text-amber-400" />
-                  <span>Planilla Interactiva: Sueldos Personal (Horas Exactas × Valor Hora / Recibo + X)</span>
+                  <span>Planilla Interactiva: Sueldos Personal (Recibo + X = Sueldo Neto)</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Podés ingresar <strong>Horas Trabajadas</strong> con minutos sin usar decimales (ej: <strong>271:38hs</strong> o <strong>271:38</strong>) y el <strong>Valor Hora ($)</strong> para calcular el sueldo exacto al minuto, sincronizado automáticamente con <strong>Recibo ($)</strong>, <strong>X ($)</strong> y <strong>Sueldo Neto ($)</strong>.
+                  Registra el monto en blanco en <strong>Recibo ($)</strong> y lo que cobra por fuera del bono en <strong>X ($)</strong>. Ambas columnas se suman automáticamente para obtener el <strong>Sueldo Neto ($)</strong> y restar anticipos.
                 </p>
               </div>
 
@@ -1466,14 +1458,6 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                     <th className="py-2.5 px-2.5 text-center w-10">#</th>
                     <th className="py-2.5 px-3 min-w-[180px]">Apellido y Nombre</th>
                     <th className="py-2.5 px-3 min-w-[180px]">Objetivo / Función</th>
-                    <th className="py-2.5 px-3 text-center min-w-[130px]">
-                      <span className="block text-cyan-300">Horas Trabajadas</span>
-                      <span className="text-[9px] text-cyan-400 font-normal font-mono">Ej: 240 o 271:38hs</span>
-                    </th>
-                    <th className="py-2.5 px-3 text-right min-w-[125px]">
-                      <span className="block text-cyan-300">Valor Hora ($)</span>
-                      <span className="text-[9px] text-cyan-400 font-normal">Editable ($)</span>
-                    </th>
                     <th className="py-2.5 px-3 text-right min-w-[130px]">
                       <span className="block text-sky-300">Recibo ($)</span>
                       <span className="text-[9px] text-sky-400 font-normal">En Blanco (Editable)</span>
@@ -1484,7 +1468,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                     </th>
                     <th className="py-2.5 px-3 text-right min-w-[135px]">
                       <span className="block text-emerald-300">Sueldo Neto ($)</span>
-                      <span className="text-[9px] text-emerald-400 font-normal font-mono">fx: Hs×$Hora / Rec+X</span>
+                      <span className="text-[9px] text-emerald-400 font-normal font-mono">fx: Recibo + X</span>
                     </th>
                     <th className="py-2.5 px-3 text-right min-w-[120px]">
                       <span className="block">Anticipo ($)</span>
@@ -1505,13 +1489,6 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                     const extAmt = sal.extraAmount !== undefined ? sal.extraAmount : 0;
                     const computedNetSalary = Math.round(recAmt + extAmt);
                     const netCobrado = Math.max(0, computedNetSalary - sal.advance);
-                    const rawHoursVal =
-                      sal.hoursWorkedInput !== undefined
-                        ? sal.hoursWorkedInput
-                        : sal.hoursWorked
-                        ? String(sal.hoursWorked)
-                        : '';
-                    const parsedHoursInfo = parseFlexibleHours(rawHoursVal);
                     return (
                       <tr key={sal.id} className="hover:bg-[#161b26]/70 transition-colors group">
                         <td className="py-2 px-2.5 text-center text-slate-500 font-sans">
@@ -1536,40 +1513,6 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                             onChange={(e) => handleSalaryFieldChange(originalIdx, 'objectiveOrRole', e.target.value)}
                             className="w-full bg-[#161c28] border border-transparent focus:border-amber-500 rounded-lg px-2.5 py-1 text-xs text-slate-300 focus:outline-none transition-colors"
                           />
-                        </td>
-
-                        {/* Horas Trabajadas (Acepta 271:38hs, 271:38, 240, etc.) */}
-                        <td className="py-2 px-3 text-center">
-                          <input
-                            type="text"
-                            value={rawHoursVal}
-                            onChange={(e) => handleSalaryFieldChange(originalIdx, 'hoursWorkedInput', e.target.value)}
-                            placeholder="Ej: 271:38hs"
-                            className="w-full bg-[#161c28] border border-[#223446] focus:border-cyan-400 rounded-lg px-2 py-1 text-xs text-cyan-200 text-center font-semibold focus:outline-none transition-colors"
-                            title="Ingresar horas trabajadas (ej: 271:38hs, 271:38 o 240)"
-                          />
-                          {parsedHoursInfo.decimalHours > 0 && (
-                            <span className="block text-[9px] text-cyan-400/90 mt-0.5 font-mono">
-                              {parsedHoursInfo.hoursPart}h {parsedHoursInfo.minutesPart}m ({parsedHoursInfo.decimalHours.toFixed(2)}h)
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Valor Hora ($) */}
-                        <td className="py-2 px-3 text-right">
-                          <div className="relative">
-                            <span className="absolute left-2 top-1 text-cyan-400/70 text-xs">$</span>
-                            <input
-                              type="number"
-                              min="0"
-                              step="10"
-                              value={sal.hourlyRate || ''}
-                              onChange={(e) => handleSalaryFieldChange(originalIdx, 'hourlyRate', e.target.value)}
-                              placeholder="0"
-                              className="w-full bg-[#161c28] border border-[#223446] focus:border-cyan-400 rounded-lg pl-5 pr-2 py-1 text-xs text-cyan-200 text-right font-semibold focus:outline-none transition-colors"
-                              title="Valor de la hora en $"
-                            />
-                          </div>
                         </td>
 
                         {/* RECIBO (En blanco) */}
@@ -1604,14 +1547,9 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                           </div>
                         </td>
 
-                        {/* Sueldo Neto (Automated Formula: Horas × Valor Hora / Recibo + X) */}
+                        {/* Sueldo Neto (Automated Formula: Recibo + X) */}
                         <td className="py-2 px-3 text-right text-emerald-300 font-bold bg-emerald-950/15">
-                          <div>{formatCurrencyARS(computedNetSalary)}</div>
-                          {parsedHoursInfo.decimalHours > 0 && (sal.hourlyRate || 0) > 0 && (
-                            <span className="block text-[9px] text-emerald-400/80 font-mono">
-                              {parsedHoursInfo.formattedLabel} × {formatCurrencyARS(sal.hourlyRate || 0)}
-                            </span>
-                          )}
+                          {formatCurrencyARS(computedNetSalary)}
                         </td>
 
                         {/* Anticipo */}
@@ -1669,19 +1607,6 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                     <td colSpan={3} className="py-3 px-3 text-white uppercase font-sans">
                       TOTAL SUELDOS ({filteredSalaries.length} colaboradores)
                     </td>
-                    <td className="py-3 px-3 text-center text-cyan-300">
-                      {(() => {
-                        const totalDecHours = filteredSalaries.reduce(
-                          (acc, s) => acc + (s.hoursWorked || parseFlexibleHours(s.hoursWorkedInput).decimalHours || 0),
-                          0
-                        );
-                        if (totalDecHours <= 0) return '-';
-                        const h = Math.floor(totalDecHours);
-                        const m = Math.round((totalDecHours - h) * 60);
-                        return m > 0 ? `${h}:${String(m).padStart(2, '0')} hs` : `${h} hs`;
-                      })()}
-                    </td>
-                    <td className="py-3 px-3 text-right text-slate-400">-</td>
                     <td className="py-3 px-3 text-right text-sky-300">
                       {formatCurrencyARS(
                         filteredSalaries.reduce((acc, s) => acc + (s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary), 0)

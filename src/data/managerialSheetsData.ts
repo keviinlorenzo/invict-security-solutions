@@ -33,12 +33,9 @@ export interface EmployeeSalaryItem {
   index: number;
   fullName: string;
   objectiveOrRole: string;
-  hoursWorked?: number;      // Horas trabajadas en decimal exacto (ej: 271:38 = 271.633333...)
-  hoursWorkedInput?: string; // Texto ingresado por el usuario (ej: "271:38" o "271:38hs" o "240")
-  hourlyRate?: number;       // Valor de la hora en $ ARS
-  receiptAmount?: number;    // Monto que cobra por RECIBO (en blanco)
-  extraAmount?: number;      // Monto que cobra en X (por fuera del bono)
-  netSalary: number;         // SUELDO NETO = Horas × Valor Hora (o Recibo + X)
+  receiptAmount?: number; // Monto que cobra por RECIBO (en blanco)
+  extraAmount?: number;   // Monto que cobra en X (por fuera del bono)
+  netSalary: number;      // SUELDO NETO = Recibo + X
   advance: number;
   receipt?: string;
   status: 'PAGO' | 'PENDIENTE';
@@ -421,6 +418,28 @@ export function getManagerialMonthData(period: string = getCurrentPeriodString()
       if (!parsed.bankExpenses) {
         parsed.bankExpenses = INITIAL_OCTOBER_DATA.bankExpenses;
       }
+      // Sincronizar fórmulas de Clientes Facturación con soporte de horas + minutos (ej: 271:38hs)
+      if (Array.isArray(parsed.clientBilling)) {
+        parsed.clientBilling = parsed.clientBilling.map((c: ClientBillingItem) => {
+          const hInfo = parseFlexibleHours(
+            c.totalHoursInput !== undefined ? c.totalHoursInput : c.totalHours
+          );
+          const hasVat = c.includesVat !== undefined ? c.includesVat : (c.vatAmount || 0) > 0;
+          const formulas = computeClientBillingFormulas(
+            c.hourlyRate || 0,
+            hInfo.decimalHours,
+            c.withholdings || 0,
+            hasVat
+          );
+          return {
+            ...c,
+            totalHours: hInfo.decimalHours,
+            includesVat: hasVat,
+            vatAmount: formulas.vatAmount,
+            totalNet: formulas.totalNet,
+          };
+        });
+      }
       return parsed;
     }
   } catch (err) {
@@ -576,9 +595,6 @@ export function resetMonthDataToZero(period: string = getCurrentPeriodString()):
     })),
     salaries: current.salaries.map(s => ({
       ...s,
-      hoursWorked: 0,
-      hoursWorkedInput: '0',
-      hourlyRate: 0,
       receiptAmount: 0,
       extraAmount: 0,
       netSalary: 0,
@@ -841,43 +857,19 @@ export function importSalariesFromRows(rows: any[]): EmployeeSalaryItem[] {
 
     const name = getVal('nombre', 'apellido y nombre', 'vigilador', 'empleado', 'colaborador', 'personal') || `Colaborador #${idx + 1}`;
     const role = getVal('objetivo', 'funcion', 'objetivo / funcion', 'puesto', 'destino') || 'Vigilador General';
-    const rawHours = getVal('horas', 'horas trabajadas', 'hs', 'total horas', 'cantidad horas');
-    const rawRate = getVal('valor hora', 'valor hora $', 'tarifa hora', 'precio hora', '$ hora');
     const rawRecibo = getVal('recibo', 'recibo $', 'en blanco', 'recibo en blanco');
     const rawExtra = getVal('x', 'x $', 'fuera de bono', 'extra');
     const rawNet = getVal('sueldo neto', 'neto', 'sueldo', 'importe neto', 'neto cobrado');
     const rawAdv = getVal('anticipo', 'adelanto', 'anticipos');
     const statusVal = String(getVal('estado', 'status')).toUpperCase();
 
-    const parsedHoursInfo = parseFlexibleHours(rawHours);
-    const parsedRate = Math.max(0, parseFloat(String(rawRate).replace(/\./g, '').replace(',', '.')) || 0);
     const parsedRecibo = parseFloat(String(rawRecibo).replace(/\./g, '').replace(',', '.'));
     const parsedExtra = parseFloat(String(rawExtra).replace(/\./g, '').replace(',', '.')) || 0;
     const parsedNet = parseFloat(String(rawNet).replace(/\./g, '').replace(',', '.')) || 550000;
 
-    const computedFromHours =
-      parsedHoursInfo.decimalHours > 0 && parsedRate > 0
-        ? Math.round(parsedHoursInfo.decimalHours * parsedRate)
-        : 0;
-
-    let receiptAmount = !isNaN(parsedRecibo) && parsedRecibo >= 0 ? Math.max(0, parsedRecibo) : 0;
-    let extraAmount = Math.max(0, parsedExtra);
-    let netSalary = 0;
-
-    if (computedFromHours > 0) {
-      netSalary = computedFromHours;
-      if (receiptAmount > 0 && receiptAmount <= computedFromHours) {
-        extraAmount = Math.max(0, computedFromHours - receiptAmount);
-      } else if (receiptAmount === 0 && extraAmount === 0) {
-        extraAmount = computedFromHours;
-      }
-    } else {
-      if (isNaN(parsedRecibo)) {
-        receiptAmount = Math.max(0, parsedNet - extraAmount);
-      }
-      netSalary = Math.round(receiptAmount + extraAmount);
-    }
-
+    const receiptAmount = !isNaN(parsedRecibo) && parsedRecibo >= 0 ? Math.max(0, parsedRecibo) : Math.max(0, parsedNet - parsedExtra);
+    const extraAmount = Math.max(0, parsedExtra);
+    const netSalary = Math.round(receiptAmount + extraAmount);
     const advance = Math.max(0, parseFloat(String(rawAdv).replace(/\./g, '').replace(',', '.')) || 0);
 
     return {
@@ -885,9 +877,6 @@ export function importSalariesFromRows(rows: any[]): EmployeeSalaryItem[] {
       index: idx + 1,
       fullName: String(name).trim(),
       objectiveOrRole: String(role).trim(),
-      hoursWorked: parsedHoursInfo.decimalHours,
-      hoursWorkedInput: rawHours ? String(rawHours).trim() : (parsedHoursInfo.decimalHours > 0 ? parsedHoursInfo.formattedLabel.replace(' hs', '') : ''),
-      hourlyRate: parsedRate,
       receiptAmount,
       extraAmount,
       netSalary,
@@ -922,17 +911,21 @@ export function importClientsFromRows(rows: any[]): ClientBillingItem[] {
     const dueDate = getVal('vencimiento', 'fecha vencimiento', 'vto') || '2026-10-20';
 
     const hourlyRate = Math.max(0, parseFloat(String(rawRate).replace(/\./g, '').replace(',', '.')) || 5000);
-    const totalHours = Math.max(0, parseFloat(String(rawHours).replace(/\./g, '').replace(',', '.')) || 720);
-    const subtotal = hourlyRate * totalHours;
-    const vatAmount = rawVat ? Math.max(0, parseFloat(String(rawVat).replace(/\./g, '').replace(',', '.'))) : Math.round(subtotal * 0.21);
-    const withholdings = rawRet ? Math.max(0, parseFloat(String(rawRet).replace(/\./g, '').replace(',', '.'))) : Math.round(subtotal * 0.04);
-    const totalNet = rawNet ? Math.max(0, parseFloat(String(rawNet).replace(/\./g, '').replace(',', '.'))) : (subtotal + vatAmount - withholdings);
+    const parsedHoursInfo = parseFlexibleHours(rawHours !== '' ? rawHours : 720);
+    const totalHours = parsedHoursInfo.decimalHours;
+    const subtotal = Math.round(hourlyRate * totalHours);
+    const vatAmount = rawVat !== '' ? Math.max(0, parseFloat(String(rawVat).replace(/\./g, '').replace(',', '.'))) : Math.round(subtotal * 0.21);
+    const includesVat = vatAmount > 0;
+    const withholdings = rawRet !== '' ? Math.max(0, parseFloat(String(rawRet).replace(/\./g, '').replace(',', '.'))) : 0;
+    const totalNet = rawNet !== '' ? Math.max(0, parseFloat(String(rawNet).replace(/\./g, '').replace(',', '.'))) : Math.max(0, Math.round(subtotal + vatAmount - withholdings));
 
     return {
       id: `cl-imp-${Date.now()}-${idx}`,
       clientName: String(name).trim(),
       hourlyRate,
       totalHours,
+      totalHoursInput: rawHours !== '' ? String(rawHours).trim() : String(totalHours),
+      includesVat,
       vatAmount,
       withholdings,
       totalNet,
@@ -1077,13 +1070,15 @@ export function generatePlainTextTable(
 
   const renderClientes = () => {
     let out = `### CLIENTES (FACTURACIÓN) (${period})\n`;
-    out += `| Cliente | Tarifa hora | Horas totales | IVA | Retenciones | Total Neto | Estado |\n`;
-    out += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+    out += `| Cliente | Tarifa hora | Horas totales | Subtotal | IVA | Retenciones | Total Neto | Estado |\n`;
+    out += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
     data.clientBilling.forEach(c => {
-      out += `| ${c.clientName} | ${formatARS(c.hourlyRate)} | ${c.totalHours} hs | ${formatARS(c.vatAmount)} | ${formatARS(c.withholdings)} | ${formatARS(c.totalNet)} | ${c.status} |\n`;
+      const hInfo = parseFlexibleHours(c.totalHoursInput !== undefined ? c.totalHoursInput : c.totalHours);
+      const subtotal = Math.round((c.hourlyRate || 0) * hInfo.decimalHours);
+      out += `| ${c.clientName} | ${formatARS(c.hourlyRate)} | ${hInfo.formattedLabel} | ${formatARS(subtotal)} | ${formatARS(c.vatAmount)} | ${formatARS(c.withholdings)} | ${formatARS(c.totalNet)} | ${c.status} |\n`;
     });
     const totalNeto = data.clientBilling.reduce((a, b) => a + b.totalNet, 0);
-    out += `| **TOTAL FACTURADO** | - | - | - | - | **${formatARS(totalNeto)}** | - |\n`;
+    out += `| **TOTAL FACTURADO** | - | - | - | - | - | **${formatARS(totalNeto)}** | - |\n`;
     return out;
   };
 

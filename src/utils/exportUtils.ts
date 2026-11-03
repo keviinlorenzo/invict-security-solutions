@@ -4,7 +4,8 @@ import {
   EmployeeSalaryItem,
   FixedExpenseItem,
   BankExpenseItem,
-  ClientProfitabilityItem
+  ClientProfitabilityItem,
+  parseFlexibleHours
 } from '../data/managerialSheetsData';
 import { calculateDaysRemaining, formatCurrencyARS, formatDateLocale } from './dateUtils';
 
@@ -150,11 +151,12 @@ export function exportClientsToCSV(clients: ClientBillingItem[], period: string 
   ];
 
   const rows = clients.map((c) => {
-    const subtotal = c.hourlyRate * c.totalHours;
+    const hInfo = parseFlexibleHours(c.totalHoursInput !== undefined ? c.totalHoursInput : c.totalHours);
+    const subtotal = Math.round(c.hourlyRate * hInfo.decimalHours);
     return [
       escapeCSV(c.clientName),
       escapeCSV(c.hourlyRate),
-      escapeCSV(c.totalHours),
+      escapeCSV(hInfo.formattedLabel),
       escapeCSV(subtotal),
       escapeCSV(c.vatAmount),
       escapeCSV(c.withholdings),
@@ -175,8 +177,6 @@ export function exportSalariesToCSV(salaries: EmployeeSalaryItem[], period: stri
     '#',
     'Apellido y Nombre',
     'Objetivo / Función',
-    'Horas Trabajadas',
-    'Valor Hora ($)',
     'Recibo ($)',
     'X ($)',
     'Sueldo Neto ($)',
@@ -190,13 +190,10 @@ export function exportSalariesToCSV(salaries: EmployeeSalaryItem[], period: stri
     const extAmt = s.extraAmount !== undefined ? s.extraAmount : 0;
     const netSalary = Math.round(recAmt + extAmt);
     const netoCobrado = Math.max(0, netSalary - s.advance);
-    const hoursLabel = s.hoursWorkedInput || (s.hoursWorked ? `${s.hoursWorked} hs` : '-');
     return [
       escapeCSV(s.index),
       escapeCSV(s.fullName),
       escapeCSV(s.objectiveOrRole),
-      escapeCSV(hoursLabel),
-      escapeCSV(s.hourlyRate || 0),
       escapeCSV(recAmt),
       escapeCSV(extAmt),
       escapeCSV(netSalary),
