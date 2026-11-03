@@ -1809,6 +1809,8 @@ export default function App() {
         tasks={visibleTasks}
         onNavigateTab={(tab) => setActiveTab(tab as any)}
         onOpenPwaModal={() => setIsDesktopPwaModalOpen(true)}
+        onOpenNewTaskModal={() => setIsNewTaskModalOpen(true)}
+        onOpenNewExpenseModal={() => setIsNewExpenseModalOpen(true)}
       />
     </div>
   );

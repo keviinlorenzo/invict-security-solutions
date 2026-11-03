@@ -37,17 +37,21 @@ import {
   getPersonalizedSystemPromptContext,
   loadDepartmentMemory,
 } from '../utils/bonoMemoryService';
+import {
+  queryBonoIntelligentEngine,
+  detectSuggestedAction,
+  BonoSuggestedAction,
+  BonoHistoryTurn,
+} from '../utils/bonoAiService';
 
 interface BonoMessage {
   id: string;
   sender: 'bono' | 'user';
   text: string;
   timestamp: string;
+  modelLabel?: string;
   sourceGrounding?: string[];
-  suggestedAction?: {
-    label: string;
-    onClickTab?: string;
-  };
+  suggestedAction?: BonoSuggestedAction;
 }
 
 interface BonoChatAssistantProps {
@@ -55,6 +59,8 @@ interface BonoChatAssistantProps {
   tasks: Task[];
   onNavigateTab?: (tab: string) => void;
   onOpenPwaModal?: () => void;
+  onOpenNewTaskModal?: () => void;
+  onOpenNewExpenseModal?: () => void;
 }
 
 export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
@@ -62,6 +68,8 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
   tasks,
   onNavigateTab,
   onOpenPwaModal,
+  onOpenNewTaskModal,
+  onOpenNewExpenseModal,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -197,58 +205,42 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
       recordBonoInteraction(currentUser, text, isEffectiveGerencia);
 
       let replyText = '';
+      let modelLabel = 'BONO AI • Copiloto Inteligente';
       let groundingSources: string[] = [];
-      let suggestedAction: { label: string; onClickTab?: string } | undefined = undefined;
+      let suggestedAction: BonoSuggestedAction | undefined = detectSuggestedAction(text, isEffectiveGerencia);
 
       // 2. Check if user is asking about Bono's context memory
       const memoryAnswer = handleBonoMemoryQuery(text, currentUser, isEffectiveGerencia);
       if (memoryAnswer) {
         replyText = memoryAnswer;
+        modelLabel = 'BONO AI • Memoria Contextual';
       }
 
-      // 3. Try calling the backend /api/bono/chat endpoint if not already answered
+      // 3. Query the Intelligent Hybrid + Cloud AI Engine (Free & Unlimited)
       if (!replyText) {
-        try {
-          const apiRes = await fetch('/api/bono/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              text,
-              currentUser,
-              isEffectiveGerencia,
-              userTasks,
-              currentPeriod: getCurrentPeriodString(),
-              contextMemoryPrompt: getPersonalizedSystemPromptContext(currentUser, isEffectiveGerencia),
-            }),
-          });
+        const conversationHistory: BonoHistoryTurn[] = messages
+          .filter(m => m.id !== 'msg-welcome' && m.id !== 'msg-cleared')
+          .slice(-6)
+          .map(m => ({
+            role: m.sender === 'user' ? 'user' : 'assistant',
+            content: m.text,
+          }));
 
-          if (apiRes.ok) {
-            const data = await apiRes.json();
-            if (data.replyText && data.replyText.trim()) {
-              replyText = data.replyText.trim();
-            }
-          }
-        } catch (e) {
-          // Fallback to local intelligent analysis
-        }
-      }
+        const aiResult = await queryBonoIntelligentEngine({
+          text,
+          currentUser,
+          isEffectiveGerencia,
+          userTasks,
+          urgentUserTasks,
+          currentPeriod: getCurrentPeriodString(),
+          contextMemoryPrompt: getPersonalizedSystemPromptContext(currentUser, isEffectiveGerencia),
+          conversationHistory,
+          fallbackGenerator: () =>
+            generateFallbackBonoResponse(text, currentUser, userTasks, urgentUserTasks, isEffectiveGerencia),
+        });
 
-      // 4. If backend did not provide a response or no key was present, use local external/internal AI engine
-      if (!replyText) {
-        replyText = generateFallbackBonoResponse(text, currentUser, userTasks, urgentUserTasks, isEffectiveGerencia);
-      }
-
-      // Check if task navigation should be suggested
-      if (
-        textLower.includes('tarea') ||
-        textLower.includes('vencer') ||
-        textLower.includes('urgente') ||
-        textLower.includes('pendiente')
-      ) {
-        suggestedAction = {
-          label: 'Abrir Matriz de Tareas',
-          onClickTab: 'tasks',
-        };
+        replyText = aiResult.replyText;
+        modelLabel = aiResult.modelLabel;
       }
 
       const bonoMsg: BonoMessage = {
@@ -256,6 +248,7 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
         sender: 'bono',
         text: replyText,
         timestamp: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+        modelLabel,
         sourceGrounding: groundingSources.length > 0 ? groundingSources : undefined,
         suggestedAction,
       };
@@ -270,7 +263,7 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
         sender: 'bono',
         text: fallbackReply,
         timestamp: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
-        suggestedAction: text.toLowerCase().includes('tarea') ? { label: 'Abrir Matriz de Tareas', onClickTab: 'tasks' } : undefined,
+        suggestedAction: detectSuggestedAction(text, isEffectiveGerencia),
       };
       setMessages(prev => [...prev, bonoMsg]);
     } finally {
@@ -413,11 +406,11 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
               <div className="p-2.5 bg-[#090c12] border-b border-[#1b2232] flex items-center gap-1.5 overflow-x-auto scrollbar-none shrink-0">
                 <button
                   type="button"
-                  onClick={() => handleSendMessage('¿Qué recuerdas de mí en tu memoria de contexto?')}
-                  className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#161c28] hover:bg-[#1e2638] text-cyan-300 hover:text-white border border-cyan-800/60 shrink-0 transition-colors cursor-pointer flex items-center gap-1"
+                  onClick={() => handleSendMessage('¿Cómo registro una tarea?')}
+                  className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#161c28] hover:bg-[#1e2638] text-emerald-300 hover:text-white border border-emerald-800/60 shrink-0 transition-colors cursor-pointer flex items-center gap-1"
                 >
-                  <Brain className="w-3 h-3 text-cyan-400" />
-                  <span>¿Qué recuerdas de mí?</span>
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                  <span>¿Cómo registro una tarea?</span>
                 </button>
                 <button
                   type="button"
@@ -429,7 +422,23 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleSendMessage('¿Cómo agrego una observación en una tarea y uso el @ para mencionar a otros puestos o Gerencia?')}
+                  onClick={() => handleSendMessage('¿Cómo freno la repetición de una tarea fija mensual o semanal?')}
+                  className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#161c28] hover:bg-[#1e2638] text-slate-300 hover:text-white border border-[#253046] shrink-0 transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3 text-purple-400" />
+                  <span>Frenar tarea fija</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendMessage('¿Cómo funcionan las Planillas Informativas de Personal Sin DISEP y Uniforme?')}
+                  className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#161c28] hover:bg-[#1e2638] text-slate-300 hover:text-white border border-[#253046] shrink-0 transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <BookOpen className="w-3 h-3 text-blue-400" />
+                  <span>Planillas Sin DISEP</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendMessage('¿Cómo agrego una observación en una tarea y uso el @ para mencionar a otros puestos?')}
                   className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#161c28] hover:bg-[#1e2638] text-slate-300 hover:text-white border border-[#253046] shrink-0 transition-colors cursor-pointer flex items-center gap-1"
                 >
                   <MessageSquare className="w-3 h-3 text-blue-400" />
@@ -437,19 +446,11 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleSendMessage('¿De qué manera puedo dejar esta aplicación instalada en las computadoras de los diferentes puestos de trabajo?')}
-                  className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#161c28] hover:bg-[#1e2638] text-slate-300 hover:text-white border border-[#253046] shrink-0 transition-colors cursor-pointer flex items-center gap-1"
+                  onClick={() => handleSendMessage('¿Qué recuerdas de mí en tu memoria de contexto?')}
+                  className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#161c28] hover:bg-[#1e2638] text-cyan-300 hover:text-white border border-cyan-800/60 shrink-0 transition-colors cursor-pointer flex items-center gap-1"
                 >
-                  <Laptop className="w-3 h-3 text-emerald-400" />
-                  <span>Instalar en PC (PWA)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSendMessage('¿Dónde encuentro el informe ejecutivo con gráfico de barras comparativo de carga de trabajo y cuellos de botella?')}
-                  className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#161c28] hover:bg-[#1e2638] text-slate-300 hover:text-white border border-[#253046] shrink-0 transition-colors cursor-pointer flex items-center gap-1"
-                >
-                  <Flame className="w-3 h-3 text-red-400" />
-                  <span>Informe de carga</span>
+                  <Brain className="w-3 h-3 text-cyan-400" />
+                  <span>¿Qué recuerdas de mí?</span>
                 </button>
               </div>
 
@@ -481,8 +482,27 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              if (msg.suggestedAction?.onClickTab && onNavigateTab) {
-                                onNavigateTab(msg.suggestedAction.onClickTab);
+                              const act = msg.suggestedAction;
+                              if (!act) return;
+                              if (act.actionType === 'open_new_task' && onOpenNewTaskModal) {
+                                if (act.onClickTab && onNavigateTab) onNavigateTab(act.onClickTab);
+                                onOpenNewTaskModal();
+                                setIsMinimized(true);
+                                return;
+                              }
+                              if (act.actionType === 'open_new_expense' && onOpenNewExpenseModal) {
+                                if (act.onClickTab && onNavigateTab) onNavigateTab(act.onClickTab);
+                                onOpenNewExpenseModal();
+                                setIsMinimized(true);
+                                return;
+                              }
+                              if (act.actionType === 'open_pwa_modal' && onOpenPwaModal) {
+                                onOpenPwaModal();
+                                setIsMinimized(true);
+                                return;
+                              }
+                              if (act.onClickTab && onNavigateTab) {
+                                onNavigateTab(act.onClickTab);
                                 setIsMinimized(true);
                               }
                             }}
@@ -510,8 +530,9 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
                         </div>
                       )}
 
-                      <div className="mt-1 text-[9px] text-right opacity-60 font-mono">
-                        {msg.timestamp}
+                      <div className="mt-1.5 flex items-center justify-between gap-2 text-[9px] opacity-60 font-mono">
+                        <span>{msg.sender === 'bono' ? (msg.modelLabel || 'BONO AI') : ''}</span>
+                        <span>{msg.timestamp}</span>
                       </div>
                     </div>
                     {msg.sender === 'user' && (

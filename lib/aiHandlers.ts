@@ -3,65 +3,130 @@ import { GoogleGenAI } from '@google/genai';
 // Handlers compartidos: los usa server.ts (Express, en local) y las funciones de api/ (Vercel).
 // Ambos entornos entregan req.body ya parseado y res.status().json().
 
-// Server-side Gemini AI Chat endpoint for BONO
+// Server-side Gemini / Free Unlimited AI Chat endpoint for BONO
 export async function bonoChatHandler(req: any, res: any) {
   try {
-    const { text, currentUser, isEffectiveGerencia, userTasks, currentPeriod, contextMemoryPrompt } = req.body;
+    const {
+      text,
+      currentUser,
+      isEffectiveGerencia,
+      userTasks,
+      currentPeriod,
+      contextMemoryPrompt,
+      conversationHistory,
+    } = req.body;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(200).json({
-        hasApiKey: false,
-        message: 'No GEMINI_API_KEY environment variable detected on server.',
-      });
-    }
-
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
-
-    const systemInstruction = `Eres BONO, el copiloto inteligente de inteligencia artificial y compañero de oficina en INVICT Security Solutions S.A.
-Todos los miembros del equipo trabajan desde la oficina central o en puestos y móviles supervisados.
-Tu estilo es: profesional, cercano, empático, resolutivo y con capacidad analítica avanzada.
+    const systemInstruction = `Eres BONO, el copiloto inteligente de inteligencia artificial y compañero de oficina en INVICT Security Solutions S.A. (Mendoza, Argentina).
+Tu estilo es: profesional, cercano, empático, resolutivo y con capacidad analítica avanzada. Respondes siempre en español claro con viñetas (•) y negritas (**).
 
 ${contextMemoryPrompt || ''}
 
-DOBLE CAPACIDAD FUNDAMENTAL:
-1. ANÁLISIS DE CONSULTAS EXTERNAS Y CONOCIMIENTO GENERAL (COMO IA UNIVERSAL):
-   - Debes leer detenidamente cada mensaje del usuario y analizar si la consulta pertenece a algo interno de la aplicación o si requiere conocimiento del mundo exterior, normativas, efemérides, cálculos, redacción o calendario.
-   - Si el usuario te hace preguntas externas (por ejemplo: "¿Cuántos son los feriados del mes de noviembre 2026 y qué se conmemora cada día?", cálculos, dudas legales laborales de Argentina, redacción de notas, historia, o cualquier tema de interés general):
-     * Responde con la máxima profundidad, precisión y cortesía.
-     * Para feriados de noviembre 2026 en Argentina: Conmemora el 20 de Noviembre el "Día de la Soberanía Nacional" (en honor a la Batalla de la Vuelta de Obligado de 1845), y detalla los feriados puentes o traslados turísticos (fin de semana largo), mencionando el impacto en el sector de seguridad privada (remuneración al 100% adicional según Ley de Contrato de Trabajo y Convenio UPSRA N° 507/07).
+PROCEDIMIENTOS INTERNOS DE LA APLICACIÓN INVICT SECURITY SOLUTIONS:
+1. REGISTRAR / CREAR TAREA:
+   - Opción 1: Botón rojo "+ Nueva Acción" (arriba a la derecha) -> "Nueva Tarea Rápida".
+   - Opción 2: En "Matriz Operativa" (menú lateral) -> botón rojo "+ Nueva Tarea".
+   - Permite elegir: Título, Descripción, Puesto/Área, Responsable, Fecha Límite, Prioridad (Baja, Media, Alta, Urgente) y Naturaleza ("Fija Mensual", "Fija Semanal", "Variable" o "Imprevisto"). También tiene el casillero "¿Esta tarea ya fue realizada?" para guardarla directamente como Completada (100%).
+2. COMPLETAR, EDITAR O BORRAR TAREA:
+   - Completar rápido: Clic sobre la etiqueta de ESTADO en la tabla de Matriz Operativa.
+   - Editar: Clic sobre la tarea -> botón "Editar Datos de la Tarea" -> "Guardar Cambios".
+   - Eliminar: Icono de papelera en la fila o botón "Eliminar" dentro del detalle.
+3. FRENAR REPETICIÓN DE TAREAS FIJAS:
+   - Fija Mensual: Botón ámbar "Frenar Rep." en la fila de la tarea o dentro de su detalle ("Frenar Repetición Mensual"). Deja de repetirse en los meses siguientes.
+   - Fija Semanal: Botón "Parar Sem." detiene la repetición semanal y limpia las semanas futuras pendientes.
+   - Renovación al mes siguiente: Botones "Renovar Tareas Fijas al Mes Siguiente" y "Renovar Fijas Semanales (Sig. Mes)" en la barra del período mensual.
+4. CAMPANA DE ALERTAS:
+   - Se sincroniza automáticamente con el puesto seleccionado en la vista ("Mi Puesto" u otro puesto que el usuario seleccione).
+5. MENCIONES CON "@":
+   - Escribir "@" en comentarios de una tarea o en "Invict Feed & Colaboración" despliega la lista de usuarios y puestos y envía una alerta con acceso directo ("Ir al mensaje →").
+6. PLANILLAS INFORMATIVAS (ADM):
+   - Menú lateral "Planillas Informativas (ADM)": incluye "Personal Sin DISEP" y "Personal que Debe Uniforme". Visibles para todos los puestos, editables únicamente por ADMINISTRACIÓN y GERENCIA. No afectan las métricas de tareas.
+7. GASTOS DE OFICINA:
+   - Menú lateral "Gastos de Oficina" -> "+ Registrar Gasto" (con lector inteligente de facturas/tickets PDF o imagen).
 
-2. CONTROL DE ACCESO INTERNO Y SEGURIDAD ESTRICTA (DATOS CONFIDENCIALES DE LA EMPRESA):
-   - Para [Rol: demás administrativos (todos los usuarios que no son Gerencia)]:
-     * Habilita únicamente la consulta, registro y orientación de "Gastos Comunes" (insumos, viáticos de supervisores, librería, reparaciones menores) y tareas de su propio sector.
-     * Oculta y bloquea cualquier consulta relacionada con "Sueldos Personales", "Retiros Directorio", "Descuento Bancos", "Clientes", "Rentabilidad" o "Resumen Gral". Si consultan estos datos confidenciales, responde amablemente indicando que son de uso exclusivo gerencial.
-   - Para [Rol: Gerencia (Yamila, Laura y Domingo)]:
-     * Acceso total e irrestricto a métricas, rentabilidad de clientes, alertas de cobranza y planillas de Excel societarias.
+CONTROL DE ACCESO Y CONFIDENCIALIDAD:
+- Para [Rol: demás administrativos (NO Gerencia)]:
+  * PROHIBIDO revelar o mencionar datos de tareas de GERENCIA, gastos de GERENCIA, Sueldos del Personal, Retiros Directorio, Clientes/Facturación, Rentabilidad o Planillas Gerenciales.
+- Para [Rol: Gerencia]:
+  * Acceso total a Dashboard Gerencial y Planillas Financieras (1. Clientes Facturación con cálculo de horas HH:MMhs × Tarifa Hora, botón de IVA +21% Sí/No y Retenciones manuales; 2. Sueldos Personal con columnas RECIBO + X = SUELDO NETO; 3. Gastos Fijos; 4. Gastos Bancarios).
+
+CONSULTAS EXTERNAS:
+- Responde con total precisión cualquier consulta ajena a la aplicación: leyes laborales argentinas (LCT 20.744, CCT 507/07 UPSRA), REPRIV/DISEP Mendoza, cálculos matemáticos/financieros/IVA/horas, redacción de notas/actas/correos, feriados, historia o cultura general.
 
 Usuario actual: ${currentUser?.name || 'Colaborador'} (${currentUser?.role || 'Personal de Oficina'}, ${currentUser?.department || 'OPERACIONES'})
 Nivel de acceso: ${isEffectiveGerencia ? '[Rol: Gerencia]' : '[Rol: demás administrativos]'}
-Período activo: ${currentPeriod || '2026-10'}
-Tareas activas del usuario: ${JSON.stringify(userTasks || [])}`;
+Período activo: ${currentPeriod || '2026-11'}
+Tareas activas del usuario: ${JSON.stringify((userTasks || []).slice(0, 15))}`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: text,
-      config: {
-        systemInstruction,
-      },
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (apiKey) {
+      try {
+        const ai = new GoogleGenAI({
+          apiKey,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            },
+          },
+        });
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: text,
+          config: {
+            systemInstruction,
+          },
+        });
+
+        const replyText = response.text || '';
+        if (replyText.trim()) {
+          return res.status(200).json({
+            hasApiKey: true,
+            modelLabel: 'Gemini 2.5 Flash',
+            replyText: replyText.trim(),
+          });
+        }
+      } catch (geminiErr) {
+        console.warn('Gemini API fallback to Pollinations AI:', geminiErr);
+      }
+    }
+
+    // Free & unlimited AI fallback via Pollinations OpenAI-compatible API
+    const historyMsgs = Array.isArray(conversationHistory)
+      ? conversationHistory.slice(-6).map((m: any) => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: String(m.content || ''),
+        }))
+      : [];
+
+    const pollRes = await fetch('https://text.pollinations.ai/openai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'openai',
+        messages: [
+          { role: 'system', content: systemInstruction },
+          ...historyMsgs,
+          { role: 'user', content: text },
+        ],
+        temperature: 0.4,
+      }),
     });
 
-    const replyText = response.text || '';
+    if (pollRes.ok) {
+      const pollData: any = await pollRes.json();
+      const pollReply = pollData?.choices?.[0]?.message?.content;
+      if (pollReply && typeof pollReply === 'string' && pollReply.trim()) {
+        return res.status(200).json({
+          hasApiKey: true,
+          modelLabel: 'BONO AI • Cloud Ilimitado',
+          replyText: pollReply.trim(),
+        });
+      }
+    }
+
     return res.status(200).json({
-      hasApiKey: true,
-      replyText,
+      hasApiKey: false,
+      message: 'Fallback to client engine.',
     });
   } catch (error: any) {
     console.error('Error in /api/bono/chat:', error);
