@@ -64,7 +64,9 @@ import {
   renewMonthFixedTasks,
   buildWeeklyTaskInstancesForMonth,
   renewWeeklyFixedTasksForPeriod,
-  getDayOfWeekLabel
+  getDayOfWeekLabel,
+  getMonthlyTaskSeriesKey,
+  setMonthlyTaskStopped
 } from './utils/monthRenewalService';
 import { resetMonthDataToZero } from './data/managerialSheetsData';
 import { getEmailNotificationLogs } from './utils/emailAlertService';
@@ -731,6 +733,102 @@ export default function App() {
     showToast(`Tarea creada por ${currentPersona.name} en el archivo compartido`);
   };
 
+  const handleToggleMonthlyRecurrence = (targetTask: Task, stopRecurrence: boolean) => {
+    const formatted = formatModificationTimestamp(new Date());
+    const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
+    const taskPeriod = targetTask.monthPeriod || currentPeriod;
+    const targetKey = getMonthlyTaskSeriesKey(targetTask.area, targetTask.title);
+    const actionDesc = stopRecurrence
+      ? `Frenó la repetición mensual desde ${formatPeriodName(taskPeriod)} en adelante`
+      : 'Reactivó la repetición mensual';
+    const mod = logCloudModification(actionDesc, undefined, targetTask.title);
+
+    // Guardar en almacenamiento persistente sincronizado a partir del mes siguiente (para que deje de repetirse de aquí en adelante)
+    const nextPeriod = getAdjacentPeriod(taskPeriod, 1);
+    setMonthlyTaskStopped(targetTask.area, targetTask.title, stopRecurrence ? nextPeriod : null);
+
+    let updatedTasks = tasks;
+
+    if (stopRecurrence) {
+      // Retirar ocurrencias futuras pendientes (de meses posteriores al actual) y marcar la tarea actual como frenada
+      updatedTasks = tasks
+        .filter(t => {
+          if (
+            (t.nature || 'Fija Mensual') === 'Fija Mensual' &&
+            getMonthlyTaskSeriesKey(t.area, t.title) === targetKey &&
+            (t.monthPeriod || '2026-10') > taskPeriod &&
+            t.status !== 'Completada'
+          ) {
+            return false;
+          }
+          return true;
+        })
+        .map(t => {
+          if (
+            (t.nature || 'Fija Mensual') === 'Fija Mensual' &&
+            getMonthlyTaskSeriesKey(t.area, t.title) === targetKey &&
+            (t.monthPeriod || '2026-10') >= taskPeriod
+          ) {
+            return {
+              ...t,
+              monthlyRecurrenceStopped: true,
+              monthlyStoppedFromPeriod: nextPeriod,
+              lastModifiedBy: {
+                name: currentPersona.name,
+                email: currentPersona.email,
+                profile: userProf,
+              },
+              lastModifiedAt: formatted,
+              lastModifiedAction: actionDesc,
+              history: [mod, ...(t.history || [])],
+            };
+          }
+          return t;
+        });
+    } else {
+      updatedTasks = tasks.map(t => {
+        if (
+          (t.nature || 'Fija Mensual') === 'Fija Mensual' &&
+          getMonthlyTaskSeriesKey(t.area, t.title) === targetKey
+        ) {
+          return {
+            ...t,
+            monthlyRecurrenceStopped: false,
+            monthlyStoppedFromPeriod: undefined,
+            lastModifiedBy: {
+              name: currentPersona.name,
+              email: currentPersona.email,
+              profile: userProf,
+            },
+            lastModifiedAt: formatted,
+            lastModifiedAction: actionDesc,
+            history: [mod, ...(t.history || [])],
+          };
+        }
+        return t;
+      });
+    }
+
+    setTasks(updatedTasks);
+    if (selectedTaskForDetail && getMonthlyTaskSeriesKey(selectedTaskForDetail.area, selectedTaskForDetail.title) === targetKey) {
+      const refreshed = updatedTasks.find(t => t.id === selectedTaskForDetail.id) || null;
+      setSelectedTaskForDetail(refreshed);
+    }
+
+    broadcastCloudChange(
+      'TASK_MUTATION',
+      `${currentPersona.name} ${stopRecurrence ? 'frenó' : 'reactivó'} la repetición mensual de "${targetTask.title}"`,
+      { name: currentPersona.name, profile: userProf, email: currentPersona.email },
+      updatedTasks
+    );
+
+    showToast(
+      stopRecurrence
+        ? `Repetición mensual frenada para "${targetTask.title}". Ya no se repetirá en los meses siguientes.`
+        : `Repetición mensual reactivada para "${targetTask.title}".`
+    );
+  };
+
   const handleToggleWeeklyRecurrence = (targetTask: Task, stopRecurrence: boolean) => {
     const formatted = formatModificationTimestamp(new Date());
     const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
@@ -929,8 +1027,25 @@ export default function App() {
 
   const handleDeleteTask = (taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
+    if (task && (task.nature || 'Fija Mensual') === 'Fija Mensual') {
+      // Si se borra una tarea Fija Mensual, también frenar su repetición desde este mes en adelante para que no vuelva a crearse
+      setMonthlyTaskStopped(task.area, task.title, task.monthPeriod || currentPeriod);
+    }
     logCloudModification('Retiró tarea de la planilla', undefined, task?.title || taskId);
-    const updatedTasks = tasks.filter(t => t.id !== taskId);
+    const updatedTasks = tasks.filter(t => {
+      if (t.id === taskId) return false;
+      if (
+        task &&
+        (task.nature || 'Fija Mensual') === 'Fija Mensual' &&
+        (t.nature || 'Fija Mensual') === 'Fija Mensual' &&
+        getMonthlyTaskSeriesKey(t.area, t.title) === getMonthlyTaskSeriesKey(task.area, task.title) &&
+        (t.monthPeriod || '2026-10') > (task.monthPeriod || currentPeriod) &&
+        t.status !== 'Completada'
+      ) {
+        return false;
+      }
+      return true;
+    });
     setTasks(updatedTasks);
     if (selectedTaskForDetail && selectedTaskForDetail.id === taskId) {
       setSelectedTaskForDetail(null);
@@ -1475,6 +1590,7 @@ export default function App() {
                 onResetFixedTasks={handleResetFixedTasks}
                 onRenewWeeklyNextMonth={handleRenewWeeklyNextMonth}
                 onToggleWeeklyRecurrence={handleToggleWeeklyRecurrence}
+                onToggleMonthlyRecurrence={handleToggleMonthlyRecurrence}
                 onClearMonth={isCurrentUserGerencia ? handleClearMonth : undefined}
                 onExportPeriod={handleExportCurrentPeriodCSV}
                 onOpenAdminSheets={() => setActiveTab('admin_sheets')}
@@ -1629,6 +1745,7 @@ export default function App() {
         allPersonas={visiblePersonas}
         onRefreshEmailLogs={refreshEmailLogs}
         onToggleWeeklyRecurrence={handleToggleWeeklyRecurrence}
+        onToggleMonthlyRecurrence={handleToggleMonthlyRecurrence}
         onDeleteTask={handleDeleteTask}
       />
 

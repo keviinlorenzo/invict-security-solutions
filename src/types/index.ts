@@ -60,6 +60,8 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   nature?: TaskNature;
+  monthlyRecurrenceStopped?: boolean; // Si true, se frenó la repetición mensual desde este mes en adelante
+  monthlyStoppedFromPeriod?: string;  // Período ('YYYY-MM') desde el cual se frenó la repetición mensual
   weeklySeriesId?: string;          // Identificador compartido de la serie semanal
   weeklyDayOfWeek?: number;         // Día de la semana (0 = Domingo ... 6 = Sábado)
   weeklyRecurrenceStopped?: boolean; // Si true, se detuvo la repetición semanal

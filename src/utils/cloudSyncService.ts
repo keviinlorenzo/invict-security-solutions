@@ -102,6 +102,7 @@ export function collectLocalSharedState(): Record<string, any> {
   const snapshot: Record<string, any> = {};
   const sharedKeys = [
     'invict_tasks',
+    'invict_stopped_monthly_tasks',
     'invict_expenses',
     'invict_messages',
     'invict_personas',

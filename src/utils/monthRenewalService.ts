@@ -2,6 +2,62 @@ import { Task } from '../types';
 import { STANDARD_FIXED_TASKS_TEMPLATE } from '../data/mockData';
 
 const DAY_NAMES_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const STOPPED_MONTHLY_STORAGE_KEY = 'invict_stopped_monthly_tasks';
+
+export function getMonthlyTaskSeriesKey(area: string, title: string): string {
+  return `${(area || '').trim().toUpperCase()}::${(title || '').trim().toLowerCase()}`;
+}
+
+export function getStoppedMonthlyTasksMap(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(STOPPED_MONTHLY_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function setMonthlyTaskStopped(
+  area: string,
+  title: string,
+  stoppedFromPeriod: string | null
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const current = getStoppedMonthlyTasksMap();
+    const key = getMonthlyTaskSeriesKey(area, title);
+    if (stoppedFromPeriod) {
+      current[key] = stoppedFromPeriod;
+    } else {
+      delete current[key];
+    }
+    localStorage.setItem(STOPPED_MONTHLY_STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function isMonthlyTaskStoppedForPeriod(
+  area: string,
+  title: string,
+  targetPeriod: string,
+  existingTasks: Task[] = []
+): boolean {
+  const key = getMonthlyTaskSeriesKey(area, title);
+  const map = getStoppedMonthlyTasksMap();
+  const stoppedAt = map[key];
+  if (stoppedAt && targetPeriod >= stoppedAt) {
+    return true;
+  }
+  return existingTasks.some(t => {
+    if ((t.nature || 'Fija Mensual') !== 'Fija Mensual') return false;
+    if (!t.monthlyRecurrenceStopped) return false;
+    if (getMonthlyTaskSeriesKey(t.area, t.title) !== key) return false;
+    const fromPeriod = t.monthlyStoppedFromPeriod || t.monthPeriod || '2026-10';
+    return targetPeriod >= fromPeriod;
+  });
+}
 
 export function getDayOfWeekLabel(dayOfWeek?: number): string {
   if (dayOfWeek === undefined || dayOfWeek < 0 || dayOfWeek > 6) return 'Semanal';
@@ -48,7 +104,6 @@ export function getWeeklyDatesForMonth(
     }
   }
 
-  // Si startFromDate no coincidía con dayOfWeek por algún motivo pero está en el mes, asegurar al menos desde startFromDate cada 7 días
   if (dates.length === 0 && startFromDate && startFromDate.startsWith(`${period}-`)) {
     for (let day = minDay; day <= daysInMonth; day += 7) {
       const dd = String(day).padStart(2, '0');
@@ -184,47 +239,30 @@ export function renewWeeklyFixedTasksForPeriod(
   };
 }
 
-export function ensureMonthTasks(existingTasks: Task[], targetPeriod: string): Task[] {
-  const periodTasks = existingTasks.filter(t => (t.monthPeriod || '2026-10') === targetPeriod);
-  let result = [...existingTasks];
-
-  if (periodTasks.length === 0) {
-    const [yearStr, monthStr] = targetPeriod.split('-');
-    const newTasks: Task[] = STANDARD_FIXED_TASKS_TEMPLATE.map((template, idx) => {
-      const startDay = template.startDate || '01';
-      const dueDay = template.dueDate || '15';
-      return {
-        id: `task-${targetPeriod}-${idx + 1}-${Date.now()}`,
-        area: template.area,
-        title: template.title,
-        assignee: template.assignee,
-        assigneeEmail: template.assigneeEmail,
-        status: 'No iniciada',
-        priority: template.priority,
-        nature: 'Fija Mensual',
-        shiftType: template.shiftType || 'General',
-        objectiveLocation: template.objectiveLocation || 'Base Central Maipú',
-        monthPeriod: targetPeriod,
-        startDate: `${yearStr}-${monthStr}-${startDay}`,
-        dueDate: `${yearStr}-${monthStr}-${dueDay}`,
-        notes: template.notes,
-        category: template.category,
-        commentsCount: 0,
-      };
-    });
-    result = [...result, ...newTasks];
-  }
-
-  const { updatedTasks } = renewWeeklyFixedTasksForPeriod(result, targetPeriod);
-  return updatedTasks;
-}
-
-export function resetMonthToStandardFixedTasks(existingTasks: Task[], targetPeriod: string): Task[] {
-  const otherMonthTasks = existingTasks.filter(t => (t.monthPeriod || '2026-10') !== targetPeriod);
+/**
+ * Construye las tareas Fijas Mensuales activas (tanto de plantilla como creadas por usuarios en meses previos)
+ * excluyendo todas aquellas cuya repetición mensual haya sido frenada desde ese período o antes.
+ */
+function buildActiveMonthlyFixedTasksForPeriod(
+  existingTasks: Task[],
+  targetPeriod: string
+): Task[] {
   const [yearStr, monthStr] = targetPeriod.split('-');
-  const cleanFixedTasks: Task[] = STANDARD_FIXED_TASKS_TEMPLATE.map((template, idx) => {
-    const startDay = template.startDate || '01';
-    const dueDay = template.dueDate || '15';
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  const maxDaysInMonth = !isNaN(year) && !isNaN(month) ? new Date(year, month, 0).getDate() : 28;
+
+  const clampDay = (dayStr: string): string => {
+    const d = Math.min(maxDaysInMonth, Math.max(1, parseInt(dayStr, 10) || 15));
+    return String(d).padStart(2, '0');
+  };
+
+  // 1. Tareas de la plantilla base que no hayan sido frenadas
+  const fromStandardTemplate: Task[] = STANDARD_FIXED_TASKS_TEMPLATE.filter(
+    template => !isMonthlyTaskStoppedForPeriod(template.area, template.title, targetPeriod, existingTasks)
+  ).map((template, idx) => {
+    const startDay = clampDay(template.startDate || '01');
+    const dueDay = clampDay(template.dueDate || '15');
     return {
       id: `task-${targetPeriod}-${idx + 1}-${Date.now()}`,
       area: template.area,
@@ -234,6 +272,7 @@ export function resetMonthToStandardFixedTasks(existingTasks: Task[], targetPeri
       status: 'No iniciada',
       priority: template.priority,
       nature: 'Fija Mensual',
+      monthlyRecurrenceStopped: false,
       shiftType: template.shiftType || 'General',
       objectiveLocation: template.objectiveLocation || 'Base Central Maipú',
       monthPeriod: targetPeriod,
@@ -244,6 +283,70 @@ export function resetMonthToStandardFixedTasks(existingTasks: Task[], targetPeri
       commentsCount: 0,
     };
   });
+
+  const addedKeys = new Set(
+    fromStandardTemplate.map(t => getMonthlyTaskSeriesKey(t.area, t.title))
+  );
+
+  // 2. Tareas Fijas Mensuales creadas por usuarios en períodos anteriores que sigan con repetición activa
+  const customMonthlyMap = new Map<string, Task>();
+  existingTasks.forEach(t => {
+    if ((t.nature || 'Fija Mensual') !== 'Fija Mensual') return;
+    if (t.monthlyRecurrenceStopped) return;
+    const tPeriod = t.monthPeriod || '2026-10';
+    if (tPeriod >= targetPeriod) return;
+    const key = getMonthlyTaskSeriesKey(t.area, t.title);
+    if (addedKeys.has(key)) return;
+    if (isMonthlyTaskStoppedForPeriod(t.area, t.title, targetPeriod, existingTasks)) return;
+    const prev = customMonthlyMap.get(key);
+    if (!prev || (t.monthPeriod || '') >= (prev.monthPeriod || '')) {
+      customMonthlyMap.set(key, t);
+    }
+  });
+
+  const fromCustomMonthly: Task[] = Array.from(customMonthlyMap.values()).map((t, idx) => {
+    const rawDueDay = (t.dueDate || '').split('-')[2] || '15';
+    const dueDay = clampDay(rawDueDay);
+    return {
+      id: `task-custm-${targetPeriod}-${idx + 1}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      area: t.area,
+      title: t.title,
+      assignee: t.assignee,
+      assigneeEmail: t.assigneeEmail,
+      status: 'No iniciada',
+      priority: t.priority,
+      nature: 'Fija Mensual',
+      monthlyRecurrenceStopped: false,
+      shiftType: t.shiftType || 'General',
+      objectiveLocation: t.objectiveLocation || 'Base Central Maipú',
+      monthPeriod: targetPeriod,
+      startDate: `${yearStr}-${monthStr}-01`,
+      dueDate: `${yearStr}-${monthStr}-${dueDay}`,
+      notes: t.notes,
+      category: t.category,
+      commentsCount: 0,
+    };
+  });
+
+  return [...fromStandardTemplate, ...fromCustomMonthly];
+}
+
+export function ensureMonthTasks(existingTasks: Task[], targetPeriod: string): Task[] {
+  const periodTasks = existingTasks.filter(t => (t.monthPeriod || '2026-10') === targetPeriod);
+  let result = [...existingTasks];
+
+  if (periodTasks.length === 0) {
+    const newTasks = buildActiveMonthlyFixedTasksForPeriod(existingTasks, targetPeriod);
+    result = [...result, ...newTasks];
+  }
+
+  const { updatedTasks } = renewWeeklyFixedTasksForPeriod(result, targetPeriod);
+  return updatedTasks;
+}
+
+export function resetMonthToStandardFixedTasks(existingTasks: Task[], targetPeriod: string): Task[] {
+  const otherMonthTasks = existingTasks.filter(t => (t.monthPeriod || '2026-10') !== targetPeriod);
+  const cleanFixedTasks = buildActiveMonthlyFixedTasksForPeriod(existingTasks, targetPeriod);
   const baseWithMonthly = [...otherMonthTasks, ...cleanFixedTasks];
   const { updatedTasks } = renewWeeklyFixedTasksForPeriod(baseWithMonthly, targetPeriod);
   return updatedTasks;

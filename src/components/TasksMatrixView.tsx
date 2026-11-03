@@ -31,7 +31,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { calculateDaysRemaining, formatDateLocale, formatPeriodName } from '../utils/dateUtils';
-import { getDayOfWeekLabel, getDayOfWeekFromDateString } from '../utils/monthRenewalService';
+import { getDayOfWeekLabel, getDayOfWeekFromDateString, isMonthlyTaskStoppedForPeriod } from '../utils/monthRenewalService';
 import { exportTasksToCSV } from '../utils/exportUtils';
 import { exportTasksToPDF } from '../utils/pdfExportUtils';
 import { MonthlyPeriodSelector } from './MonthlyPeriodSelector';
@@ -55,6 +55,7 @@ interface TasksMatrixViewProps {
   onResetFixedTasks?: () => void;
   onRenewWeeklyNextMonth?: () => void;
   onToggleWeeklyRecurrence?: (task: Task, stopRecurrence: boolean) => void;
+  onToggleMonthlyRecurrence?: (task: Task, stopRecurrence: boolean) => void;
   onClearMonth?: () => void;
   onExportPeriod?: () => void;
   onOpenAdminSheets?: () => void;
@@ -88,6 +89,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   onResetFixedTasks,
   onRenewWeeklyNextMonth,
   onToggleWeeklyRecurrence,
+  onToggleMonthlyRecurrence,
   onClearMonth,
   onExportPeriod,
   onOpenAdminSheets,
@@ -285,10 +287,21 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
       );
     }
     if (val === 'Fija Mensual') {
+      const isStopped = Boolean(
+        task &&
+          (task.monthlyRecurrenceStopped ||
+            isMonthlyTaskStoppedForPeriod(task.area, task.title, task.monthPeriod || currentPeriod, tasks))
+      );
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-cyan-950/70 text-cyan-400 border border-cyan-800/60 whitespace-nowrap">
-          <Repeat className="w-3 h-3 text-cyan-400" />
-          <span>Fija Mensual</span>
+        <span
+          className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded border whitespace-nowrap ${
+            isStopped
+              ? 'bg-slate-900/80 text-slate-400 border-slate-700'
+              : 'bg-cyan-950/70 text-cyan-400 border-cyan-800/60'
+          }`}
+        >
+          <Repeat className={`w-3 h-3 ${isStopped ? 'text-slate-500' : 'text-cyan-400'}`} />
+          <span>{isStopped ? 'Fija Mensual · Sin Repetición' : 'Fija Mensual'}</span>
         </span>
       );
     }
@@ -951,6 +964,32 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
                       </td>
                       <td className="py-3 px-3 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {(task.nature || 'Fija Mensual') === 'Fija Mensual' && onToggleMonthlyRecurrence && (() => {
+                            const isMonthlyStopped = Boolean(
+                              task.monthlyRecurrenceStopped ||
+                                isMonthlyTaskStoppedForPeriod(task.area, task.title, task.monthPeriod || currentPeriod, tasks)
+                            );
+                            return (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onToggleMonthlyRecurrence(task, !isMonthlyStopped);
+                                }}
+                                className={`px-2 py-1 text-[10px] font-bold rounded border transition-colors cursor-pointer ${
+                                  isMonthlyStopped
+                                    ? 'bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border-emerald-700/60'
+                                    : 'bg-amber-950/70 hover:bg-amber-900 text-amber-200 border-amber-700/60'
+                                }`}
+                                title={
+                                  isMonthlyStopped
+                                    ? 'Reactivar la repetición automática mensual de esta tarea para los próximos meses'
+                                    : 'Frenar la repetición mensual de esta tarea de aquí en adelante'
+                                }
+                              >
+                                {isMonthlyStopped ? 'Reactivar Rep.' : 'Frenar Rep.'}
+                              </button>
+                            );
+                          })()}
                           {task.nature === 'Fija Semanal' && onToggleWeeklyRecurrence && (
                             <button
                               onClick={(e) => {

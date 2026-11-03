@@ -21,7 +21,7 @@ import {
   Shield
 } from 'lucide-react';
 import { calculateDaysRemaining, formatDateLocale } from '../utils/dateUtils';
-import { getDayOfWeekLabel, getDayOfWeekFromDateString } from '../utils/monthRenewalService';
+import { getDayOfWeekLabel, getDayOfWeekFromDateString, isMonthlyTaskStoppedForPeriod } from '../utils/monthRenewalService';
 import { sendMentionEmailAlert } from '../utils/emailAlertService';
 import { triggerPersistentNotification } from '../utils/notificationService';
 import { InvictLogo } from './InvictLogo';
@@ -38,6 +38,7 @@ interface TaskDetailModalProps {
   allPersonas: UserPersona[];
   onRefreshEmailLogs?: () => void;
   onToggleWeeklyRecurrence?: (task: Task, stopRecurrence: boolean) => void;
+  onToggleMonthlyRecurrence?: (task: Task, stopRecurrence: boolean) => void;
   onDeleteTask?: (taskId: string) => void;
 }
 
@@ -52,6 +53,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   allPersonas,
   onRefreshEmailLogs,
   onToggleWeeklyRecurrence,
+  onToggleMonthlyRecurrence,
   onDeleteTask,
 }) => {
   const [commentText, setCommentText] = useState('');
@@ -445,6 +447,69 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Control de Repetición para Tarea Fija Mensual */}
+          {(task.nature || 'Fija Mensual') === 'Fija Mensual' && (() => {
+            const isMonthlyStopped = Boolean(
+              task.monthlyRecurrenceStopped ||
+                isMonthlyTaskStoppedForPeriod(task.area, task.title, task.monthPeriod || '2026-10')
+            );
+            return (
+              <div className="p-3.5 rounded-2xl bg-cyan-950/30 border border-cyan-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <Repeat className="w-4 h-4 text-cyan-400" />
+                    <span className="font-bold text-cyan-200 uppercase tracking-wide">
+                      Tarea Fija Mensual
+                    </span>
+                    <span
+                      className={`text-[10px] font-mono px-2 py-0.5 rounded border font-bold ${
+                        isMonthlyStopped
+                          ? 'bg-red-950/80 text-red-300 border-red-700/70'
+                          : 'bg-emerald-950/80 text-emerald-300 border-emerald-700/70'
+                      }`}
+                    >
+                      {isMonthlyStopped ? 'Repetición Frenada' : 'Repetición Mensual Activa'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    {isMonthlyStopped
+                      ? 'Se frenó la repetición mensual: esta tarea ya no se volverá a generar automáticamente en los próximos meses.'
+                      : 'Esta tarea se renueva mes a mes. Puedes frenar su repetición para que deje de repetirse de aquí en adelante.'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {onToggleMonthlyRecurrence && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleMonthlyRecurrence(task, !isMonthlyStopped)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer active:scale-95 ${
+                        isMonthlyStopped
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow'
+                          : 'bg-amber-950/90 hover:bg-amber-900 text-amber-200 border-amber-700/80'
+                      }`}
+                    >
+                      {isMonthlyStopped ? 'Reactivar Repetición Mensual' : 'Frenar Repetición Mensual'}
+                    </button>
+                  )}
+                  {onDeleteTask && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`¿Deseas eliminar la tarea "${task.title}" y frenar su repetición mensual?`)) {
+                          onDeleteTask(task.id);
+                          onClose();
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-red-950/80 hover:bg-red-900 text-red-200 border border-red-800/70 transition-all cursor-pointer"
+                    >
+                      Borrar
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Control de Repetición para Tarea Fija Semanal */}
           {task.nature === 'Fija Semanal' && (
