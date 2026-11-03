@@ -18,11 +18,13 @@ import {
   RotateCcw
 } from 'lucide-react';
 import {
-  getProfilePasswords,
-  setProfilePassword,
-  resetAllCorporatePasswordsToDefault,
-  DEFAULT_PROFILE_PASSWORDS
-} from '../utils/cloudSyncService';
+  setPersonaPassword,
+  resetPersonaPassword,
+  getInitialPasswordFor,
+  getCredentialInfo,
+  generateRandomPassword,
+  removePersonaCredential,
+} from '../utils/userCredentialsService';
 import { PROFILE_METADATA } from '../utils/authService';
 
 interface PersonnelManagementModalProps {
@@ -86,15 +88,16 @@ export const PersonnelManagementModal: React.FC<PersonnelManagementModalProps> =
     email: '',
     department: 'OPERACIONES',
     profileType: 'operaciones',
-    initialPassword: 'Invict2026!',
+    initialPassword: '',
     phone: '',
     notes: '',
   });
 
   const [deleteConfirm, setDeleteConfirm] = useState<UserPersona | null>(null);
-  const [profilePasswords, setProfilePasswords] = useState<Record<UserProfileType, string>>(() => getProfilePasswords());
-  const [editingPasswordProfile, setEditingPasswordProfile] = useState<UserProfileType | null>(null);
+  const [editingPasswordUserId, setEditingPasswordUserId] = useState<string | null>(null);
   const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [lastAssigned, setLastAssigned] = useState<Record<string, string>>({});
+  const [passwordsVersion, setPasswordsVersion] = useState(0);
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
 
   if (!isOpen) return null;
@@ -183,34 +186,40 @@ export const PersonnelManagementModal: React.FC<PersonnelManagementModalProps> =
     setDeleteConfirm(null);
   };
 
-  const handleSaveProfilePassword = (profile: UserProfileType) => {
-    if (!isGerencia) {
-      onNotify('Solo Gerencia puede modificar contraseñas.');
-      return;
-    }
-    if (!newPasswordInput || newPasswordInput.length < 4) {
-      onNotify('La contraseña debe tener al menos 4 caracteres.');
-      return;
-    }
-    setProfilePassword(profile, newPasswordInput, {
-      name: currentUser.name,
-      profile: currentUser.profileType,
-      email: currentUser.email,
-    });
-    setProfilePasswords(prev => ({ ...prev, [profile]: newPasswordInput }));
-    setEditingPasswordProfile(null);
-    setNewPasswordInput('');
-    onNotify(`Contraseña actualizada para el perfil ${profile}.`);
+  const authorInfo = {
+    name: currentUser.name,
+    profile: currentUser.profileType,
+    email: currentUser.email,
   };
 
-  const profilesList: UserProfileType[] = [
-    'GERENTE',
-    'operaciones',
-    'recursos humanos',
-    'administración',
-    'auxiliar',
-    'selección'
-  ];
+  const handleAssignPassword = async (persona: UserPersona, pass: string) => {
+    if (!isGerencia) {
+      onNotify('Solo Gerencia puede asignar contraseñas.');
+      return;
+    }
+    if (!pass || pass.length < 6) {
+      onNotify('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+    await setPersonaPassword(persona, pass, authorInfo);
+    setLastAssigned(prev => ({ ...prev, [persona.id]: pass }));
+    setEditingPasswordUserId(null);
+    setNewPasswordInput('');
+    setPasswordsVersion(v => v + 1);
+    onNotify(`Contraseña asignada a ${persona.name}. Compártasela de forma privada.`);
+  };
+
+  const handleResetPassword = (persona: UserPersona) => {
+    if (!isGerencia) return;
+    resetPersonaPassword(persona, authorInfo);
+    setLastAssigned(prev => {
+      const next = { ...prev };
+      delete next[persona.id];
+      return next;
+    });
+    setPasswordsVersion(v => v + 1);
+    onNotify(`Contraseña de ${persona.name} restablecida a su clave inicial (${getInitialPasswordFor(persona)}).`);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
@@ -272,7 +281,7 @@ export const PersonnelManagementModal: React.FC<PersonnelManagementModalProps> =
                 }`}
               >
                 <KeyRound className="w-4 h-4 text-amber-400" />
-                <span>Generador de Contraseñas por Perfil</span>
+                <span>Usuarios y Contraseñas Individuales</span>
               </button>
             )}
           </div>
@@ -376,6 +385,18 @@ export const PersonnelManagementModal: React.FC<PersonnelManagementModalProps> =
                         <option value="SELECCION">SELECCION</option>
                         <option value="GERENCIA">GERENCIA</option>
                       </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                        Contraseña personal (opcional)
+                      </label>
+                      <input
+                        type="text"
+                        value={newPostData.initialPassword}
+                        onChange={(e) => setNewPostData({ ...newPostData, initialPassword: e.target.value })}
+                        placeholder="Vacío = clave inicial (Nombre2026!)"
+                        className="w-full px-3 py-2 bg-[#0b0e14] border border-[#2b364e] rounded-xl text-xs text-white font-mono"
+                      />
                     </div>
                   </div>
 
@@ -533,80 +554,140 @@ export const PersonnelManagementModal: React.FC<PersonnelManagementModalProps> =
               <div className="p-3.5 bg-gradient-to-r from-red-950/40 via-[#182030] to-red-950/40 border border-red-900/50 rounded-xl space-y-2 text-xs text-red-200">
                 <div className="flex items-center gap-2 text-white font-bold">
                   <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0" />
-                  <span>Control Centralizado de Contraseñas por Perfil</span>
+                  <span>Cada persona tiene su propio usuario y contraseña</span>
                 </div>
                 <p className="text-slate-300 text-[11px] leading-relaxed">
-                  Gerencia General tiene la potestad de generar y actualizar las claves de acceso de cada puesto.
+                  Las claves ya no se comparten por puesto. Usuario = correo de cada persona. Hasta que asigne una clave, ingresa con su <strong>clave inicial</strong> (Nombre2026!). Las claves asignadas se guardan cifradas (no se pueden volver a ver): al asignarla, se muestra una sola vez para que se la comunique.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {profilesList.map((profile) => {
-                  const meta = PROFILE_METADATA[profile];
-                  const currentPass = profilePasswords[profile] || DEFAULT_PROFILE_PASSWORDS[profile];
-                  const isEditingThis = editingPasswordProfile === profile;
-                  const isShown = showPasswordMap[profile] || false;
+              <div className="space-y-2.5" data-version={passwordsVersion}>
+                {personas.map((persona) => {
+                  const meta = PROFILE_METADATA[persona.profileType || 'operaciones'] || PROFILE_METADATA['operaciones'];
+                  const info = getCredentialInfo(persona.id);
+                  const initial = getInitialPasswordFor(persona);
+                  const isEditingThis = editingPasswordUserId === persona.id;
+                  const isShown = showPasswordMap[persona.id] || false;
+                  const justAssigned = lastAssigned[persona.id];
                   return (
-                    <div
-                      key={profile}
-                      className={`p-4 rounded-2xl border bg-[#141926] ${meta.border} space-y-3`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${meta.badge}`}>
-                          {meta.label}
-                        </span>
-                        <span className="text-xs text-slate-300 font-bold">
-                          {meta.department}
-                        </span>
-                      </div>
-
-                      {!isEditingThis ? (
-                        <div className="flex items-center justify-between p-2.5 bg-[#0c1018] border border-[#232d3f] rounded-xl text-xs">
-                          <div className="flex items-center gap-2">
-                            <Lock className="w-3.5 h-3.5 text-slate-400" />
-                            <span className="font-mono font-bold text-white tracking-wider">
-                              {isShown ? currentPass : '••••••••••••'}
+                    <div key={persona.id} className="p-3.5 rounded-2xl border border-[#242e42] bg-[#141926] space-y-2.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-white text-sm">{persona.name}</span>
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${meta.badge}`}>
+                              {meta.label}
+                            </span>
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${info ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60' : 'bg-amber-950/60 text-amber-300 border-amber-800/60'}`}>
+                              {info ? 'Clave personalizada' : 'Clave inicial sin cambiar'}
                             </span>
                           </div>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => toggleShowPassword(profile)}
-                              className="p-1 text-slate-400 hover:text-white cursor-pointer"
-                            >
-                              {isShown ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                            </button>
+                          <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                            Usuario: {persona.email}
+                          </div>
+                        </div>
+                        {!isEditingThis && (
+                          <div className="flex items-center gap-1.5 self-end sm:self-center">
                             <button
                               type="button"
                               onClick={() => {
-                                setEditingPasswordProfile(profile);
-                                setNewPasswordInput(currentPass);
+                                setEditingPasswordUserId(persona.id);
+                                setNewPasswordInput('');
                               }}
                               className="px-2.5 py-1 rounded-lg bg-blue-950/60 hover:bg-blue-900/80 text-blue-300 border border-blue-800/60 text-[11px] font-bold cursor-pointer"
                             >
-                              Cambiar
+                              Asignar contraseña
+                            </button>
+                            {info && (
+                              <button
+                                type="button"
+                                onClick={() => handleResetPassword(persona)}
+                                className="px-2.5 py-1 rounded-lg bg-[#1e273a] hover:bg-[#28354e] text-slate-300 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                                title="Volver a la clave inicial"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                <span>Restablecer</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {!info && !isEditingThis && (
+                        <div className="flex items-center justify-between p-2 bg-[#0c1018] border border-[#232d3f] rounded-xl text-xs">
+                          <div className="flex items-center gap-2">
+                            <Lock className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="text-slate-400 text-[11px]">Clave inicial:</span>
+                            <span className="font-mono font-bold text-white tracking-wider">
+                              {isShown ? initial : '••••••••••'}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleShowPassword(persona.id)}
+                            className="p-1 text-slate-400 hover:text-white cursor-pointer"
+                          >
+                            {isShown ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      )}
+
+                      {info && !isEditingThis && (
+                        <div className="text-[10px] text-slate-500">
+                          Última asignación: {new Date(info.updatedAt).toLocaleString('es-AR')} · por {info.updatedBy}
+                        </div>
+                      )}
+
+                      {justAssigned && !isEditingThis && (
+                        <div className="p-2.5 bg-emerald-950/40 border border-emerald-800/50 rounded-xl text-[11px] text-emerald-200 flex items-center justify-between gap-2">
+                          <span>
+                            Nueva clave (visible solo ahora): <strong className="font-mono text-white">{justAssigned}</strong>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setLastAssigned(prev => {
+                              const next = { ...prev };
+                              delete next[persona.id];
+                              return next;
+                            })}
+                            className="text-emerald-300 hover:text-white cursor-pointer"
+                          >
+                            Ocultar
+                          </button>
+                        </div>
+                      )}
+
+                      {isEditingThis && (
+                        <div className="p-3 bg-[#0c1018] border border-blue-500/50 rounded-xl space-y-2 animate-in fade-in">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={newPasswordInput}
+                              onChange={(e) => setNewPasswordInput(e.target.value)}
+                              placeholder="Nueva contraseña (mín. 6 caracteres)"
+                              className="flex-1 px-3 py-1.5 bg-[#141a26] border border-[#2c374d] rounded-lg text-xs text-white font-mono"
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setNewPasswordInput(generateRandomPassword())}
+                              className="px-2.5 py-1.5 rounded-lg bg-[#1e273a] hover:bg-[#28354e] text-slate-200 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                            >
+                              <Sparkles className="w-3 h-3 text-amber-400" />
+                              <span>Generar</span>
                             </button>
                           </div>
-                        </div>
-                      ) : (
-                        <div className="p-3 bg-[#0c1018] border border-blue-500/50 rounded-xl space-y-2 animate-in fade-in">
-                          <input
-                            type="text"
-                            value={newPasswordInput}
-                            onChange={(e) => setNewPasswordInput(e.target.value)}
-                            className="w-full px-3 py-1.5 bg-[#141a26] border border-[#2c374d] rounded-lg text-xs text-white font-mono"
-                          />
                           <div className="flex justify-end gap-2 pt-1">
                             <button
                               type="button"
-                              onClick={() => setEditingPasswordProfile(null)}
+                              onClick={() => setEditingPasswordUserId(null)}
                               className="px-2.5 py-1 text-xs text-slate-400 hover:text-white cursor-pointer"
                             >
                               Cancelar
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleSaveProfilePassword(profile)}
+                              onClick={() => handleAssignPassword(persona, newPasswordInput)}
                               className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold cursor-pointer"
                             >
                               Aplicar

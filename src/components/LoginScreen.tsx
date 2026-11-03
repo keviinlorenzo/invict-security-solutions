@@ -6,10 +6,11 @@ import {
   determineProfileFromEmail
 } from '../utils/authService';
 import {
-  verifyProfilePassword,
-  getProfilePasswords,
+  verifyPersonaPassword,
+  setPersonaPassword,
+} from '../utils/userCredentialsService';
+import {
   recoverGerenciaPassword,
-  DEFAULT_PROFILE_PASSWORDS
 } from '../utils/cloudSyncService';
 import {
   initiateGerenciaPasswordRecovery,
@@ -105,38 +106,37 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      let targetPersona = availablePersonas.find(p => p.email.toLowerCase() === cleanEmail);
-      if (!targetPersona && selectedPersona) {
-        targetPersona = selectedPersona;
-      }
-      const targetProfile: UserProfileType = targetPersona?.profileType || determineProfileFromEmail(cleanEmail);
+    (async () => {
+      const targetPersona =
+        availablePersonas.find(p => p.email.toLowerCase() === cleanEmail) ||
+        (selectedPersona && selectedPersona.email.toLowerCase() === cleanEmail ? selectedPersona : undefined);
 
-      const isValid = verifyProfilePassword(targetProfile, password, cleanEmail);
-      if (!isValid) {
+      if (!targetPersona) {
         setErrorMessage(
-          `Contraseña incorrecta para el puesto "${targetProfile.toUpperCase()}". Cada cuenta posee credenciales personales fijas. Si Gerencia requiere restablecer su clave, use el Centro de Recuperación vía Gmail u Outlook.`
+          'Ese correo no corresponde a ningún usuario registrado. Cada persona tiene su propio usuario: seleccione el suyo en la lista o pida a Gerencia que lo habilite.'
         );
         setIsSubmitting(false);
         return;
       }
 
-      const finalPersona: UserPersona = targetPersona || {
-        id: `user-${Date.now()}`,
-        name: cleanEmail.split('@')[0].toUpperCase(),
-        email: cleanEmail,
-        role: targetProfile === 'GERENTE' ? 'Gerente General (C-Level)' : `${PROFILE_METADATA[targetProfile].label} Operativa`,
-        department: PROFILE_METADATA[targetProfile].department,
-        profileType: targetProfile,
-        avatarBg: PROFILE_METADATA[targetProfile].border,
-      };
+      const isValid = await verifyPersonaPassword(targetPersona, password);
+      if (!isValid) {
+        setErrorMessage(
+          `Contraseña incorrecta para ${targetPersona.name}. Cada usuario tiene su contraseña personal asignada por Gerencia. Si la olvidó, solicítela a Gerencia.`
+        );
+        setIsSubmitting(false);
+        return;
+      }
 
-      setSuccessNotice(`Acceso autorizado para ${finalPersona.name} (${PROFILE_METADATA[targetProfile].label}). Conectando al sistema en tiempo real...`);
+      const targetProfile: UserProfileType = targetPersona.profileType;
+      const finalPersona: UserPersona = targetPersona;
+
+      setSuccessNotice(`Acceso autorizado para ${finalPersona.name} (${PROFILE_METADATA[targetProfile]?.label || finalPersona.role}). Conectando al sistema en tiempo real...`);
       setTimeout(() => {
         setIsSubmitting(false);
         onLoginSuccess(finalPersona);
       }, 500);
-    }, 300);
+    })();
   };
 
   // --- RECOVERY FLOW WITH GMAIL & OUTLOOK CONNECTOR ---
@@ -197,6 +197,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       return;
     }
     recoverGerenciaPassword(newPass);
+    const masterPersona =
+      availablePersonas.find(p => p.email.toLowerCase() === 'consultasinvictsolutionss.a@gmail.com') ||
+      availablePersonas.find(p => p.id === 'p-master-c-level');
+    if (masterPersona) {
+      void setPersonaPassword(masterPersona, newPass, {
+        name: 'Dirección General (Recuperación)',
+        profile: 'GERENTE',
+        email: 'consultasinvictsolutionss.a@gmail.com',
+      });
+    }
     setRecoverySuccessMessage('¡Contraseña de Gerencia actualizada con éxito! Ya puedes iniciar sesión.');
     setEmail('consultasinvictsolutionss.a@gmail.com');
     setPassword(newPass);
@@ -354,8 +364,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
                 Seleccionar Puesto de Trabajo Directo:
               </span>
-              <span className="text-[10px] text-amber-400 font-mono font-semibold">
-                Operaciones ≠ Supervisión
+              <span className="text-[10px] text-emerald-400 font-mono font-semibold">
+                Usuario y contraseña individuales
               </span>
             </div>
 
@@ -402,20 +412,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               })}
             </div>
 
-            {/* Claves Corporativas Informativas */}
-            <div className="mt-3.5 p-3 rounded-xl bg-[#0c1018] border border-[#1e2538] text-[11px] text-slate-400 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
-                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Puestos diferenciados por equipo:</span>
-              </div>
-              <div className="flex items-center gap-3 font-mono text-[10px] flex-wrap">
-                <span className="text-rose-300 bg-rose-950/50 px-2 py-0.5 rounded border border-rose-800/60">
-                  Operaciones (Oficina): <strong>Operaciones2026!</strong>
-                </span>
-                <span className="text-amber-300 bg-amber-950/50 px-2 py-0.5 rounded border border-amber-800/60">
-                  Supervisión (Terreno): <strong>Supervision2026!</strong>
-                </span>
-              </div>
+            {/* Aviso de credenciales individuales */}
+            <div className="mt-3.5 p-3 rounded-xl bg-[#0c1018] border border-[#1e2538] text-[11px] text-slate-400 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                Cada persona ingresa con <strong className="text-slate-200">su propio usuario y contraseña</strong>. Si no la recuerda o es su primer ingreso, solicítela a Gerencia.
+              </span>
             </div>
           </div>
         </div>

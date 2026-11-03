@@ -109,6 +109,7 @@ export function collectLocalSharedState(): Record<string, any> {
     'invict_cloud_modifications',
     'invict_admin_informative_sheets',
     STORAGE_KEY_PASSWORDS,
+    'invict_user_credentials',
     STORAGE_KEY_CUSTOM_POSTS,
     STORAGE_KEY_DELETED_POSTS,
   ];
@@ -435,18 +436,9 @@ export function verifyProfilePassword(
   const activePassword = passwords[profile] || DEFAULT_PROFILE_PASSWORDS[profile];
   const defaultPassword = DEFAULT_PROFILE_PASSWORDS[profile];
 
-  if (inputPassword === activePassword) return true;
-  if (inputPassword === defaultPassword) return true;
-
-  try {
-    const customPosts = getCustomPosts();
-    const matchedPost = customPosts.find(p => p.email.toLowerCase() === (accountEmail || '').toLowerCase());
-    if (matchedPost && (matchedPost as any).customPassword) {
-      if (inputPassword === (matchedPost as any).customPassword) return true;
-    }
-  } catch {}
-
-  return false;
+  // Obsoleto: el acceso se valida por usuario con userCredentialsService.verifyPersonaPassword.
+  void accountEmail;
+  return inputPassword === activePassword || inputPassword === defaultPassword;
 }
 
 // --- PUESTOS DE TRABAJO Y PERSONAL CONTROLLED BY GERENCIA ---
@@ -474,14 +466,11 @@ export function saveNewCustomPost(
   author: { name: string; profile: string; email: string }
 ): void {
   const current = getCustomPosts();
-  const augmented = { ...post, customPassword: initialPassword || DEFAULT_PROFILE_PASSWORDS[post.profileType] };
+  // Las contraseñas son individuales por usuario (ver userCredentialsService); no se guardan en el puesto.
+  void initialPassword;
+  const augmented = { ...post };
   current.push(augmented);
   localStorage.setItem(STORAGE_KEY_CUSTOM_POSTS, JSON.stringify(current));
-  if (initialPassword) {
-    const passwords = getProfilePasswords();
-    passwords[post.profileType] = initialPassword;
-    localStorage.setItem(STORAGE_KEY_PASSWORDS, JSON.stringify(passwords));
-  }
   broadcastCloudChange(
     'POST_ADDED',
     `Gerencia dio de alta un nuevo puesto de trabajo: "${post.role}" (${post.name})`,

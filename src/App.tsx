@@ -42,6 +42,7 @@ import { CalendarView } from './components/CalendarView';
 import { GoogleCalendarConfirmModal } from './components/GoogleCalendarConfirmModal';
 import { GoogleCalendarSyncModal } from './components/GoogleCalendarSyncModal';
 import { LoginScreen } from './components/LoginScreen';
+import { setPersonaPassword, removePersonaCredential } from './utils/userCredentialsService';
 import { BonoChatAssistant } from './components/BonoChatAssistant';
 import { DesktopPwaInstallModal } from './components/DesktopPwaInstallModal';
 import {
@@ -631,11 +632,15 @@ export default function App() {
 
   const handleAddPersona = (newPersona: UserPersona, initialPassword?: string) => {
     setPersonas(prev => [...prev, newPersona]);
-    saveNewCustomPost(newPersona, initialPassword || 'Invict2026!', {
+    const authorInfo = {
       name: currentPersona.name,
       profile: currentPersona.profileType,
       email: currentPersona.email,
-    });
+    };
+    saveNewCustomPost(newPersona, '', authorInfo);
+    if (initialPassword && initialPassword.trim().length >= 6) {
+      void setPersonaPassword(newPersona, initialPassword.trim(), authorInfo);
+    }
     showToast(`Puesto "${newPersona.role}" creado y habilitado en la plataforma.`);
   };
 
@@ -643,6 +648,7 @@ export default function App() {
     const p = personas.find(item => item.id === personaId);
     const postName = p ? p.role : personaId;
     setPersonas(prev => prev.filter(item => item.id !== personaId));
+    removePersonaCredential(personaId);
     deleteWorkplacePost(personaId, postName, {
       name: currentPersona.name,
       profile: currentPersona.profileType,

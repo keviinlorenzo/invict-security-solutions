@@ -836,11 +836,11 @@ function generateFallbackBonoResponse(
       `1. **Puesto OPERACIONES (Oficina Central):**\n` +
       `   • **Ubicación:** Trabaja de forma fija en la oficina central.\n` +
       `   • **Funciones:** Coordinación logística general, armado de cuadrantes de turnos, gestión de ausentismo, comunicación telefónica con clientes y asignación de puestos.\n` +
-      `   • **Credencial de acceso:** Clave exclusiva \`Operaciones2026!\`.\n\n` +
+      `   • **Acceso:** Cada persona ingresa con su propio usuario y contraseña personal.\n\n` +
       `2. **Puesto SUPERVISIÓN (En Terreno y Móviles):**\n` +
       `   • **Ubicación:** Se desplaza en patrullas móviles e inspecciones presenciales en los objetivos.\n` +
       `   • **Funciones:** Auditoría presencial de puestos, control del porte de uniformes y credenciales REPRIV, inspección de libros de guardia y verificación de rondines nocturnos.\n` +
-      `   • **Credencial de acceso:** Clave móvil \`Supervision2026!\`.\n\n` +
+      `   • **Acceso:** Cada persona ingresa con su propio usuario y contraseña personal.\n\n` +
       `Sus métricas y tareas se visualizan de forma independiente para no superponer los indicadores de la oficina con los del terreno.`;
   }
 
