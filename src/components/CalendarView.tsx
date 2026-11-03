@@ -148,7 +148,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   onRequestSyncTaskToGoogle,
   onRequestSyncAllPeriodTasks,
 }) => {
-  const isGerencia = currentPersona.profileType === 'GERENTE';
+  const isGerencia = currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE';
   const todayStr = getTodayDateString();
   const [selectedDayDate, setSelectedDayDate] = useState<string | null>(todayStr);
 
@@ -267,11 +267,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const areasList: { id: AreaType; label: string }[] = [
     { id: 'TODOS', label: 'Todos los Puestos' },
     { id: 'OPERACIONES', label: 'Operaciones' },
+    { id: 'SUPERVISIÓN', label: 'Supervisión' },
     { id: 'RRHH', label: 'RR.HH.' },
     { id: 'ADM', label: 'Administración' },
     { id: 'AUX_ADM', label: 'Auxiliar Adm.' },
     { id: 'SELECCION', label: 'Selección' },
-    { id: 'GERENCIA', label: 'Gerencia' },
+    { id: 'SUB_GERENCIA', label: 'Sub Gerencia' },
+    ...(isGerencia ? [{ id: 'GERENCIA' as AreaType, label: 'Gerencia' }] : []),
   ];
 
   return (

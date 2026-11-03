@@ -332,6 +332,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                     <option value="ADM">Administración (ADM)</option>
                     <option value="AUX_ADM">Auxiliar Administrativo</option>
                     <option value="SELECCION">Selección de Personal</option>
+                    <option value="SUB_GERENCIA">Sub Gerencia / Vicepresidencia</option>
                     {isGerencia ? (
                       <option value="GERENCIA">Gerencia General (C-Level)</option>
                     ) : (
@@ -348,10 +349,19 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Responsable</label>
                   <input
                     type="text"
+                    list="task-edit-assignees"
                     value={editAssignee}
                     onChange={(e) => setEditAssignee(e.target.value)}
                     className="w-full px-3 py-1.5 bg-[#161c28] border border-[#2b374e] rounded-lg text-xs text-white"
+                    placeholder="Nombre del responsable"
                   />
+                  <datalist id="task-edit-assignees">
+                    {allPersonas.map((p) => (
+                      <option key={p.id} value={p.name}>
+                        {p.name} ({p.profileType})
+                      </option>
+                    ))}
+                  </datalist>
                 </div>
                 <div>
                   <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Fecha Límite</label>
