@@ -21,6 +21,7 @@ import {
   Shield
 } from 'lucide-react';
 import { calculateDaysRemaining, formatDateLocale } from '../utils/dateUtils';
+import { getDayOfWeekLabel, getDayOfWeekFromDateString } from '../utils/monthRenewalService';
 import { sendMentionEmailAlert } from '../utils/emailAlertService';
 import { triggerPersistentNotification } from '../utils/notificationService';
 import { InvictLogo } from './InvictLogo';
@@ -36,6 +37,8 @@ interface TaskDetailModalProps {
   currentPersona: UserPersona;
   allPersonas: UserPersona[];
   onRefreshEmailLogs?: () => void;
+  onToggleWeeklyRecurrence?: (task: Task, stopRecurrence: boolean) => void;
+  onDeleteTask?: (taskId: string) => void;
 }
 
 export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
@@ -48,6 +51,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   currentPersona,
   allPersonas,
   onRefreshEmailLogs,
+  onToggleWeeklyRecurrence,
+  onDeleteTask,
 }) => {
   const [commentText, setCommentText] = useState('');
   const [alertFeedback, setAlertFeedback] = useState<string | null>(null);
@@ -59,6 +64,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [editAssignee, setEditAssignee] = useState('');
   const [editDueDate, setEditDueDate] = useState('');
   const [editPriority, setEditPriority] = useState<TaskPriority>('Normal');
+  const [editNature, setEditNature] = useState<TaskNature>('Fija Mensual');
   const [editShift, setEditShift] = useState<ShiftType>('General');
   const [editObjective, setEditObjective] = useState('');
   const [editNotes, setEditNotes] = useState('');
@@ -74,6 +80,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
       setEditAssignee(task.assignee);
       setEditDueDate(task.dueDate);
       setEditPriority(task.priority);
+      setEditNature(task.nature || 'Fija Mensual');
       setEditShift(task.shiftType || 'General');
       setEditObjective(task.objectiveLocation || 'Base Central');
       setEditNotes(task.notes || '');
@@ -173,6 +180,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     if (editAssignee !== task.assignee) changes.push(`Responsable: "${editAssignee}"`);
     if (editDueDate !== task.dueDate) changes.push(`Vencimiento: ${editDueDate}`);
     if (editPriority !== task.priority) changes.push(`Prioridad: ${editPriority}`);
+    if (editNature !== (task.nature || 'Fija Mensual')) changes.push(`Naturaleza: ${editNature}`);
     if (editNotes !== (task.notes || '')) changes.push('Notas actualizadas');
 
     const desc = changes.length > 0 ? `Modificó campos (${changes.join(', ')})` : 'Actualizó datos de la tarea';
@@ -183,6 +191,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
       assignee: editAssignee,
       dueDate: editDueDate,
       priority: editPriority,
+      nature: editNature,
+      weeklyDayOfWeek: editNature === 'Fija Semanal' ? getDayOfWeekFromDateString(editDueDate) : task.weeklyDayOfWeek,
       notes: editNotes,
     };
     onUpdateTaskDetails(updatedTask, desc);
@@ -331,7 +341,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
                   <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Responsable</label>
                   <input
@@ -349,6 +359,19 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                     onChange={(e) => setEditDueDate(e.target.value)}
                     className="w-full px-3 py-1.5 bg-[#161c28] border border-[#2b374e] rounded-lg text-xs text-white font-mono"
                   />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Naturaleza</label>
+                  <select
+                    value={editNature}
+                    onChange={(e) => setEditNature(e.target.value as TaskNature)}
+                    className="w-full px-3 py-1.5 bg-[#161c28] border border-[#2b374e] rounded-lg text-xs text-white"
+                  >
+                    <option value="Fija Mensual">Fija Mensual</option>
+                    <option value="Fija Semanal">Fija Semanal</option>
+                    <option value="Variable">Variable</option>
+                    <option value="Imprevisto">Imprevisto</option>
+                  </select>
                 </div>
                 <div>
                   <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Prioridad</label>
@@ -422,6 +445,64 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Control de Repetición para Tarea Fija Semanal */}
+          {task.nature === 'Fija Semanal' && (
+            <div className="p-3.5 rounded-2xl bg-purple-950/35 border border-purple-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <Repeat className="w-4 h-4 text-purple-400" />
+                  <span className="font-bold text-purple-200 uppercase tracking-wide">
+                    Tarea Fija Semanal · Todos los {getDayOfWeekLabel(task.weeklyDayOfWeek ?? getDayOfWeekFromDateString(task.dueDate))}
+                    {task.weekNumberInMonth ? ` (Semana ${task.weekNumberInMonth})` : ''}
+                  </span>
+                  <span
+                    className={`text-[10px] font-mono px-2 py-0.5 rounded border font-bold ${
+                      task.weeklyRecurrenceStopped
+                        ? 'bg-red-950/80 text-red-300 border-red-700/70'
+                        : 'bg-emerald-950/80 text-emerald-300 border-emerald-700/70'
+                    }`}
+                  >
+                    {task.weeklyRecurrenceStopped ? 'Repetición Detenida' : 'Repetición Activa'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  {task.weeklyRecurrenceStopped
+                    ? 'La repetición semanal fue pausada. No se generarán nuevas semanas automáticamente hasta que la reactives.'
+                    : 'Se anota sistemáticamente cada semana con alerta de cumplimiento semanal.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {onToggleWeeklyRecurrence && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleWeeklyRecurrence(task, !task.weeklyRecurrenceStopped)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer active:scale-95 ${
+                      task.weeklyRecurrenceStopped
+                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow'
+                        : 'bg-amber-950/90 hover:bg-amber-900 text-amber-200 border-amber-700/80'
+                    }`}
+                  >
+                    {task.weeklyRecurrenceStopped ? 'Reactivar Repetición' : 'Parar Repetición'}
+                  </button>
+                )}
+                {onDeleteTask && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`¿Deseas eliminar esta tarea semanal ("${task.title}")?`)) {
+                        onDeleteTask(task.id);
+                        onClose();
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-red-950/80 hover:bg-red-900 text-red-200 border border-red-800/70 transition-all cursor-pointer"
+                  >
+                    Borrar
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Status Change Selector */}
           <div className="flex items-center justify-between p-3.5 rounded-2xl bg-[#161c28] border border-[#242f44]">

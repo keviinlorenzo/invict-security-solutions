@@ -17,7 +17,7 @@ export type TaskStatus =
 export type TaskPriority = 'Baja' | 'Normal' | 'Media' | 'Alta' | 'Urgente';
 export type PriorityType = TaskPriority;
 
-export type TaskNature = 'Fija Mensual' | 'Variable' | 'Imprevisto';
+export type TaskNature = 'Fija Mensual' | 'Fija Semanal' | 'Variable' | 'Imprevisto';
 
 export type ShiftType = 'Mañana' | 'Tarde' | 'Noche' | '24hs' | 'Rotativo' | 'General';
 
@@ -60,6 +60,10 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   nature?: TaskNature;
+  weeklySeriesId?: string;          // Identificador compartido de la serie semanal
+  weeklyDayOfWeek?: number;         // Día de la semana (0 = Domingo ... 6 = Sábado)
+  weeklyRecurrenceStopped?: boolean; // Si true, se detuvo la repetición semanal
+  weekNumberInMonth?: number;       // N° de semana dentro del mes (1 a 5)
   shiftType?: ShiftType;
   objectiveLocation?: string; // e.g. "Kraft San Martín", "Fuesmen Maipú", "Bodegas Luján", "Base Central"
   monthPeriod?: string; // 'YYYY-MM'

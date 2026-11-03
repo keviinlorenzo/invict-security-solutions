@@ -56,9 +56,16 @@ import {
   DEFAULT_PERIOD,
   formatPeriodName,
   formatCurrentFullDate,
-  getTodayDateString
+  getTodayDateString,
+  getAdjacentPeriod
 } from './utils/dateUtils';
-import { ensureMonthHasFixedTasks, renewMonthFixedTasks } from './utils/monthRenewalService';
+import {
+  ensureMonthHasFixedTasks,
+  renewMonthFixedTasks,
+  buildWeeklyTaskInstancesForMonth,
+  renewWeeklyFixedTasksForPeriod,
+  getDayOfWeekLabel
+} from './utils/monthRenewalService';
 import { resetMonthDataToZero } from './data/managerialSheetsData';
 import { getEmailNotificationLogs } from './utils/emailAlertService';
 import { registerServiceWorker } from './utils/serviceWorkerManager';
@@ -495,7 +502,32 @@ export default function App() {
       { name: currentPersona.name, profile: currentPersona.profileType, email: currentPersona.email },
       updated
     );
-    showToast(`Tareas fijas mensuales renovadas para ${formatPeriodName(currentPeriod)}`);
+    showToast(`Tareas fijas mensuales y semanales renovadas para ${formatPeriodName(currentPeriod)}`);
+  };
+
+  const handleRenewWeeklyNextMonth = () => {
+    const nextPeriod = getAdjacentPeriod(currentPeriod, 1);
+    const { updatedTasks, addedCount, seriesCount } = renewWeeklyFixedTasksForPeriod(tasks, nextPeriod);
+    if (seriesCount === 0) {
+      showToast('No hay tareas Fijas Semanales activas registradas para renovar al mes siguiente.');
+      return;
+    }
+    setTasks(updatedTasks);
+    broadcastCloudChange(
+      'TASK_MUTATION',
+      `${currentPersona.name} renovó las tareas Fijas Semanales para ${formatPeriodName(nextPeriod)}`,
+      { name: currentPersona.name, profile: currentPersona.profileType, email: currentPersona.email },
+      updatedTasks
+    );
+    if (addedCount > 0) {
+      showToast(
+        `¡Se renovaron ${seriesCount} serie(s) Fija Semanal (${addedCount} tareas semanales) para todas las semanas de ${formatPeriodName(nextPeriod)}!`
+      );
+    } else {
+      showToast(
+        `Las tareas Fijas Semanales ya están todas agendadas en las semanas de ${formatPeriodName(nextPeriod)}.`
+      );
+    }
   };
 
   // Limpia todo lo cargado/hablado en el mes seleccionado (tareas, gastos, mensajes,
@@ -642,6 +674,39 @@ export default function App() {
   const handleAddTask = (newTaskData: Omit<Task, 'id'>) => {
     const formatted = formatModificationTimestamp(new Date());
     const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
+
+    if (newTaskData.nature === 'Fija Semanal') {
+      const mod = logCloudModification('Registró tarea Fija Semanal con repetición automática', undefined, newTaskData.title);
+      const weeklyInstances = buildWeeklyTaskInstancesForMonth(
+        {
+          ...newTaskData,
+          lastModifiedBy: {
+            name: currentPersona.name,
+            email: currentPersona.email,
+            profile: userProf,
+          },
+          lastModifiedAt: formatted,
+          lastModifiedAction: 'Creación de serie Fija Semanal',
+          history: [mod],
+        },
+        currentPeriod,
+        newTaskData.dueDate
+      );
+
+      const updatedTasks = [...weeklyInstances, ...tasks];
+      setTasks(updatedTasks);
+      broadcastCloudChange(
+        'TASK_MUTATION',
+        `${currentPersona.name} (${userProf}) registró la tarea Fija Semanal "${newTaskData.title}" (${weeklyInstances.length} semanas)`,
+        { name: currentPersona.name, profile: userProf, email: currentPersona.email },
+        updatedTasks
+      );
+      showToast(
+        `¡Tarea Fija Semanal registrada! Se anotaron sistemáticamente ${weeklyInstances.length} semanas en ${formatPeriodName(currentPeriod)} (${getDayOfWeekLabel(weeklyInstances[0]?.weeklyDayOfWeek)}).`
+      );
+      return;
+    }
+
     const mod = logCloudModification('Creó nueva tarea en la nube', undefined, newTaskData.title);
     const newTask: Task = {
       ...newTaskData,
@@ -664,6 +729,93 @@ export default function App() {
       updatedTasks
     );
     showToast(`Tarea creada por ${currentPersona.name} en el archivo compartido`);
+  };
+
+  const handleToggleWeeklyRecurrence = (targetTask: Task, stopRecurrence: boolean) => {
+    const formatted = formatModificationTimestamp(new Date());
+    const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
+    const actionDesc = stopRecurrence
+      ? 'Detuvo la repetición automática semanal'
+      : 'Reactivó la repetición automática semanal';
+    const mod = logCloudModification(actionDesc, undefined, targetTask.title);
+
+    const isSameSeries = (t: Task) => {
+      if (t.nature !== 'Fija Semanal') return false;
+      if (targetTask.weeklySeriesId && t.weeklySeriesId === targetTask.weeklySeriesId) return true;
+      return (
+        t.area === targetTask.area &&
+        t.title.toLowerCase().trim() === targetTask.title.toLowerCase().trim()
+      );
+    };
+
+    let updatedTasks: Task[];
+
+    if (stopRecurrence) {
+      // Marcar la serie como detenida y retirar las ocurrencias futuras aún no completadas posteriores a esta semana
+      updatedTasks = tasks
+        .filter(t => {
+          if (isSameSeries(t) && t.id !== targetTask.id && t.dueDate > targetTask.dueDate && t.status !== 'Completada') {
+            return false;
+          }
+          return true;
+        })
+        .map(t => {
+          if (isSameSeries(t)) {
+            return {
+              ...t,
+              weeklyRecurrenceStopped: true,
+              lastModifiedBy: {
+                name: currentPersona.name,
+                email: currentPersona.email,
+                profile: userProf,
+              },
+              lastModifiedAt: formatted,
+              lastModifiedAction: actionDesc,
+              history: [mod, ...(t.history || [])],
+            };
+          }
+          return t;
+        });
+    } else {
+      // Reactivar la serie y volver a proyectar las semanas faltantes del mes actual
+      const reactivated = tasks.map(t => {
+        if (isSameSeries(t)) {
+          return {
+            ...t,
+            weeklyRecurrenceStopped: false,
+            lastModifiedBy: {
+              name: currentPersona.name,
+              email: currentPersona.email,
+              profile: userProf,
+            },
+            lastModifiedAt: formatted,
+            lastModifiedAction: actionDesc,
+            history: [mod, ...(t.history || [])],
+          };
+        }
+        return t;
+      });
+      updatedTasks = renewWeeklyFixedTasksForPeriod(reactivated, currentPeriod).updatedTasks;
+    }
+
+    setTasks(updatedTasks);
+    if (selectedTaskForDetail && isSameSeries(selectedTaskForDetail)) {
+      const refreshed = updatedTasks.find(t => t.id === selectedTaskForDetail.id) || null;
+      setSelectedTaskForDetail(refreshed);
+    }
+
+    broadcastCloudChange(
+      'TASK_MUTATION',
+      `${currentPersona.name} ${stopRecurrence ? 'detuvo' : 'reactivó'} la repetición semanal de "${targetTask.title}"`,
+      { name: currentPersona.name, profile: userProf, email: currentPersona.email },
+      updatedTasks
+    );
+
+    showToast(
+      stopRecurrence
+        ? `Repetición semanal detenida para "${targetTask.title}". Se retiraron las semanas futuras pendientes.`
+        : `Repetición semanal reactivada para "${targetTask.title}". Se agendaron las semanas del mes.`
+    );
   };
 
   const handleUpdateTaskStatus = (taskId: string, newStatus: TaskStatus) => {
@@ -738,7 +890,31 @@ export default function App() {
       history: [mod, ...(updatedTask.history || [])],
     };
 
-    const updatedTasks = tasks.map(t => t.id === updatedTask.id ? taskWithAudit : t);
+    const updatedTasks = tasks.map(t => {
+      if (t.id === updatedTask.id) return taskWithAudit;
+      if (
+        updatedTask.weeklySeriesId &&
+        t.weeklySeriesId === updatedTask.weeklySeriesId &&
+        t.status !== 'Completada'
+      ) {
+        return {
+          ...t,
+          title: updatedTask.title,
+          area: updatedTask.area,
+          assignee: updatedTask.assignee,
+          priority: updatedTask.priority,
+          notes: updatedTask.notes,
+          lastModifiedBy: {
+            name: currentPersona.name,
+            email: currentPersona.email,
+            profile: userProf,
+          },
+          lastModifiedAt: formatted,
+          lastModifiedAction: actionDescription,
+        };
+      }
+      return t;
+    });
     setTasks(updatedTasks);
     setSelectedTaskForDetail(taskWithAudit);
 
@@ -1297,6 +1473,8 @@ export default function App() {
                 currentPeriod={currentPeriod}
                 onPeriodChange={handlePeriodChange}
                 onResetFixedTasks={handleResetFixedTasks}
+                onRenewWeeklyNextMonth={handleRenewWeeklyNextMonth}
+                onToggleWeeklyRecurrence={handleToggleWeeklyRecurrence}
                 onClearMonth={isCurrentUserGerencia ? handleClearMonth : undefined}
                 onExportPeriod={handleExportCurrentPeriodCSV}
                 onOpenAdminSheets={() => setActiveTab('admin_sheets')}
@@ -1450,6 +1628,8 @@ export default function App() {
         currentPersona={currentPersona}
         allPersonas={visiblePersonas}
         onRefreshEmailLogs={refreshEmailLogs}
+        onToggleWeeklyRecurrence={handleToggleWeeklyRecurrence}
+        onDeleteTask={handleDeleteTask}
       />
 
       <NewTaskModal

@@ -95,13 +95,17 @@ export const Header: React.FC<HeaderProps> = ({
     ? (currentPersona.department || 'OPERACIONES')
     : selectedArea;
 
-  // Compute urgent and delayed tasks strictly synchronized with the selected Period and Area/Puesto in view
+  // Compute urgent, delayed, and active weekly tasks strictly synchronized with the selected Period and Area/Puesto in view
   const delayedTasks = tasks.filter(t => {
     if (t.status === 'Completada') return false;
     if (!isGerencia && t.area === 'GERENCIA') return false;
     if ((t.monthPeriod || '2026-10') !== currentPeriod) return false;
     if (effectiveArea && effectiveArea !== 'TODOS' && t.area !== effectiveArea) return false;
-    const { status } = calculateDaysRemaining(t.dueDate, t.completedDate);
+    const { status, days } = calculateDaysRemaining(t.dueDate, t.completedDate);
+    // Para tareas Fija Semanal, disparar alerta todas las semanas para la tarea de la semana en curso (o vencida)
+    if (t.nature === 'Fija Semanal' && days <= 7) {
+      return true;
+    }
     return status === 'vencida' || status === 'urgente_48h';
   });
 
@@ -471,7 +475,7 @@ export const Header: React.FC<HeaderProps> = ({
                               </span>
                             </div>
                             <span className="text-[10px] text-slate-400 block mt-0.5">
-                              Área: {task.area} · Resp: {task.assignee}
+                              {task.nature === 'Fija Semanal' ? '🔁 Fija Semanal · ' : ''}Área: {task.area} · Resp: {task.assignee}
                             </span>
                           </div>
                         );

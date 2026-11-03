@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
+  Repeat,
   Eraser,
   FileSpreadsheet,
   Clock,
@@ -21,20 +22,24 @@ interface MonthlyPeriodSelectorProps {
   currentPeriod: string; // 'YYYY-MM'
   onPeriodChange: (newPeriod: string) => void;
   onResetFixedTasks?: () => void;
+  onRenewWeeklyNextMonth?: () => void;
   onClearMonth?: () => void;
   onExportPeriod?: () => void;
   totalTasksInPeriod?: number;
   fixedTasksCount?: number;
+  weeklyFixedCount?: number;
 }
 
 export const MonthlyPeriodSelector: React.FC<MonthlyPeriodSelectorProps> = ({
   currentPeriod,
   onPeriodChange,
   onResetFixedTasks,
+  onRenewWeeklyNextMonth,
   onClearMonth,
   onExportPeriod,
   totalTasksInPeriod = 0,
   fixedTasksCount = 0,
+  weeklyFixedCount = 0,
 }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const availablePeriods = getAvailablePeriodsList();
@@ -155,12 +160,18 @@ export const MonthlyPeriodSelector: React.FC<MonthlyPeriodSelectorProps> = ({
       </div>
 
       {/* Right: Info and Actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-[#0b0c10] border border-[#22293b] rounded-xl text-xs text-slate-300">
           <Layers className="w-3.5 h-3.5 text-[#BE2629]" />
           <span>Planilla: <strong className="text-white">{totalTasksInPeriod}</strong> tareas</span>
           <span className="text-slate-400">·</span>
           <span className="text-cyan-400">⚡ {fixedTasksCount} fijas</span>
+          {weeklyFixedCount > 0 && (
+            <>
+              <span className="text-slate-400">·</span>
+              <span className="text-purple-400">🔁 {weeklyFixedCount} semanales</span>
+            </>
+          )}
         </div>
 
         {onResetFixedTasks && (
@@ -171,6 +182,17 @@ export const MonthlyPeriodSelector: React.FC<MonthlyPeriodSelectorProps> = ({
           >
             <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
             <span className="hidden sm:inline">Renovar Fijas</span>
+          </button>
+        )}
+
+        {onRenewWeeklyNextMonth && (
+          <button
+            onClick={onRenewWeeklyNextMonth}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-purple-200 hover:text-white bg-purple-950/60 hover:bg-purple-900/80 border border-purple-700/60 rounded-xl transition-colors active:scale-95 cursor-pointer shadow-sm"
+            title={`Renovar y anotar las tareas Fijas Semanales para todas las semanas de ${formatPeriodName(getAdjacentPeriod(currentPeriod, 1))}`}
+          >
+            <Repeat className="w-3.5 h-3.5 text-purple-400" />
+            <span>Renovar Fijas Semanales (Sig. Mes)</span>
           </button>
         )}
 

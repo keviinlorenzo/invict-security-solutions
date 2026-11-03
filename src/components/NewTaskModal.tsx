@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { AreaType, PriorityType, Task, TaskNature, UserPersona, ShiftType } from '../types';
 import { X, Plus, Calendar, Tag, User, Layers, Repeat, MapPin, Shield } from 'lucide-react';
-import { formatPeriodName } from '../utils/dateUtils';
+import { formatPeriodName, getTodayDateString } from '../utils/dateUtils';
+import { getDayOfWeekFromDateString, getDayOfWeekLabel, getWeeklyDatesForMonth } from '../utils/monthRenewalService';
 
 interface NewTaskModalProps {
   isOpen: boolean;
@@ -66,15 +67,20 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
       return;
     }
 
+    const targetDueDate = isAlreadyCompleted ? executionDate : dueDate;
+    const weeklyDay = nature === 'Fija Semanal' ? getDayOfWeekFromDateString(targetDueDate) : undefined;
+
     onAddTask({
       title: title.trim(),
       area,
       assignee: assignee || (personas.find(p => p.department === area)?.name || 'Kevin'),
-      dueDate: isAlreadyCompleted ? executionDate : dueDate,
+      dueDate: targetDueDate,
       startDate: isAlreadyCompleted ? executionDate : undefined,
       status: isAlreadyCompleted ? 'Completada' : 'No iniciada',
       completedDate: isAlreadyCompleted ? executionDate : undefined,
       nature,
+      weeklyDayOfWeek: weeklyDay,
+      weeklyRecurrenceStopped: false,
       priority,
       category: isAlreadyCompleted ? `${category} (Realizada)` : category,
       notes: notes.trim(),
@@ -190,10 +196,22 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
               </label>
               <select
                 value={nature}
-                onChange={(e) => setNature(e.target.value as TaskNature)}
+                onChange={(e) => {
+                  const nextNat = e.target.value as TaskNature;
+                  setNature(nextNat);
+                  if (nextNat === 'Fija Semanal') {
+                    const today = getTodayDateString();
+                    if (today.startsWith(currentPeriod)) {
+                      setDueDate(today);
+                    } else {
+                      setDueDate(`${currentPeriod}-01`);
+                    }
+                  }
+                }}
                 className="w-full px-3 py-2 bg-[#161b24] border border-[#2b364e] rounded-xl text-xs text-white focus:outline-none focus:border-[#BE2629] cursor-pointer"
               >
                 <option value="Fija Mensual">Fija Mensual</option>
+                <option value="Fija Semanal">Fija Semanal (Todas las semanas)</option>
                 <option value="Variable">Variable</option>
                 <option value="Imprevisto">Imprevisto</option>
               </select>
@@ -214,6 +232,30 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
               </select>
             </div>
           </div>
+
+          {/* Panel informativo cuando se elige Fija Semanal */}
+          {nature === 'Fija Semanal' && (
+            <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-700/60 text-purple-200 space-y-1 animate-in fade-in">
+              <div className="flex items-center gap-2 font-bold text-purple-300 text-xs">
+                <Repeat className="w-4 h-4 text-purple-400 shrink-0" />
+                <span>
+                  Repetición Sistemática Semanal · Todos los {getDayOfWeekLabel(getDayOfWeekFromDateString(isAlreadyCompleted ? executionDate : dueDate))}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                A partir de la fecha seleccionada se anotarán automáticamente todas las semanas restantes del mes (
+                <strong>
+                  {getWeeklyDatesForMonth(
+                    currentPeriod,
+                    getDayOfWeekFromDateString(isAlreadyCompleted ? executionDate : dueDate),
+                    isAlreadyCompleted ? executionDate : dueDate
+                  ).length}{' '}
+                  semanas en {formatPeriodName(currentPeriod)}
+                </strong>
+                ) con alerta semanal de vencimiento. Podrás editarlas, borrarlas, detener su repetición o renovarlas para todas las semanas del mes siguiente.
+              </p>
+            </div>
+          )}
 
           {/* Toggle: Registrar tarea variable ya realizada para control mensual */}
           <div className="p-3 rounded-xl bg-[#141a26] border border-[#28354c] flex items-center justify-between gap-3">

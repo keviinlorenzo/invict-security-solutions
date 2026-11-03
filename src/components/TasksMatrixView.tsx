@@ -31,6 +31,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { calculateDaysRemaining, formatDateLocale, formatPeriodName } from '../utils/dateUtils';
+import { getDayOfWeekLabel, getDayOfWeekFromDateString } from '../utils/monthRenewalService';
 import { exportTasksToCSV } from '../utils/exportUtils';
 import { exportTasksToPDF } from '../utils/pdfExportUtils';
 import { MonthlyPeriodSelector } from './MonthlyPeriodSelector';
@@ -52,6 +53,8 @@ interface TasksMatrixViewProps {
   currentPeriod: string;
   onPeriodChange: (period: string) => void;
   onResetFixedTasks?: () => void;
+  onRenewWeeklyNextMonth?: () => void;
+  onToggleWeeklyRecurrence?: (task: Task, stopRecurrence: boolean) => void;
   onClearMonth?: () => void;
   onExportPeriod?: () => void;
   onOpenAdminSheets?: () => void;
@@ -83,6 +86,8 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   currentPeriod,
   onPeriodChange,
   onResetFixedTasks,
+  onRenewWeeklyNextMonth,
+  onToggleWeeklyRecurrence,
   onClearMonth,
   onExportPeriod,
   onOpenAdminSheets,
@@ -253,8 +258,32 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
     return true;
   });
 
-  const renderNatureBadge = (nature?: TaskNature) => {
+  const renderNatureBadge = (nature?: TaskNature, task?: Task) => {
     const val = nature || 'Fija Mensual';
+    if (val === 'Fija Semanal') {
+      const dayLabel = getDayOfWeekLabel(
+        task?.weeklyDayOfWeek !== undefined
+          ? task.weeklyDayOfWeek
+          : task?.dueDate
+          ? getDayOfWeekFromDateString(task.dueDate)
+          : undefined
+      );
+      const weekStr = task?.weekNumberInMonth ? ` · Sem. ${task.weekNumberInMonth}` : '';
+      return (
+        <span
+          className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded border whitespace-nowrap ${
+            task?.weeklyRecurrenceStopped
+              ? 'bg-slate-900/80 text-slate-400 border-slate-700'
+              : 'bg-purple-950/80 text-purple-300 border-purple-700/70'
+          }`}
+        >
+          <Repeat className="w-3 h-3 text-purple-400" />
+          <span>
+            Fija Semanal{weekStr} ({dayLabel}){task?.weeklyRecurrenceStopped ? ' · Pausada' : ''}
+          </span>
+        </span>
+      );
+    }
     if (val === 'Fija Mensual') {
       return (
         <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-cyan-950/70 text-cyan-400 border border-cyan-800/60 whitespace-nowrap">
@@ -341,6 +370,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
 
   const activeStats = getTabStats(activeTabId);
   const fixedTasksInThisPeriod = periodTasks.filter(t => (t.nature || 'Fija Mensual') === 'Fija Mensual');
+  const weeklyTasksInThisPeriod = periodTasks.filter(t => t.nature === 'Fija Semanal');
 
   return (
     <div className="space-y-4">
@@ -359,10 +389,12 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
         currentPeriod={currentPeriod}
         onPeriodChange={onPeriodChange}
         onResetFixedTasks={onResetFixedTasks}
+        onRenewWeeklyNextMonth={onRenewWeeklyNextMonth}
         onClearMonth={onClearMonth}
         onExportPeriod={onExportPeriod}
         totalTasksInPeriod={periodTasks.length}
         fixedTasksCount={fixedTasksInThisPeriod.length}
+        weeklyFixedCount={weeklyTasksInThisPeriod.length}
       />
 
       {/* 1. Primary Post Navigation Tabs */}
@@ -845,7 +877,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
                           </div>
                         )}
                         <div className="flex items-center gap-2 mt-1">
-                          {renderNatureBadge(task.nature)}
+                          {renderNatureBadge(task.nature, task)}
                           {task.category && (
                             <span className="text-[10px] text-slate-400 font-mono">
                               · {task.category}
@@ -919,13 +951,33 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
                       </td>
                       <td className="py-3 px-3 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {task.nature === 'Fija Semanal' && onToggleWeeklyRecurrence && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleWeeklyRecurrence(task, !task.weeklyRecurrenceStopped);
+                              }}
+                              className={`px-2 py-1 text-[10px] font-bold rounded border transition-colors cursor-pointer ${
+                                task.weeklyRecurrenceStopped
+                                  ? 'bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border-emerald-700/60'
+                                  : 'bg-purple-950/70 hover:bg-purple-900 text-purple-200 border-purple-700/60'
+                              }`}
+                              title={
+                                task.weeklyRecurrenceStopped
+                                  ? 'Reactivar la repetición automática semanal de esta tarea'
+                                  : 'Parar la repetición semanal de esta tarea para futuras semanas'
+                              }
+                            >
+                              {task.weeklyRecurrenceStopped ? 'Reactivar Sem.' : 'Parar Sem.'}
+                            </button>
+                          )}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               onSelectTask(task);
                             }}
                             className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:text-white bg-[#1b2232] hover:bg-[#252e44] rounded border border-[#2b354c] transition-colors"
-                            title="Abrir hilo de seguimiento"
+                            title="Abrir detalle / Editar tarea / Hilo de seguimiento"
                           >
                             <MessageSquare className="w-3 h-3 text-slate-400" />
                             <span>{task.commentsCount || 0}</span>

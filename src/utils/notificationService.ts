@@ -114,10 +114,13 @@ export function checkAndTriggerDeadlineNotifications(tasks: Task[]): void {
   tasks.forEach((task) => {
     if (task.status === 'Completada') return;
     const { days, status, label } = calculateDaysRemaining(task.dueDate, task.completedDate);
-    const isUrgent = days <= 1 || status === 'vencida' || status === 'urgente_48h';
+    const isWeeklyActive = task.nature === 'Fija Semanal' && days >= 0 && days <= 7;
+    const isUrgent = days <= 1 || status === 'vencida' || status === 'urgente_48h' || isWeeklyActive;
     if (isUrgent && !notifiedTasks.has(task.id)) {
       const title = status === 'vencida'
         ? `🚨 INVICT: Tarea Vencida - ${task.title}`
+        : task.nature === 'Fija Semanal'
+        ? `🔁 INVICT: Alerta Tarea Fija Semanal - ${task.title}`
         : `⚠️ INVICT: Vence en menos de 24hs - ${task.title}`;
       const body = `Área: ${task.area} | Responsable: ${task.assignee}\nLímite: ${task.dueDate} (${label})`;
       showNativeNotification(title, {
