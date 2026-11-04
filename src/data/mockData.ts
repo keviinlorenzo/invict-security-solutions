@@ -578,28 +578,38 @@ export const INITIAL_EXPENSES: Expense[] = [
   },
 ];
 
-export const INITIAL_MESSAGES: InternalMessage[] = [
-  {
-    id: 'msg-oct-1',
-    authorName: 'Yamila',
-    authorEmail: 'yamila@invictsecurity.com.ar',
-    authorRole: 'Gerente General',
-    content: '@pilar por favor revisar la planilla de asistencia y novedades de vigiladores en Bodegas.',
-    timestamp: '14/10/2026 09:15',
-    mentions: ['pilar@invictsecurity.com.ar'],
-    relatedTaskId: 't-oct-4',
-  },
-  {
-    id: 'msg-oct-2',
-    authorName: 'Kevin',
-    authorEmail: 'kevin@invictsecurity.com.ar',
-    authorRole: 'Operaciones',
-    content: '@gerencia Cronograma de turnos y relevos de vigiladores listo para validación quincenal.',
-    timestamp: '15/10/2026 08:30',
-    mentions: ['consultasinvictsolutionss.a@gmail.com'],
-    relatedTaskId: 't-oct-3',
-  },
-];
+export const isOldOrTestMessage = (m: Partial<InternalMessage>): boolean => {
+  if (!m) return true;
+  if (!m.id) return true;
+  // Identificadores de mensajes de prueba de Octubre o plantillas
+  if (
+    m.id.startsWith('msg-oct-') ||
+    m.id === 'msg-1' ||
+    m.id === 'msg-2' ||
+    m.id === 'msg-test'
+  ) {
+    return true;
+  }
+  // Mensajes con fechas de Octubre 2026 (previas al inicio real de uso en Noviembre)
+  if (m.timestamp) {
+    if (
+      m.timestamp.includes('/10/2026') ||
+      m.timestamp.includes('10/2026') ||
+      m.timestamp.includes('2026-10') ||
+      m.timestamp.includes('14/10/') ||
+      m.timestamp.includes('15/10/')
+    ) {
+      return true;
+    }
+  }
+  // Tareas vinculadas de prueba inicial
+  if (m.relatedTaskId && (m.relatedTaskId.startsWith('t-oct-') || m.relatedTaskId.includes('oct'))) {
+    return true;
+  }
+  return false;
+};
+
+export const INITIAL_MESSAGES: InternalMessage[] = [];
 
 export const TASK_TEMPLATES_BY_ROLE: Record<AreaType, { title: string; category: string; priority: Task['priority']; defaultDays: number; notes: string; shiftType: Task['shiftType'] }[]> = {
   RRHH: [

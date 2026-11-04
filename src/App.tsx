@@ -18,6 +18,7 @@ import {
   INITIAL_TASKS,
   INITIAL_EXPENSES,
   INITIAL_MESSAGES,
+  isOldOrTestMessage,
   USER_PERSONAS
 } from './data/mockData';
 import { Lock, AtSign, ArrowRight } from 'lucide-react';
@@ -111,7 +112,12 @@ export default function App() {
 
   const [messages, setMessages] = useState<InternalMessage[]>(() => {
     const saved = localStorage.getItem('invict_messages');
-    return saved ? JSON.parse(saved) : INITIAL_MESSAGES;
+    let list: InternalMessage[] = saved ? JSON.parse(saved) : INITIAL_MESSAGES;
+    const cleanList = list.filter(m => !isOldOrTestMessage(m));
+    if (saved && cleanList.length !== list.length) {
+      localStorage.setItem('invict_messages', JSON.stringify(cleanList));
+    }
+    return cleanList;
   });
 
   const [personas, setPersonas] = useState<UserPersona[]>(() => {
@@ -242,7 +248,7 @@ export default function App() {
           setExpenses(payload.stateSnapshot.invict_expenses);
         }
         if (Array.isArray(payload.stateSnapshot.invict_messages)) {
-          setMessages(payload.stateSnapshot.invict_messages);
+          setMessages(payload.stateSnapshot.invict_messages.filter(m => !isOldOrTestMessage(m)));
         }
         if (Array.isArray(payload.stateSnapshot.invict_personas)) {
           setPersonas(payload.stateSnapshot.invict_personas);
@@ -256,7 +262,8 @@ export default function App() {
       } else if (payload.type === 'EXPENSE_MUTATION' && payload.data) {
         setExpenses(payload.data);
       } else if (payload.type === 'MESSAGE_MUTATION' && payload.data) {
-        setMessages(payload.data);
+        const cleanData = Array.isArray(payload.data) ? payload.data.filter(m => !isOldOrTestMessage(m)) : payload.data;
+        setMessages(cleanData);
       } else if (payload.type === 'POST_ADDED' && payload.data) {
         setPersonas(prev => {
           if (prev.some(p => p.id === payload.data.id)) return prev;
@@ -1227,7 +1234,7 @@ export default function App() {
       mentions,
       taskId,
     };
-    const updated = [newMsg, ...messages];
+    const updated = [newMsg, ...messages.filter(m => !isOldOrTestMessage(m))];
     setMessages(updated);
     broadcastCloudChange(
       'MESSAGE_MUTATION',
@@ -1235,6 +1242,33 @@ export default function App() {
       { name: currentPersona.name, profile: currentPersona.profileType, email: currentPersona.email },
       updated
     );
+  };
+
+  const handleDeleteMessage = (messageId: string) => {
+    const updated = messages.filter(m => m.id !== messageId);
+    setMessages(updated);
+    localStorage.setItem('invict_messages', JSON.stringify(updated));
+    broadcastCloudChange(
+      'MESSAGE_MUTATION',
+      `${currentPersona.name} eliminó un mensaje del feed interno`,
+      { name: currentPersona.name, profile: currentPersona.profileType, email: currentPersona.email },
+      updated
+    );
+    showToast('Mensaje eliminado del feed.');
+  };
+
+  const handleClearOldFeedMessages = () => {
+    if (!window.confirm('¿Deseas purgar todas las comunicaciones y chats de prueba antiguos del Feed?')) return;
+    const updated = messages.filter(m => !isOldOrTestMessage(m));
+    setMessages(updated);
+    localStorage.setItem('invict_messages', JSON.stringify(updated));
+    broadcastCloudChange(
+      'MESSAGE_MUTATION',
+      `${currentPersona.name} depuró los chats antiguos y de prueba del feed`,
+      { name: currentPersona.name, profile: currentPersona.profileType, email: currentPersona.email },
+      updated
+    );
+    showToast('Feed depurado: se eliminaron los chats antiguos y de prueba.');
   };
 
   // Direct Header Export triggers
@@ -1675,6 +1709,8 @@ export default function App() {
                 currentPersona={currentPersona}
                 allPersonas={visiblePersonas}
                 onSendMessage={handleSendMessage}
+                onDeleteMessage={handleDeleteMessage}
+                onClearOldMessages={handleClearOldFeedMessages}
                 tasks={visibleTasks}
                 onRefreshEmailLogs={refreshEmailLogs}
                 onOpenEmailAlertsModal={() => setIsEmailAlertsModalOpen(true)}
