@@ -201,6 +201,9 @@ export interface InternalMessage {
   content: string;
   timestamp: string;
   mentions: string[];
+  isDirect?: boolean; // True si es mensaje privado dirigido a 1 sola persona
+  recipientEmail?: string; // Email del destinatario privado
+  recipientName?: string; // Nombre del destinatario privado
   relatedTaskId?: string;
   taskId?: string;
 }
