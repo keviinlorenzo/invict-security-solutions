@@ -1,8 +1,34 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AreaType, PriorityType, Task, TaskNature, UserPersona, ShiftType } from '../types';
 import { X, Plus, Calendar, Tag, User, Layers, Repeat, MapPin, Shield } from 'lucide-react';
 import { formatPeriodName, getTodayDateString } from '../utils/dateUtils';
 import { getDayOfWeekFromDateString, getDayOfWeekLabel, getWeeklyDatesForMonth } from '../utils/monthRenewalService';
+
+export const getDefaultAssigneeForArea = (area: AreaType, personas: UserPersona[]): string => {
+  // 1. Revisar si hay un responsable recordado específicamente para esta área en localStorage
+  try {
+    const saved = localStorage.getItem(`invict_last_assignee_${area}`);
+    if (saved && saved.trim()) return saved.trim();
+  } catch (e) {}
+
+  // 2. Buscar en la lista de personas activas
+  const found = personas.find(p => p.department === area);
+  if (found && found.name) return found.name;
+
+  // 3. Fallback predeterminado según organigrama corporativo
+  const defaultMap: Record<AreaType, string> = {
+    'OPERACIONES': 'Kevin',
+    'SUPERVISIÓN': 'Bilbao',
+    'RRHH': 'Pilar',
+    'ADM': 'Giuliana',
+    'AUX_ADM': 'Valeria',
+    'SELECCION': 'Mariana',
+    'SUB_GERENCIA': 'Laura',
+    'GERENCIA': 'Yamila',
+    'TODOS': 'Kevin',
+  };
+  return defaultMap[area] || 'Kevin';
+};
 
 interface NewTaskModalProps {
   isOpen: boolean;
@@ -25,15 +51,26 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
 }) => {
   const isGerencia = currentUser ? (currentUser.department === 'GERENCIA' || currentUser.profileType === 'GERENTE') : false;
 
-  const getInitialArea = (): AreaType => {
-    if (!isGerencia && defaultArea === 'GERENCIA') return 'OPERACIONES';
-    if (defaultArea === 'TODOS') return 'OPERACIONES';
-    return defaultArea;
+  const determineInitialArea = (): AreaType => {
+    // Si viene defaultArea específico diferente a TODOS
+    if (defaultArea && defaultArea !== 'TODOS') {
+      if (!isGerencia && defaultArea === 'GERENCIA') return 'OPERACIONES';
+      return defaultArea;
+    }
+    // Si no, revisar el área previamente guardada en localStorage
+    try {
+      const savedArea = localStorage.getItem('invict_last_task_area') as AreaType | null;
+      if (savedArea && savedArea !== 'TODOS') {
+        if (!isGerencia && savedArea === 'GERENCIA') return 'OPERACIONES';
+        return savedArea;
+      }
+    } catch (e) {}
+    return 'OPERACIONES';
   };
 
   const [title, setTitle] = useState('');
-  const [area, setArea] = useState<AreaType>(getInitialArea);
-  const [assignee, setAssignee] = useState('');
+  const [area, setArea] = useState<AreaType>(determineInitialArea);
+  const [assignee, setAssignee] = useState(() => getDefaultAssigneeForArea(determineInitialArea(), personas));
   const [dueDate, setDueDate] = useState(`${currentPeriod}-15`);
   const [nature, setNature] = useState<TaskNature>('Fija Mensual');
   const [priority, setPriority] = useState<PriorityType>('Media');
@@ -42,6 +79,17 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
   const [isAlreadyCompleted, setIsAlreadyCompleted] = useState(false);
   const [executionDate, setExecutionDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Sincronizar automáticamente área y responsable predeterminado al abrir el modal o cambiar defaultArea
+  useEffect(() => {
+    if (isOpen) {
+      const initArea = determineInitialArea();
+      setArea(initArea);
+      const defAssignee = getDefaultAssigneeForArea(initArea, personas);
+      setAssignee(defAssignee);
+      setValidationError(null);
+    }
+  }, [isOpen, defaultArea, isGerencia, personas]);
 
   if (!isOpen) return null;
 
@@ -52,9 +100,21 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
     }
     setValidationError(null);
     setArea(newArea);
-    const found = personas.find(p => p.department === newArea);
-    if (found) {
-      setAssignee(found.name);
+    try {
+      localStorage.setItem('invict_last_task_area', newArea);
+    } catch (e) {}
+
+    // Asignación automática del responsable predeterminado para el área seleccionada
+    const autoAssignee = getDefaultAssigneeForArea(newArea, personas);
+    setAssignee(autoAssignee);
+  };
+
+  const handleAssigneeChange = (newAssignee: string) => {
+    setAssignee(newAssignee);
+    if (newAssignee.trim()) {
+      try {
+        localStorage.setItem(`invict_last_assignee_${area}`, newAssignee.trim());
+      } catch (e) {}
     }
   };
 
@@ -166,15 +226,25 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
             </div>
             <div>
               <label className="block text-slate-300 font-semibold mb-1">
-                Responsable Asignado:
+                Responsable Asignado (Predeterminado o editable):
               </label>
-              <input
-                type="text"
-                value={assignee}
-                onChange={(e) => setAssignee(e.target.value)}
-                placeholder="Nombre del responsable"
-                className="w-full px-3 py-2 bg-[#161b24] border border-[#2b364e] rounded-xl text-xs text-white focus:outline-none focus:border-[#BE2629]"
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  list="task-modal-assignees"
+                  value={assignee}
+                  onChange={(e) => handleAssigneeChange(e.target.value)}
+                  placeholder="Nombre del responsable asignado"
+                  className="w-full px-3 py-2 bg-[#161b24] border border-[#2b364e] rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-[#BE2629]"
+                />
+                <datalist id="task-modal-assignees">
+                  {personas.map((p) => (
+                    <option key={p.id} value={p.name}>
+                      {p.role} ({p.department})
+                    </option>
+                  ))}
+                </datalist>
+              </div>
             </div>
           </div>
 

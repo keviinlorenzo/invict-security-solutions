@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { UserPersona } from '../types';
 import {
   FileSpreadsheet,
@@ -25,7 +27,10 @@ import {
   Check,
   Edit2,
   X,
-  ExternalLink
+  ExternalLink,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { broadcastCloudChange, subscribeToCloudSync } from '../utils/cloudSyncService';
 import {
@@ -233,6 +238,17 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
   const [sheetsData, setSheetsData] = useState<AdminInformativeSheetsData>(() => getAdminInformativeSheets());
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'TODOS' | InformeStatus>('TODOS');
+  const [sortField, setSortField] = useState<'orderNumber' | 'clientName' | 'caseNumber' | 'sendDate' | 'status' | 'sentVia'>('orderNumber');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const handleToggleSort = (field: 'orderNumber' | 'clientName' | 'caseNumber' | 'sendDate' | 'status' | 'sentVia') => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Período seleccionado para la planilla de Informes a Clientes
   const [selectedPeriod, setSelectedPeriod] = useState<string>(() => currentPeriod || DEFAULT_PERIOD);
@@ -542,27 +558,197 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
   }, [sheetsData.debeUniforme, q]);
 
   const filteredInformes = useMemo(() => {
-    return currentMonthInformes
-      .filter((inf) => {
-        if (statusFilter !== 'TODOS' && inf.status !== statusFilter) return false;
-        if (!q) return true;
-        return (
-          inf.clientName.toLowerCase().includes(q) ||
-          inf.caseNumber.toLowerCase().includes(q) ||
-          (inf.description && inf.description.toLowerCase().includes(q)) ||
-          (inf.followUp && inf.followUp.toLowerCase().includes(q)) ||
-          (inf.sentVia && inf.sentVia.toLowerCase().includes(q)) ||
-          (inf.senderName && inf.senderName.toLowerCase().includes(q))
-        );
-      })
-      .sort((a, b) => a.orderNumber - b.orderNumber);
-  }, [currentMonthInformes, statusFilter, q]);
+    const list = currentMonthInformes.filter((inf) => {
+      if (statusFilter !== 'TODOS' && inf.status !== statusFilter) return false;
+      if (!q) return true;
+      return (
+        inf.clientName.toLowerCase().includes(q) ||
+        inf.caseNumber.toLowerCase().includes(q) ||
+        (inf.description && inf.description.toLowerCase().includes(q)) ||
+        (inf.followUp && inf.followUp.toLowerCase().includes(q)) ||
+        (inf.sentVia && inf.sentVia.toLowerCase().includes(q)) ||
+        (inf.senderName && inf.senderName.toLowerCase().includes(q))
+      );
+    });
+
+    list.sort((a, b) => {
+      let comp = 0;
+      if (sortField === 'orderNumber') {
+        comp = (a.orderNumber || 0) - (b.orderNumber || 0);
+      } else if (sortField === 'sendDate') {
+        comp = (a.sendDate || '').localeCompare(b.sendDate || '');
+      } else if (sortField === 'clientName') {
+        comp = (a.clientName || '').localeCompare(b.clientName || '', 'es', { sensitivity: 'base' });
+      } else if (sortField === 'caseNumber') {
+        comp = (a.caseNumber || '').localeCompare(b.caseNumber || '', 'es', { numeric: true });
+      } else if (sortField === 'status') {
+        comp = (a.status || '').localeCompare(b.status || '');
+      } else if (sortField === 'sentVia') {
+        comp = (a.sentVia || '').localeCompare(b.sentVia || '');
+      }
+      return sortDirection === 'asc' ? comp : -comp;
+    });
+
+    return list;
+  }, [currentMonthInformes, statusFilter, q, sortField, sortDirection]);
 
   // Métricas del mes de informes
   const totalInformesMes = currentMonthInformes.length;
   const resueltosMes = currentMonthInformes.filter((i) => i.status === 'Resuelto').length;
   const enGestionMes = currentMonthInformes.filter((i) => i.status === 'En Gestión').length;
   const pendientesMes = currentMonthInformes.filter((i) => i.status === 'Pendiente').length;
+
+  // --- PDF Export ---
+  const handleExportPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+
+    // Franja Superior Corporativa
+    doc.setFillColor(190, 38, 41);
+    doc.rect(0, 0, pageWidth, 18, 'F');
+
+    // Membrete
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('INVICT SECURITY SOLUTIONS S.A.', 14, 11);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text('PLANILLAS DE GESTIÓN & INFORMES OFICIALES A CLIENTES', 14, 15);
+    doc.text(`Fecha: ${new Date().toLocaleDateString('es-AR')}`, pageWidth - 14, 12, { align: 'right' });
+
+    if (activeSheet === 'informes_clientes') {
+      doc.setTextColor(20, 25, 35);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text(`CONTROL MENSUAL DE INFORMES A CLIENTES · ${formatPeriodName(selectedPeriod).toUpperCase()}`, 14, 28);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(
+        `Filtro: ${statusFilter} | Búsqueda: ${searchTerm ? `"${searchTerm}"` : 'Ninguna'} | Orden: ${sortField} (${sortDirection === 'asc' ? 'Ascendente' : 'Descendente'}) | Total: ${filteredInformes.length} informe(s)`,
+        14,
+        34
+      );
+
+      const tableRows = filteredInformes.map((r) => [
+        `#${r.orderNumber}`,
+        r.clientName,
+        r.caseNumber,
+        r.sendDate,
+        r.sentVia || 'Email Corporativo',
+        r.status,
+        r.description || '-',
+        r.followUp || '-',
+        r.senderName || '-',
+      ]);
+
+      autoTable(doc, {
+        startY: 38,
+        head: [['N°', 'Cliente / Objetivo', 'N° Caso', 'Fecha', 'Vía Envío', 'Estado', 'Descripción del Informe', 'Seguimiento / Medidas', 'Registrado Por']],
+        body: tableRows,
+        theme: 'striped',
+        headStyles: {
+          fillColor: [190, 38, 41],
+          textColor: [255, 255, 255],
+          fontSize: 8,
+          fontStyle: 'bold',
+          halign: 'center',
+        },
+        bodyStyles: { fontSize: 7, textColor: [30, 41, 59] },
+        columnStyles: {
+          0: { cellWidth: 10, halign: 'center', fontStyle: 'bold' },
+          1: { cellWidth: 36, fontStyle: 'bold' },
+          2: { cellWidth: 24, fontStyle: 'bold', halign: 'center' },
+          3: { cellWidth: 20, halign: 'center' },
+          4: { cellWidth: 24 },
+          5: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
+          6: { cellWidth: 'auto' },
+          7: { cellWidth: 'auto' },
+          8: { cellWidth: 24 },
+        },
+        margin: { bottom: 16, left: 10, right: 10 },
+      });
+
+      const pageCount = (doc as any).internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7.5);
+        doc.setTextColor(140, 150, 165);
+        doc.text(
+          `INVICT Security Solutions S.A. · Documento oficial de entrega y seguimiento a clientes · Página ${i} de ${pageCount}`,
+          pageWidth / 2,
+          pageHeight - 8,
+          { align: 'center' }
+        );
+      }
+
+      doc.save(`INVICT_Informes_Clientes_${selectedPeriod}.pdf`);
+      onNotify?.(`Planilla de Informes a Clientes (${formatPeriodName(selectedPeriod)}) exportada a PDF.`);
+    } else if (activeSheet === 'sin_disep') {
+      doc.setTextColor(20, 25, 35);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text('PLANILLA INFORMATIVA: PERSONAL SIN DISEP', 14, 28);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Total Registros: ${filteredSinDisep.length}`, 14, 34);
+
+      const tableRows = filteredSinDisep.map((r, idx) => [
+        idx + 1,
+        r.fullName,
+        r.entryDate,
+        r.assignedObjective,
+        r.observations || '-',
+      ]);
+
+      autoTable(doc, {
+        startY: 38,
+        head: [['#', 'Nombre y Apellido', 'Fecha Ingreso', 'Objetivo Asignado', 'Observaciones']],
+        body: tableRows,
+        theme: 'striped',
+        headStyles: { fillColor: [190, 38, 41], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
+        bodyStyles: { fontSize: 7.5 },
+        margin: { bottom: 16, left: 12, right: 12 },
+      });
+
+      doc.save(`INVICT_Personal_Sin_DISEP_${new Date().toISOString().slice(0, 10)}.pdf`);
+      onNotify?.('Planilla de Personal Sin DISEP exportada a PDF.');
+    } else {
+      doc.setTextColor(20, 25, 35);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text('PLANILLA INFORMATIVA: PERSONAL QUE DEBE UNIFORME', 14, 28);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Total Registros: ${filteredDebeUniforme.length}`, 14, 34);
+
+      const tableRows = filteredDebeUniforme.map((r, idx) => [
+        idx + 1,
+        r.fullName,
+        r.entryDate,
+        r.exitDate,
+        r.assignedObjective,
+        r.observations || '-',
+      ]);
+
+      autoTable(doc, {
+        startY: 38,
+        head: [['#', 'Nombre y Apellido', 'Fecha Ingreso', 'Fecha Baja', 'Objetivo Asignado', 'Observaciones']],
+        body: tableRows,
+        theme: 'striped',
+        headStyles: { fillColor: [190, 38, 41], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
+        bodyStyles: { fontSize: 7.5 },
+        margin: { bottom: 16, left: 12, right: 12 },
+      });
+
+      doc.save(`INVICT_Personal_Debe_Uniforme_${new Date().toISOString().slice(0, 10)}.pdf`);
+      onNotify?.('Planilla de Personal que Debe Uniforme exportada a PDF.');
+    }
+  };
 
   // --- CSV Export ---
   const handleExportCSV = () => {
@@ -721,9 +907,19 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
           <button
             onClick={handleExportCSV}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-slate-200 font-bold text-xs border border-[#2e3b54] shadow transition-all cursor-pointer active:scale-95"
+            title="Exportar planilla a formato CSV para Excel"
           >
             <Download className="w-4 h-4 text-emerald-400" />
-            <span>Exportar Planilla (CSV)</span>
+            <span>Exportar (CSV)</span>
+          </button>
+
+          <button
+            onClick={handleExportPDF}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-slate-200 font-bold text-xs border border-[#2e3b54] shadow transition-all cursor-pointer active:scale-95"
+            title="Exportar documento oficial formateado en PDF con filtros aplicados"
+          >
+            <FileText className="w-4 h-4 text-rose-400" />
+            <span>Exportar (PDF)</span>
           </button>
 
           {activeSheet === 'informes_clientes' && canEditInformes && (
@@ -921,6 +1117,32 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
               ))}
             </div>
 
+            {/* Selector Rápido de Orden */}
+            <div className="flex flex-wrap items-center gap-2 bg-[#181f2d] border border-[#252f44] px-3 py-1.5 rounded-xl text-xs">
+              <ArrowUpDown className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+              <span className="text-slate-400 font-semibold">Ordenar por:</span>
+              <select
+                value={sortField}
+                onChange={(e) => setSortField(e.target.value as any)}
+                className="bg-transparent text-white font-bold focus:outline-none cursor-pointer"
+              >
+                <option value="orderNumber" className="bg-[#181f2d] text-white">N° Correlativo</option>
+                <option value="sendDate" className="bg-[#181f2d] text-white">Fecha de Envío</option>
+                <option value="clientName" className="bg-[#181f2d] text-white">Cliente / Objetivo</option>
+                <option value="caseNumber" className="bg-[#181f2d] text-white">N° de Caso</option>
+                <option value="status" className="bg-[#181f2d] text-white">Estado</option>
+                <option value="sentVia" className="bg-[#181f2d] text-white">Vía de Envío</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
+                className="px-2 py-0.5 rounded bg-[#252f44] hover:bg-[#323d57] text-white text-[11px] font-mono font-bold transition-colors cursor-pointer"
+                title="Cambiar dirección de ordenamiento"
+              >
+                {sortDirection === 'asc' ? 'Ascendente ↑' : 'Descendente ↓'}
+              </button>
+            </div>
+
             <div className="text-xs text-slate-400 font-mono">
               Mostrando <strong className="text-white">{filteredInformes.length}</strong> de {currentMonthInformes.length} informe(s)
             </div>
@@ -951,23 +1173,63 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-[#161b26] border-b border-[#252c3e] text-slate-300 font-bold uppercase tracking-wider text-[10px]">
-                    <th className="py-2.5 px-3 text-center w-12">N°</th>
-                    <th className="py-2.5 px-3 min-w-[200px]">
+                    <th
+                      onClick={() => handleToggleSort('orderNumber')}
+                      className="py-2.5 px-3 text-center w-14 cursor-pointer hover:bg-[#202737] select-none transition-colors"
+                      title="Ordenar por N° de orden"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>N°</span>
+                        {sortField === 'orderNumber' ? (
+                          <span className="text-rose-400 font-bold">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 text-slate-500 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleToggleSort('clientName')}
+                      className="py-2.5 px-3 min-w-[200px] cursor-pointer hover:bg-[#202737] select-none transition-colors"
+                      title="Ordenar por Cliente / Objetivo"
+                    >
                       <div className="flex items-center gap-1.5">
                         <Building className="w-3.5 h-3.5 text-rose-400" />
                         <span>Cliente / Objetivo</span>
+                        {sortField === 'clientName' ? (
+                          <span className="text-rose-400 font-bold">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 text-slate-500 opacity-60" />
+                        )}
                       </div>
                     </th>
-                    <th className="py-2.5 px-3 min-w-[140px]">
+                    <th
+                      onClick={() => handleToggleSort('caseNumber')}
+                      className="py-2.5 px-3 min-w-[140px] cursor-pointer hover:bg-[#202737] select-none transition-colors"
+                      title="Ordenar por N° de Caso"
+                    >
                       <div className="flex items-center gap-1.5">
                         <FileText className="w-3.5 h-3.5 text-blue-400" />
                         <span>N° de Caso</span>
+                        {sortField === 'caseNumber' ? (
+                          <span className="text-rose-400 font-bold">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 text-slate-500 opacity-60" />
+                        )}
                       </div>
                     </th>
-                    <th className="py-2.5 px-3 min-w-[120px]">
+                    <th
+                      onClick={() => handleToggleSort('sendDate')}
+                      className="py-2.5 px-3 min-w-[120px] cursor-pointer hover:bg-[#202737] select-none transition-colors"
+                      title="Ordenar por Fecha de Envío"
+                    >
                       <div className="flex items-center gap-1.5">
                         <Calendar className="w-3.5 h-3.5 text-emerald-400" />
                         <span>Fecha Envío</span>
+                        {sortField === 'sendDate' ? (
+                          <span className="text-rose-400 font-bold">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 text-slate-500 opacity-60" />
+                        )}
                       </div>
                     </th>
                     <th className="py-2.5 px-3 min-w-[260px]">
@@ -976,8 +1238,19 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                     <th className="py-2.5 px-3 min-w-[260px]">
                       <span>Seguimiento & Medidas Tomadas</span>
                     </th>
-                    <th className="py-2.5 px-3 text-center min-w-[140px]">
-                      <span>Estado</span>
+                    <th
+                      onClick={() => handleToggleSort('status')}
+                      className="py-2.5 px-3 text-center min-w-[140px] cursor-pointer hover:bg-[#202737] select-none transition-colors"
+                      title="Ordenar por Estado"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Estado</span>
+                        {sortField === 'status' ? (
+                          <span className="text-rose-400 font-bold">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 text-slate-500 opacity-60" />
+                        )}
+                      </div>
                     </th>
                     <th className="py-2.5 px-3 min-w-[140px]">
                       <span>Registrado Por</span>

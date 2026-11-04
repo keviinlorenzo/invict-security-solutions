@@ -1,4 +1,5 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import Tesseract from 'tesseract.js';
 
 // Configure pdfjs worker for Vite build
 if (typeof window !== 'undefined' && 'GlobalWorkerOptions' in pdfjsLib) {
@@ -60,6 +61,98 @@ export async function fileToDataUrl(file: File): Promise<string> {
     reader.onerror = (err) => reject(err);
     reader.readAsDataURL(file);
   });
+}
+
+/**
+ * Parser numérico robusto adaptado a la notación monetaria argentina y universal.
+ * Detecta: "$ 35000", "$ 35.000,50", "$ 120.450", "$ 1.250.000", "TOTAL $ 4890"
+ */
+export function parseArgentineNumber(str: string): number {
+  let s = (str || '').trim();
+  if (!s) return 0;
+  if (s.includes('.') && s.includes(',')) {
+    if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      s = s.replace(/,/g, '');
+    }
+  } else if (s.includes('.')) {
+    const parts = s.split('.');
+    if (parts.length > 2) {
+      s = s.replace(/\./g, '');
+    } else if (parts[1].length === 3) {
+      s = s.replace(/\./g, '');
+    }
+  } else if (s.includes(',')) {
+    s = s.replace(',', '.');
+  }
+  const val = parseFloat(s);
+  return isNaN(val) ? 0 : val;
+}
+
+/**
+ * Algoritmo inteligente que relaciona siempre el signo '$' o palabras clave de liquidación
+ * con el importe total real del comprobante, sin truncamiento de dígitos.
+ */
+export function extractDollarAmountsFromReceiptText(text: string, fileName?: string): number {
+  const norm = (text || '').replace(/\r/g, '\n');
+
+  // 1. Prioridad Máxima: Líneas que contienen TOTAL / IMPORTE / MONTO / PAGAR (omitiendo 'subtotal')
+  const lines = norm.split('\n');
+  for (const line of lines) {
+    if (/(?:^|\s)(?:total\s+a\s+pagar|importe\s+total|monto\s+total|total\s+general|total\s+pesos|total\s+final|saldo\s+a\s+pagar|total\s+operaci[oó]n|monto\s+transferido|pagaste|(?:(?<!sub)total))\b/i.test(line)) {
+      const re = /(?:\$|ars|pesos)?\s*([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,2})?|[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)/gi;
+      let m;
+      const lineAmounts: number[] = [];
+      while ((m = re.exec(line)) !== null) {
+        const val = parseArgentineNumber(m[1]);
+        if (val > 0) lineAmounts.push(val);
+      }
+      if (lineAmounts.length > 0) {
+        return Math.max(...lineAmounts);
+      }
+    }
+  }
+
+  // 2. Prioridad Directa: Relacionar explícitamente el signo '$' con el número
+  const dollarRegex = /(?:\$|ars|pesos)\s*([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,2})?|[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)/gi;
+  let dMatch;
+  const allDollar: number[] = [];
+  while ((dMatch = dollarRegex.exec(norm)) !== null) {
+    if (dMatch[1]) {
+      const v = parseArgentineNumber(dMatch[1]);
+      if (v > 0) allDollar.push(v);
+    }
+  }
+
+  if (allDollar.length > 0) {
+    return Math.max(...allDollar);
+  }
+
+  // 3. Buscar en el nombre del archivo si tiene un monto sugerido (ej: 'ticket_35000.pdf')
+  if (fileName) {
+    const fnMatch = fileName.match(/(\d{4,8})(?:[.,](\d{2}))?/);
+    if (fnMatch) {
+      const val = parseFloat(fnMatch[1]);
+      if (!isNaN(val) && val >= 100) {
+        return val;
+      }
+    }
+  }
+
+  // 4. Buscar cualquier número de importe en rango comercial argentino
+  const anyRegex = /\b([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,2})?|[0-9]{4,8}(?:[.,][0-9]{1,2})?)\b/g;
+  let aMatch;
+  const anyNums: number[] = [];
+  while ((aMatch = anyRegex.exec(norm)) !== null) {
+    const v = parseArgentineNumber(aMatch[1]);
+    if (v >= 100 && v <= 50000000) anyNums.push(v);
+  }
+  if (anyNums.length > 0) {
+    return Math.max(...anyNums);
+  }
+
+  return 0;
 }
 
 /**
@@ -161,58 +254,8 @@ export function heuristicReceiptParser(text: string, fileName: string): ParsedRe
   }
 
   // 2. Detección Inteligente del Monto Total ($)
-  // Argentina suele escribir: $ 15.420,50 o 15420.50 o TOTAL $45.000
-  let totalAmount = 0;
-
-  // Regex priorizando palabras clave como TOTAL, TOTAL A PAGAR, IMPORTE TOTAL, MONTO, DEBITO
-  const amountPatterns = [
-    /(?:total\s+a\s+pagar|importe\s+total|monto\s+total|total\s+general|total\s+pesos|total\s+final)[\s:$]*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)/i,
-    /(?:monto\s+de\s+la\s+operaci[oó]n|pagaste|importe|saldo\s+a\s+pagar|total\s+operaci[oó]n|monto\s+transferido)[\s:$]*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)/i,
-    /(?:^|\n)\s*total[\s:$]*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)/im,
-    /(?:\$|ars)\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{1,2})?|[0-9]{3,7}(?:[.,][0-9]{2})?)/i,
-  ];
-
-  for (const pat of amountPatterns) {
-    const match = norm.match(pat);
-    if (match && match[1]) {
-      let numStr = match[1].trim();
-      if (numStr.includes('.') && numStr.includes(',')) {
-        numStr = numStr.replace(/\./g, '').replace(',', '.');
-      } else if (numStr.includes(',')) {
-        numStr = numStr.replace(',', '.');
-      }
-      const val = parseFloat(numStr);
-      if (!isNaN(val) && val > 0) {
-        totalAmount = val;
-        break;
-      }
-    }
-  }
-
-  // Si no se encontró en el cuerpo, buscar en el nombre de archivo (ej: "ypf_45000.pdf", "comprobante 28500.png")
-  if (!totalAmount || totalAmount <= 0) {
-    const fnMatch = fileName.match(/(\d{4,7})(?:[.,](\d{2}))?/);
-    if (fnMatch) {
-      const val = parseFloat(fnMatch[1]);
-      if (!isNaN(val) && val > 100) {
-        totalAmount = val;
-      }
-    }
-  }
-
-  // Si aún no se encontró, buscar números grandes razonables en el texto (entre $500 y $5.000.000)
-  if (!totalAmount || totalAmount <= 0) {
-    const allNumbers = norm.match(/\b\d{1,3}(?:\.\d{3})+(?:,\d{2})?\b|\b\d{4,7}(?:,\d{2})?\b/g);
-    if (allNumbers && allNumbers.length > 0) {
-      const candidates = allNumbers
-        .map(n => parseFloat(n.replace(/\./g, '').replace(',', '.')))
-        .filter(n => !isNaN(n) && n >= 500 && n <= 5000000);
-      if (candidates.length > 0) {
-        totalAmount = Math.max(...candidates);
-      }
-    }
-  }
-
+  // Utiliza el motor de extracción contextual argentino que relaciona el signo '$' directamente con el número
+  let totalAmount = extractDollarAmountsFromReceiptText(norm, fileName);
   if (!totalAmount || totalAmount <= 0) {
     totalAmount = 15000; // Valor de contingencia si el comprobante no tiene texto legible
   }
@@ -521,6 +564,19 @@ export async function scanAndAnalyzeReceiptFile(file: File): Promise<ParsedRecei
         }
       }
     } catch (e) {}
+  }
+
+  // 4.5. Si el texto extraído sigue vacío o muy corto y tenemos imagen (o PDF renderizado a imagen), ejecutar OCR cliente en el navegador con Tesseract
+  if ((!extractedText || extractedText.trim().length < 20) && (previewUrl || fileType.startsWith('image/'))) {
+    try {
+      const ocrSource = previewUrl || file;
+      const ocrRes = await Tesseract.recognize(ocrSource, 'spa');
+      if (ocrRes && ocrRes.data && ocrRes.data.text && ocrRes.data.text.trim().length > 10) {
+        extractedText = ocrRes.data.text;
+      }
+    } catch (ocrErr) {
+      console.warn('Tesseract client OCR note:', ocrErr);
+    }
   }
 
   // 5. Motor Heurístico Experto para texto extraído del PDF o archivo

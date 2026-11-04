@@ -289,38 +289,78 @@ function runHeuristicReceiptParser(rawText: string, fileName: string) {
     }
   }
 
-  // 2. Detect Final TOTAL Amount
-  // Match patterns like 'TOTAL: $ 15.420,00' or 'TOTAL A PAGAR: 24.500' or 'IMPORTE TOTAL $38.900'
-  let totalAmount = 0;
-  const totalRegexes = [
-    /(?:total\s+a\s+pagar|importe\s+total|monto\s+total|total\s+pesos|total\s+final)[\s:$]*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)/i,
-    /(?:^|\n)\s*total[\s:$]*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)/im,
-    /(?:\$|ars)[\s]*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i,
-  ];
-
-  for (const reg of totalRegexes) {
-    const match = text.match(reg);
-    if (match && match[1]) {
-      let numStr = match[1].trim();
-      if (numStr.includes(',') && numStr.includes('.')) {
-        numStr = numStr.replace(/\./g, '').replace(',', '.');
-      } else if (numStr.includes(',')) {
-        numStr = numStr.replace(',', '.');
+  // 2. Detect Final TOTAL Amount - Relaciona inteligentemente el signo $ y totales
+  const parseNumHelper = (str: string) => {
+    let s = (str || '').trim();
+    if (!s) return 0;
+    if (s.includes('.') && s.includes(',')) {
+      if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+        s = s.replace(/\./g, '').replace(',', '.');
+      } else {
+        s = s.replace(/,/g, '');
       }
-      const val = parseFloat(numStr);
-      if (!isNaN(val) && val > 0) {
-        totalAmount = val;
+    } else if (s.includes('.')) {
+      const parts = s.split('.');
+      if (parts.length > 2 || parts[1]?.length === 3) {
+        s = s.replace(/\./g, '');
+      }
+    } else if (s.includes(',')) {
+      s = s.replace(',', '.');
+    }
+    const val = parseFloat(s);
+    return isNaN(val) ? 0 : val;
+  };
+
+  let totalAmount = 0;
+
+  // Prioridad 1: Líneas que contengan palabras claves de liquidación (TOTAL / IMPORTE / MONTO / PAGAR)
+  const lines = text.split('\n');
+  for (const line of lines) {
+    if (/(?:^|\s)(?:total\s+a\s+pagar|importe\s+total|monto\s+total|total\s+general|total\s+pesos|total\s+final|saldo\s+a\s+pagar|total\s+operaci[oó]n|monto\s+transferido|pagaste|(?:(?<!sub)total))\b/i.test(line)) {
+      const re = /(?:\$|ars|pesos)?\s*([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,2})?|[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)/gi;
+      let m;
+      const lineAmounts: number[] = [];
+      while ((m = re.exec(line)) !== null) {
+        const val = parseNumHelper(m[1]);
+        if (val > 0) lineAmounts.push(val);
+      }
+      if (lineAmounts.length > 0) {
+        totalAmount = Math.max(...lineAmounts);
         break;
       }
     }
   }
 
+  // Prioridad 2: Relacionar explícitamente el signo $ con montos
+  if (!totalAmount || totalAmount <= 0) {
+    const dollarRegex = /(?:\$|ars|pesos)\s*([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,2})?|[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)/gi;
+    let dMatch;
+    const allDollar: number[] = [];
+    while ((dMatch = dollarRegex.exec(text)) !== null) {
+      if (dMatch[1]) {
+        const v = parseNumHelper(dMatch[1]);
+        if (v > 0) allDollar.push(v);
+      }
+    }
+    if (allDollar.length > 0) {
+      totalAmount = Math.max(...allDollar);
+    }
+  }
+
+  // Prioridad 3: Buscar en nombre de archivo o números razonables
   if (!totalAmount || totalAmount < 50) {
-    // Search for any 4 to 7 digit number
+    const fnMatch = fileName.match(/(\d{4,8})(?:[.,](\d{2}))?/);
+    if (fnMatch) {
+      const v = parseFloat(fnMatch[1]);
+      if (!isNaN(v) && v >= 100) totalAmount = v;
+    }
+  }
+
+  if (!totalAmount || totalAmount < 50) {
     const numbers = text.match(/\b\d{4,7}(?:[.,]\d{2})?\b/g);
     if (numbers && numbers.length > 0) {
       const highest = numbers
-        .map((n) => parseFloat(n.replace(/\./g, '').replace(',', '.')))
+        .map((n) => parseNumHelper(n))
         .filter((n) => !isNaN(n) && n < 100000000);
       if (highest.length > 0) {
         totalAmount = Math.max(...highest);

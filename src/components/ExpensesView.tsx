@@ -618,119 +618,78 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
         </div>
       </div>
 
-      {/* 3. Mathematical Formula Explanatory Bar (for Gerencia) */}
-      {isGerencia && (
-        <div className="p-3.5 rounded-2xl bg-[#0e131d] border border-[#26324a] text-xs flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-inner">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-blue-950/70 border border-blue-800/50 text-blue-400">
-              <Calculator className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="font-bold text-slate-200 block">
-                Fórmulas Automáticas de Liquidación Contable
-              </span>
-              <span className="text-[11px] text-slate-400 font-mono">
-                Las celdas de IVA, Retenciones y Total Neto se recalculan instantáneamente al modificar el Subtotal o las alícuotas.
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap font-mono text-[11px]">
-            <span className="px-2 py-1 rounded bg-[#161c28] border border-[#2a3750] text-blue-300 font-semibold">
-              Neto Gravado (Subtotal)
-            </span>
-            <span className="text-slate-400 font-bold">+</span>
-            <span className="px-2 py-1 rounded bg-[#161c28] border border-[#2a3750] text-emerald-300 font-semibold">
-              IVA (Crédito Fiscal)
-            </span>
-            <span className="text-slate-400 font-bold">-</span>
-            <span className="px-2 py-1 rounded bg-[#161c28] border border-[#2a3750] text-amber-300 font-semibold">
-              Retenciones (IIBB / Gan.)
-            </span>
-            <span className="text-slate-400 font-bold">=</span>
-            <span className="px-2.5 py-1 rounded bg-emerald-950/70 border border-emerald-700/60 text-emerald-200 font-bold">
-              Total a Pagar
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* 4. Live Formula Scorecards (Consolidated KPIs) */}
+      {/* 4. Scorecards de Gastos (KPIs Simplificados y Directos) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Subtotal Card */}
+        {/* Total Gastos Card */}
         <div className="p-4 bg-[#121620] border border-[#22293b] rounded-2xl shadow">
           <div className="flex items-center justify-between text-slate-400 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
-              Neto Gravado (Subtotal)
+            <span className="text-[11px] font-bold uppercase tracking-wider text-rose-400">
+              Total Gastos del Mes
             </span>
-            <span className="text-[10px] font-mono text-blue-300 bg-blue-950/60 px-1.5 py-0.5 rounded border border-blue-800/40">
-              Base Imponible
-            </span>
-          </div>
-          <div className="text-2xl font-black font-mono text-white">
-            {formatCurrencyARS(calculatedTotals.subtotal)}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">
-            {filteredExpenses.length} comprobantes procesados
-          </span>
-        </div>
-
-        {/* IVA Card */}
-        <div className="p-4 bg-[#121620] border border-[#22293b] rounded-2xl shadow">
-          <div className="flex items-center justify-between text-slate-400 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-              IVA Crédito Fiscal
-            </span>
-            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40">
-              fx: Sub × IVA%
-            </span>
-          </div>
-          <div className="text-2xl font-black font-mono text-emerald-400">
-            {formatCurrencyARS(calculatedTotals.vat)}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">
-            Alícuotas 21%, 10.5% y 27%
-          </span>
-        </div>
-
-        {/* Retenciones Card */}
-        <div className="p-4 bg-[#121620] border border-[#22293b] rounded-2xl shadow">
-          <div className="flex items-center justify-between text-slate-400 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
-              Retenciones Aplicadas
-            </span>
-            <span className="text-[10px] font-mono text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
-              fx: Sub × Ret%
-            </span>
-          </div>
-          <div className="text-2xl font-black font-mono text-amber-400">
-            {formatCurrencyARS(calculatedTotals.withholdings)}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">
-            Ganancias, IIBB Mendoza y SUSS
-          </span>
-        </div>
-
-        {/* Total Neto Card */}
-        <div className="p-4 bg-[#121620] border border-[#22293b] rounded-2xl shadow">
-          <div className="flex items-center justify-between text-slate-400 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-[#BE2629]">
-              Total Egresos Liquidado
-            </span>
-            <span className="text-[10px] font-mono text-white bg-red-950/70 px-1.5 py-0.5 rounded border border-red-800/50">
-              fx: Sub + IVA - Ret
+            <span className="text-[10px] font-mono text-rose-300 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-800/40">
+              Consolidado
             </span>
           </div>
           <div className="text-2xl font-black font-mono text-white">
             {formatCurrencyARS(calculatedTotals.total)}
           </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1 font-mono">
-            <span className="text-emerald-400 font-semibold">
-              Pagado: {formatCurrencyARS(calculatedTotals.paid)}
+          <span className="text-[11px] text-slate-400 mt-1 block">
+            Egresos registrados en el período
+          </span>
+        </div>
+
+        {/* Gastos Pagados Card */}
+        <div className="p-4 bg-[#121620] border border-[#22293b] rounded-2xl shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-1">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+              Gastos Pagados
             </span>
-            <span className="text-amber-400 font-semibold">
-              Pendiente: {formatCurrencyARS(calculatedTotals.pending)}
+            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40">
+              Abonados
             </span>
           </div>
+          <div className="text-2xl font-black font-mono text-emerald-400">
+            {formatCurrencyARS(calculatedTotals.paid)}
+          </div>
+          <span className="text-[11px] text-slate-400 mt-1 block">
+            Pagos ya cancelados o transferidos
+          </span>
+        </div>
+
+        {/* Gastos Pendientes Card */}
+        <div className="p-4 bg-[#121620] border border-[#22293b] rounded-2xl shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-1">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
+              Gastos Pendientes
+            </span>
+            <span className="text-[10px] font-mono text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
+              Por Abonar
+            </span>
+          </div>
+          <div className="text-2xl font-black font-mono text-amber-400">
+            {formatCurrencyARS(calculatedTotals.pending)}
+          </div>
+          <span className="text-[11px] text-slate-400 mt-1 block">
+            Comprobantes a pagar / vencimiento
+          </span>
+        </div>
+
+        {/* Total Comprobantes Registrados Card */}
+        <div className="p-4 bg-[#121620] border border-[#22293b] rounded-2xl shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-1">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
+              Comprobantes Registrados
+            </span>
+            <span className="text-[10px] font-mono text-blue-300 bg-blue-950/60 px-1.5 py-0.5 rounded border border-blue-800/40">
+              Tickets & Facturas
+            </span>
+          </div>
+          <div className="text-2xl font-black font-mono text-white">
+            {filteredExpenses.length}
+          </div>
+          <span className="text-[11px] text-slate-400 mt-1 block">
+            Archivos analizados y sincronizados
+          </span>
         </div>
       </div>
 
@@ -831,8 +790,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                   <th className="py-2.5 px-3 min-w-[170px]">Categoría</th>
                   <th className="py-2.5 px-3 min-w-[150px]">N° Factura / Boleta</th>
                   <th className="py-2.5 px-3 text-right min-w-[130px]">
-                    <span className="block">Subtotal $</span>
-                    <span className="text-[9px] text-blue-400 font-normal font-mono">Neto Gravado</span>
+                    <span className="block text-white font-bold">Monto Base $</span>
+                    <span className="text-[9px] text-slate-400 font-normal font-mono">Comprobante</span>
                   </th>
                   <th className="py-2.5 px-3 text-center min-w-[100px]">
                     <span className="block">IVA %</span>
