@@ -86,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'admin_sheets',
-      label: 'Planillas Informativas (ADM)',
+      label: 'Planillas Informativas & Informes',
       icon: <FileText className="w-4 h-4 text-blue-400" />,
     },
     {

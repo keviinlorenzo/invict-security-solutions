@@ -13,9 +13,27 @@ import {
   Info,
   Calendar,
   MapPin,
-  User
+  User,
+  Send,
+  Clock,
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  FileText,
+  Building,
+  Check,
+  Edit2,
+  X,
+  ExternalLink
 } from 'lucide-react';
 import { broadcastCloudChange, subscribeToCloudSync } from '../utils/cloudSyncService';
+import {
+  formatPeriodName,
+  getAdjacentPeriod,
+  DEFAULT_PERIOD,
+  getTodayDateString
+} from '../utils/dateUtils';
 
 export interface PersonalSinDisepItem {
   id: string;
@@ -38,12 +56,44 @@ export interface PersonalDebeUniformeItem {
   updatedBy?: string;
 }
 
+export type InformeStatus = 'Pendiente' | 'En Gestión' | 'Resuelto' | 'Cerrado';
+
+export interface InformeClienteItem {
+  id: string;
+  orderNumber: number; // N° correlativo del mes
+  monthPeriod: string; // 'YYYY-MM'
+  clientName: string; // CLIENTE
+  caseNumber: string; // CASO número de caso
+  sendDate: string; // FECHA de envío
+  description?: string; // DESCRIPCIÓN breve acerca de lo que trata el informe (no obligatoria)
+  followUp?: string; // SEGUIMIENTO qué medidas se tomaron, se solucionó? el cliente hizo algo? (no obligatoria)
+  status: InformeStatus; // Dinámico: Resuelto, En Gestión, Pendiente, Cerrado
+  sentVia?: string; // Vía de envío: Email, WhatsApp, En Mano, Portal
+  senderName?: string; // Auxiliar Adm / Operaciones que lo emitió
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface AdminInformativeSheetsData {
   sinDisep: PersonalSinDisepItem[];
   debeUniforme: PersonalDebeUniformeItem[];
+  informesClientes: InformeClienteItem[];
 }
 
 export const STORAGE_KEY_ADMIN_SHEETS = 'invict_admin_informative_sheets';
+
+const CLIENTES_HABITUALES = [
+  'Bodegas Luján de Cuyo',
+  'Kraft San Martín',
+  'Fuesmen Mendoza',
+  'Logística Cuyo S.A.',
+  'Parque Industrial Godoy Cruz',
+  'Átomo Supermercados (Base Operativa)',
+  'Viñedos del Plata',
+  'Terminal de Cargas Maipú',
+  'Cervecería & Maltería Quilmes',
+  'Barrio Privado La Vacherie'
+];
 
 const INITIAL_ADMIN_SHEETS_DATA: AdminInformativeSheetsData = {
   sinDisep: [
@@ -80,6 +130,53 @@ const INITIAL_ADMIN_SHEETS_DATA: AdminInformativeSheetsData = {
       observations: 'Se notificó por WhatsApp devolución de camisa corporativa y borcegos antes del viernes',
     },
   ],
+  informesClientes: [
+    {
+      id: 'inf-2026-11-1',
+      orderNumber: 1,
+      monthPeriod: '2026-11',
+      clientName: 'Bodegas Luján de Cuyo',
+      caseNumber: 'CASO #4102',
+      sendDate: '2026-11-02',
+      description: 'Informe extraordinario por intento de intrusión perimetral en sector viñedos norte y activación de alarma sonora.',
+      followUp: 'Supervisión en móvil reforzó las rondas nocturnas. El cliente reparó el alambrado perimetral el 03/11.',
+      status: 'Resuelto',
+      sentVia: 'Email Corporativo',
+      senderName: 'Kevin Lorenzo (Operaciones)',
+      updatedAt: '03/11/2026',
+      updatedBy: 'Kevin Lorenzo',
+    },
+    {
+      id: 'inf-2026-11-2',
+      orderNumber: 2,
+      monthPeriod: '2026-11',
+      clientName: 'Kraft San Martín',
+      caseNumber: 'CASO #4103',
+      sendDate: '2026-11-03',
+      description: 'Reporte mensual de control de accesos de transportistas, verificación de precintos y pesaje de camiones.',
+      followUp: 'Enviado a gerencia de planta del cliente. Pendiente acuse formal de recepción y firma de conformidad.',
+      status: 'En Gestión',
+      sentVia: 'Email Corporativo',
+      senderName: 'Giuliana (Auxiliar Adm.)',
+      updatedAt: '03/11/2026',
+      updatedBy: 'Giuliana',
+    },
+    {
+      id: 'inf-2026-11-3',
+      orderNumber: 3,
+      monthPeriod: '2026-11',
+      clientName: 'Logística Cuyo S.A.',
+      caseNumber: 'CASO #4104',
+      sendDate: '2026-11-04',
+      description: 'Novedad por corte imprevisto de suministro eléctrico en Nave 2 y activación manual de grupo electrógeno.',
+      followUp: 'Vigilador mantuvo custodia física de portones de emergencia hasta restablecimiento de línea EDEMSA.',
+      status: 'Resuelto',
+      sentVia: 'WhatsApp Corporativo',
+      senderName: 'Kevin Lorenzo (Operaciones)',
+      updatedAt: '04/11/2026',
+      updatedBy: 'Kevin Lorenzo',
+    },
+  ],
 };
 
 export function getAdminInformativeSheets(): AdminInformativeSheetsData {
@@ -90,6 +187,9 @@ export function getAdminInformativeSheets(): AdminInformativeSheetsData {
       return {
         sinDisep: Array.isArray(parsed.sinDisep) ? parsed.sinDisep : INITIAL_ADMIN_SHEETS_DATA.sinDisep,
         debeUniforme: Array.isArray(parsed.debeUniforme) ? parsed.debeUniforme : INITIAL_ADMIN_SHEETS_DATA.debeUniforme,
+        informesClientes: Array.isArray(parsed.informesClientes) && parsed.informesClientes.length > 0
+          ? parsed.informesClientes
+          : INITIAL_ADMIN_SHEETS_DATA.informesClientes,
       };
     }
   } catch (err) {
@@ -119,24 +219,66 @@ export function saveAdminInformativeSheets(
 interface AdminInformativeSheetsViewProps {
   currentPersona: UserPersona;
   onNotify?: (msg: string) => void;
+  currentPeriod?: string;
+  onPeriodChange?: (period: string) => void;
 }
 
 export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProps> = ({
   currentPersona,
   onNotify,
+  currentPeriod,
+  onPeriodChange,
 }) => {
-  const [activeSheet, setActiveSheet] = useState<'sin_disep' | 'debe_uniforme'>('sin_disep');
+  const [activeSheet, setActiveSheet] = useState<'sin_disep' | 'debe_uniforme' | 'informes_clientes'>('informes_clientes');
   const [sheetsData, setSheetsData] = useState<AdminInformativeSheetsData>(() => getAdminInformativeSheets());
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'TODOS' | InformeStatus>('TODOS');
 
-  // Únicamente ADMINISTRACIÓN y GERENCIA pueden modificar estas planillas
-  const canEdit = Boolean(
+  // Período seleccionado para la planilla de Informes a Clientes
+  const [selectedPeriod, setSelectedPeriod] = useState<string>(() => currentPeriod || DEFAULT_PERIOD);
+
+  // Modal para agregar / editar informe
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingInformeId, setEditingInformeId] = useState<string | null>(null);
+  const [formClientName, setFormClientName] = useState('');
+  const [formCaseNumber, setFormCaseNumber] = useState('');
+  const [formSendDate, setFormSendDate] = useState(() => getTodayDateString());
+  const [formDescription, setFormDescription] = useState('');
+  const [formFollowUp, setFormFollowUp] = useState('');
+  const [formStatus, setFormStatus] = useState<InformeStatus>('Pendiente');
+  const [formSentVia, setFormSentVia] = useState('Email Corporativo');
+
+  // Sincronizar período si cambia desde afuera
+  useEffect(() => {
+    if (currentPeriod && currentPeriod !== selectedPeriod) {
+      setSelectedPeriod(currentPeriod);
+    }
+  }, [currentPeriod]);
+
+  // Permisos:
+  // 1. Planillas de Administración (Sin DISEP / Uniformes): ADM y GERENCIA
+  const canEditAdmin = Boolean(
     currentPersona &&
       (currentPersona.department === 'ADM' ||
         currentPersona.profileType === 'administración' ||
         currentPersona.department === 'GERENCIA' ||
         currentPersona.profileType === 'GERENTE')
   );
+
+  // 2. Planilla de Informes a Clientes: ÚNICAMENTE Auxiliar Administrativo y Operaciones
+  const canEditInformes = Boolean(
+    currentPersona &&
+      (currentPersona.department === 'AUX_ADM' ||
+        currentPersona.profileType === 'auxiliar' ||
+        (currentPersona.profileType as string) === 'auxiliar_administrativo' ||
+        currentPersona.department === 'OPERACIONES' ||
+        currentPersona.profileType === 'operaciones' ||
+        (currentPersona.role &&
+          (currentPersona.role.toLowerCase().includes('auxiliar') ||
+            currentPersona.role.toLowerCase().includes('operaciones'))))
+  );
+
+  const canEditCurrentSheet = activeSheet === 'informes_clientes' ? canEditInformes : canEditAdmin;
 
   useEffect(() => {
     const unsub = subscribeToCloudSync((payload) => {
@@ -148,15 +290,14 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
   }, []);
 
   const updateData = (nextData: AdminInformativeSheetsData, actionSummary: string) => {
-    if (!canEdit) return;
     setSheetsData(nextData);
     saveAdminInformativeSheets(nextData, currentPersona, actionSummary);
   };
 
   // --- Handlers: PERSONAL SIN DISEP ---
   const handleAddSinDisep = () => {
-    if (!canEdit) return;
-    const today = new Date().toISOString().slice(0, 10);
+    if (!canEditAdmin) return;
+    const today = getTodayDateString();
     const newRow: PersonalSinDisepItem = {
       id: `disep-${Date.now()}`,
       fullName: '',
@@ -172,7 +313,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
   };
 
   const handleChangeSinDisep = (id: string, field: keyof PersonalSinDisepItem, value: string) => {
-    if (!canEdit) return;
+    if (!canEditAdmin) return;
     const nextList = sheetsData.sinDisep.map((item) =>
       item.id === id
         ? { ...item, [field]: value, updatedAt: new Date().toLocaleDateString('es-AR'), updatedBy: currentPersona.name }
@@ -182,7 +323,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
   };
 
   const handleDeleteSinDisep = (id: string) => {
-    if (!canEdit) return;
+    if (!canEditAdmin) return;
     const target = sheetsData.sinDisep.find((i) => i.id === id);
     const nextList = sheetsData.sinDisep.filter((i) => i.id !== id);
     updateData({ ...sheetsData, sinDisep: nextList }, `${currentPersona.name} eliminó registro de Personal Sin DISEP`);
@@ -191,8 +332,8 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
 
   // --- Handlers: PERSONAL QUE DEBE UNIFORME ---
   const handleAddDebeUniforme = () => {
-    if (!canEdit) return;
-    const today = new Date().toISOString().slice(0, 10);
+    if (!canEditAdmin) return;
+    const today = getTodayDateString();
     const newRow: PersonalDebeUniformeItem = {
       id: `unif-${Date.now()}`,
       fullName: '',
@@ -209,7 +350,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
   };
 
   const handleChangeDebeUniforme = (id: string, field: keyof PersonalDebeUniformeItem, value: string) => {
-    if (!canEdit) return;
+    if (!canEditAdmin) return;
     const nextList = sheetsData.debeUniforme.map((item) =>
       item.id === id
         ? { ...item, [field]: value, updatedAt: new Date().toLocaleDateString('es-AR'), updatedBy: currentPersona.name }
@@ -219,7 +360,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
   };
 
   const handleDeleteDebeUniforme = (id: string) => {
-    if (!canEdit) return;
+    if (!canEditAdmin) return;
     const target = sheetsData.debeUniforme.find((i) => i.id === id);
     const nextList = sheetsData.debeUniforme.filter((i) => i.id !== id);
     updateData(
@@ -229,8 +370,157 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
     onNotify?.(`Registro "${target?.fullName || 'Sin nombre'}" eliminado de Personal que Debe Uniforme.`);
   };
 
+  // --- Handlers: INFORMES A CLIENTES (Exclusivo Auxiliar Adm & Operaciones) ---
+  const currentMonthInformes = useMemo(() => {
+    return (sheetsData.informesClientes || []).filter(
+      (item) => (item.monthPeriod || '').startsWith(selectedPeriod)
+    );
+  }, [sheetsData.informesClientes, selectedPeriod]);
+
+  const handleOpenNewInformeModal = () => {
+    if (!canEditInformes) return;
+    setEditingInformeId(null);
+    setFormClientName('');
+    const nextNum = currentMonthInformes.length + 1;
+    setFormCaseNumber(`CASO #${selectedPeriod.replace('-', '')}-${String(nextNum).padStart(2, '0')}`);
+    setFormSendDate(getTodayDateString());
+    setFormDescription('');
+    setFormFollowUp('');
+    setFormStatus('Pendiente');
+    setFormSentVia('Email Corporativo');
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEditInformeModal = (item: InformeClienteItem) => {
+    if (!canEditInformes) return;
+    setEditingInformeId(item.id);
+    setFormClientName(item.clientName);
+    setFormCaseNumber(item.caseNumber);
+    setFormSendDate(item.sendDate);
+    setFormDescription(item.description || '');
+    setFormFollowUp(item.followUp || '');
+    setFormStatus(item.status);
+    setFormSentVia(item.sentVia || 'Email Corporativo');
+    setIsModalOpen(true);
+  };
+
+  const handleSaveInformeModal = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canEditInformes) return;
+    if (!formClientName.trim()) {
+      alert('Por favor indica el nombre del Cliente u Objetivo.');
+      return;
+    }
+
+    const todayAr = new Date().toLocaleDateString('es-AR');
+
+    if (editingInformeId) {
+      // Editar existente
+      const nextList = (sheetsData.informesClientes || []).map((inf) =>
+        inf.id === editingInformeId
+          ? {
+              ...inf,
+              clientName: formClientName.trim(),
+              caseNumber: formCaseNumber.trim() || `CASO #${inf.orderNumber}`,
+              sendDate: formSendDate,
+              description: formDescription.trim() || undefined,
+              followUp: formFollowUp.trim() || undefined,
+              status: formStatus,
+              sentVia: formSentVia,
+              updatedAt: todayAr,
+              updatedBy: currentPersona.name,
+            }
+          : inf
+      );
+      updateData(
+        { ...sheetsData, informesClientes: nextList },
+        `${currentPersona.name} actualizó el informe de cliente "${formClientName}" (${formCaseNumber})`
+      );
+      onNotify?.(`Informe "${formCaseNumber}" actualizado con éxito.`);
+    } else {
+      // Crear nuevo informe correlativo para este mes
+      const nextOrder = currentMonthInformes.length + 1;
+      const newInforme: InformeClienteItem = {
+        id: `inf-${Date.now()}`,
+        orderNumber: nextOrder,
+        monthPeriod: selectedPeriod,
+        clientName: formClientName.trim(),
+        caseNumber: formCaseNumber.trim() || `CASO #${selectedPeriod.replace('-', '')}-${String(nextOrder).padStart(2, '0')}`,
+        sendDate: formSendDate,
+        description: formDescription.trim() || undefined,
+        followUp: formFollowUp.trim() || undefined,
+        status: formStatus,
+        sentVia: formSentVia,
+        senderName: `${currentPersona.name} (${currentPersona.profileType || currentPersona.department})`,
+        updatedAt: todayAr,
+        updatedBy: currentPersona.name,
+      };
+
+      const nextList = [...(sheetsData.informesClientes || []), newInforme];
+      updateData(
+        { ...sheetsData, informesClientes: nextList },
+        `${currentPersona.name} registró el informe N° ${nextOrder} para el cliente "${formClientName}"`
+      );
+      onNotify?.(`Informe N° ${nextOrder} guardado en la planilla de ${formatPeriodName(selectedPeriod)}.`);
+    }
+
+    setIsModalOpen(false);
+  };
+
+  const handleDeleteInforme = (id: string) => {
+    if (!canEditInformes) return;
+    const target = (sheetsData.informesClientes || []).find((i) => i.id === id);
+    if (!target) return;
+    if (!window.confirm(`¿Deseas eliminar el informe N° ${target.orderNumber} (${target.clientName})?`)) return;
+
+    // Eliminar y re-enumerar los del mes correspondiente
+    const withoutTarget = (sheetsData.informesClientes || []).filter((i) => i.id !== id);
+    const monthItems = withoutTarget
+      .filter((i) => (i.monthPeriod || '').startsWith(target.monthPeriod))
+      .sort((a, b) => (a.orderNumber || 0) - (b.orderNumber || 0))
+      .map((item, idx) => ({ ...item, orderNumber: idx + 1 }));
+
+    const otherMonthsItems = withoutTarget.filter((i) => !(i.monthPeriod || '').startsWith(target.monthPeriod));
+    const finalList = [...otherMonthsItems, ...monthItems];
+
+    updateData(
+      { ...sheetsData, informesClientes: finalList },
+      `${currentPersona.name} eliminó el informe N° ${target.orderNumber} de ${target.clientName}`
+    );
+    onNotify?.(`Informe N° ${target.orderNumber} eliminado de la planilla.`);
+  };
+
+  const handleToggleInformeStatus = (id: string) => {
+    if (!canEditInformes) return;
+    const statusCycle: InformeStatus[] = ['Pendiente', 'En Gestión', 'Resuelto', 'Cerrado'];
+    const nextList = (sheetsData.informesClientes || []).map((inf) => {
+      if (inf.id === id) {
+        const currentIdx = statusCycle.indexOf(inf.status);
+        const nextStatus = statusCycle[(currentIdx + 1) % statusCycle.length];
+        return {
+          ...inf,
+          status: nextStatus,
+          updatedAt: new Date().toLocaleDateString('es-AR'),
+          updatedBy: currentPersona.name,
+        };
+      }
+      return inf;
+    });
+
+    updateData(
+      { ...sheetsData, informesClientes: nextList },
+      `${currentPersona.name} actualizó el estado de un informe de cliente`
+    );
+  };
+
+  const handlePeriodChangeInternal = (newPeriod: string) => {
+    setSelectedPeriod(newPeriod);
+    onPeriodChange?.(newPeriod);
+  };
+
   // --- Filtered Lists ---
   const q = searchTerm.toLowerCase().trim();
+
   const filteredSinDisep = useMemo(() => {
     if (!q) return sheetsData.sinDisep;
     return sheetsData.sinDisep.filter(
@@ -251,6 +541,29 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
     );
   }, [sheetsData.debeUniforme, q]);
 
+  const filteredInformes = useMemo(() => {
+    return currentMonthInformes
+      .filter((inf) => {
+        if (statusFilter !== 'TODOS' && inf.status !== statusFilter) return false;
+        if (!q) return true;
+        return (
+          inf.clientName.toLowerCase().includes(q) ||
+          inf.caseNumber.toLowerCase().includes(q) ||
+          (inf.description && inf.description.toLowerCase().includes(q)) ||
+          (inf.followUp && inf.followUp.toLowerCase().includes(q)) ||
+          (inf.sentVia && inf.sentVia.toLowerCase().includes(q)) ||
+          (inf.senderName && inf.senderName.toLowerCase().includes(q))
+        );
+      })
+      .sort((a, b) => a.orderNumber - b.orderNumber);
+  }, [currentMonthInformes, statusFilter, q]);
+
+  // Métricas del mes de informes
+  const totalInformesMes = currentMonthInformes.length;
+  const resueltosMes = currentMonthInformes.filter((i) => i.status === 'Resuelto').length;
+  const enGestionMes = currentMonthInformes.filter((i) => i.status === 'En Gestión').length;
+  const pendientesMes = currentMonthInformes.filter((i) => i.status === 'Pendiente').length;
+
   // --- CSV Export ---
   const handleExportCSV = () => {
     const escape = (val: string) => `"${(val || '').replace(/"/g, '""')}"`;
@@ -268,7 +581,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       a.click();
       URL.revokeObjectURL(url);
       onNotify?.('Planilla de Personal Sin DISEP exportada a CSV.');
-    } else {
+    } else if (activeSheet === 'debe_uniforme') {
       const headers = ['#', 'Nombre y Apellido del Vigilador', 'Fecha de Ingreso', 'Fecha de Baja', 'Objetivo Asignado', 'Observaciones'];
       const rows = filteredDebeUniforme.map((r, idx) =>
         [
@@ -289,6 +602,64 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       a.click();
       URL.revokeObjectURL(url);
       onNotify?.('Planilla de Personal que Debe Uniforme exportada a CSV.');
+    } else {
+      const headers = ['N°', 'Cliente / Objetivo', 'N° de Caso', 'Fecha de Envío', 'Vía de Envío', 'Estado', 'Descripción', 'Seguimiento / Medidas', 'Registrado Por'];
+      const rows = filteredInformes.map((r) =>
+        [
+          String(r.orderNumber),
+          escape(r.clientName),
+          escape(r.caseNumber),
+          escape(r.sendDate),
+          escape(r.sentVia || 'Email Corporativo'),
+          escape(r.status),
+          escape(r.description || '-'),
+          escape(r.followUp || '-'),
+          escape(r.senderName || '-'),
+        ].join(';')
+      );
+      const csv = `\uFEFF# INVICT SECURITY SOLUTIONS S.A. - PLANILLA DE INFORMES ENVIADOS A CLIENTES (${formatPeriodName(selectedPeriod)})\n` + headers.join(';') + '\n' + rows.join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `INVICT_Informes_Clientes_${selectedPeriod}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onNotify?.(`Planilla de Informes a Clientes de ${formatPeriodName(selectedPeriod)} exportada a CSV.`);
+    }
+  };
+
+  const getStatusBadge = (status: InformeStatus) => {
+    switch (status) {
+      case 'Resuelto':
+        return (
+          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 flex items-center gap-1 shadow-sm">
+            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+            <span>Resuelto</span>
+          </span>
+        );
+      case 'En Gestión':
+        return (
+          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-950/80 text-blue-300 border border-blue-700/60 flex items-center gap-1 shadow-sm">
+            <Clock className="w-3 h-3 text-blue-400 animate-pulse" />
+            <span>En Gestión</span>
+          </span>
+        );
+      case 'Pendiente':
+        return (
+          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-950/80 text-amber-300 border border-amber-700/60 flex items-center gap-1 shadow-sm">
+            <AlertCircle className="w-3 h-3 text-amber-400" />
+            <span>Pendiente</span>
+          </span>
+        );
+      case 'Cerrado':
+      default:
+        return (
+          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-800/80 text-slate-300 border border-slate-600 flex items-center gap-1 shadow-sm">
+            <Lock className="w-3 h-3 text-slate-400" />
+            <span>Cerrado</span>
+          </span>
+        );
     }
   };
 
@@ -300,9 +671,23 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <span className="px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-500/40 rounded-full flex items-center gap-1">
               <FileSpreadsheet className="w-3 h-3" />
-              Planillas Informativas de Administración
+              Planillas Informativas & Control Operativo
             </span>
-            {canEdit ? (
+
+            {/* Indicador dinámico de permisos según la planilla activa */}
+            {activeSheet === 'informes_clientes' ? (
+              canEditInformes ? (
+                <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                  Modo Edición Habilitado (Puesto Autorizado: {currentPersona.name})
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase bg-amber-950/80 text-amber-300 border border-amber-700/60 rounded-full flex items-center gap-1" title="El resto de usuarios solo tiene acceso a visualizarla">
+                  <Lock className="w-3 h-3 text-amber-400" />
+                  Modo Solo Lectura (Solo Auxiliar Administrativo y Operaciones pueden editar)
+                </span>
+              )
+            ) : canEditAdmin ? (
               <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 rounded-full flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                 Modo Edición Habilitado ({currentPersona.department === 'GERENCIA' ? 'Gerencia' : 'Administración'})
@@ -313,17 +698,22 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                 Modo Lectura (Solo Administración y Gerencia pueden editar)
               </span>
             )}
+
             <span className="px-2.5 py-0.5 text-[10px] font-mono bg-[#111622] text-slate-300 border border-[#253047] rounded-full flex items-center gap-1">
               <Info className="w-3 h-3 text-cyan-400" />
-              Independiente de las métricas de tareas
+              Registro en tiempo real
             </span>
           </div>
 
           <h2 className="text-xl font-black text-white tracking-tight">
-            Control Informativo: Personal Sin DISEP & Devolución de Uniformes
+            {activeSheet === 'informes_clientes'
+              ? 'Planilla de Informes Enviados a Clientes'
+              : 'Control Informativo: Personal Sin DISEP & Devolución de Uniformes'}
           </h2>
           <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-            Registro informativo compartido en tiempo real para todos los puestos de la oficina. Estas planillas son de consulta operativa y no alteran los porcentajes ni métricas de cumplimiento de tareas.
+            {activeSheet === 'informes_clientes'
+              ? 'Registro correlativo mensual de informes de seguridad y novedades remitidos a clientes. Control de número de caso, fecha de despacho, medidas adoptadas y resolución de incidentes.'
+              : 'Registro informativo compartido en tiempo real para todos los puestos de la oficina. Estas planillas son de consulta operativa y no alteran los porcentajes de tareas.'}
           </p>
         </div>
 
@@ -336,7 +726,17 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
             <span>Exportar Planilla (CSV)</span>
           </button>
 
-          {canEdit && (
+          {activeSheet === 'informes_clientes' && canEditInformes && (
+            <button
+              onClick={handleOpenNewInformeModal}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#BE2629] hover:bg-[#d32f32] text-white font-bold text-xs shadow-lg transition-all cursor-pointer active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Nuevo Informe a Cliente</span>
+            </button>
+          )}
+
+          {activeSheet !== 'informes_clientes' && canEditAdmin && (
             <button
               onClick={activeSheet === 'sin_disep' ? handleAddSinDisep : handleAddDebeUniforme}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#BE2629] hover:bg-[#d32f32] text-white font-bold text-xs shadow-lg transition-all cursor-pointer active:scale-95"
@@ -351,8 +751,25 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       </div>
 
       {/* Sub-Tabs Selector & Search Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap">
+          {/* TAB 1: INFORMES A CLIENTES (NUEVA PLANILLA) */}
+          <button
+            onClick={() => setActiveSheet('informes_clientes')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer border ${
+              activeSheet === 'informes_clientes'
+                ? 'bg-rose-600 text-white border-rose-500 shadow-lg shadow-rose-950/40'
+                : 'bg-[#121620] text-slate-300 border-[#22293b] hover:bg-[#192030]'
+            }`}
+          >
+            <Send className="w-4 h-4" />
+            <span>1. INFORMES A CLIENTES</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-black/40 text-white">
+              {currentMonthInformes.length}
+            </span>
+          </button>
+
+          {/* TAB 2: PERSONAL SIN DISEP */}
           <button
             onClick={() => setActiveSheet('sin_disep')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer border ${
@@ -362,12 +779,13 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
             }`}
           >
             <ShieldAlert className="w-4 h-4" />
-            <span>1. PERSONAL SIN DISEP</span>
+            <span>2. PERSONAL SIN DISEP</span>
             <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-black/30 text-white">
               {sheetsData.sinDisep.length}
             </span>
           </button>
 
+          {/* TAB 3: PERSONAL QUE DEBE UNIFORME */}
           <button
             onClick={() => setActiveSheet('debe_uniforme')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer border ${
@@ -377,33 +795,335 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
             }`}
           >
             <Shirt className="w-4 h-4" />
-            <span>2. PERSONAL QUE DEBE UNIFORME</span>
+            <span>3. PERSONAL QUE DEBE UNIFORME</span>
             <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-black/30 text-white">
               {sheetsData.debeUniforme.length}
             </span>
           </button>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-2 bg-[#121620] border border-[#22293b] rounded-xl min-w-[260px]">
-          <Search className="w-4 h-4 text-slate-400 shrink-0" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por vigilador, objetivo u observación..."
-            className="w-full bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none"
-          />
+        {/* Search & Month Controls */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {activeSheet === 'informes_clientes' && (
+            <div className="flex items-center gap-1.5 p-1 bg-[#121620] border border-[#22293b] rounded-xl shadow-sm">
+              <button
+                type="button"
+                onClick={() => handlePeriodChangeInternal(getAdjacentPeriod(selectedPeriod, -1))}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#1c2436] transition-colors cursor-pointer"
+                title="Mes anterior"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <div className="flex items-center gap-1.5 px-2 text-xs font-bold text-white">
+                <Calendar className="w-3.5 h-3.5 text-rose-400" />
+                <span>{formatPeriodName(selectedPeriod)}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handlePeriodChangeInternal(getAdjacentPeriod(selectedPeriod, 1))}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#1c2436] transition-colors cursor-pointer"
+                title="Mes siguiente"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 px-3 py-2 bg-[#121620] border border-[#22293b] rounded-xl min-w-[240px]">
+            <Search className="w-4 h-4 text-slate-400 shrink-0" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder={
+                activeSheet === 'informes_clientes'
+                  ? 'Buscar por cliente, caso, descripción o seguimiento...'
+                  : 'Buscar en la planilla...'
+              }
+              className="w-full bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none"
+            />
+          </div>
         </div>
       </div>
 
-      {/* SHEET 1: PERSONAL SIN DISEP */}
+      {/* ========================================================================= */}
+      {/* PLANILLA 1: INFORMES A CLIENTES (EXCLUSIVA AUXILIAR ADM Y OPERACIONES) */}
+      {/* ========================================================================= */}
+      {activeSheet === 'informes_clientes' && (
+        <div className="space-y-4">
+          {/* Tarjetas KPI de Informes del Mes */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-3.5 rounded-2xl bg-[#121620] border border-[#22293b] flex items-center justify-between shadow">
+              <div>
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">Total Informes</span>
+                <span className="text-xl font-black text-white">{totalInformesMes}</span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">{formatPeriodName(selectedPeriod)}</span>
+              </div>
+              <div className="w-9 h-9 rounded-xl bg-blue-950/60 border border-blue-800 text-blue-400 flex items-center justify-center font-bold">
+                <Send className="w-4 h-4" />
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-[#121620] border border-[#22293b] flex items-center justify-between shadow">
+              <div>
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">Resueltos / Concluídos</span>
+                <span className="text-xl font-black text-emerald-400">{resueltosMes}</span>
+                <span className="text-[10px] text-emerald-400/80 block mt-0.5">Medidas tomadas</span>
+              </div>
+              <div className="w-9 h-9 rounded-xl bg-emerald-950/60 border border-emerald-800 text-emerald-400 flex items-center justify-center font-bold">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-[#121620] border border-[#22293b] flex items-center justify-between shadow">
+              <div>
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">En Gestión</span>
+                <span className="text-xl font-black text-blue-400">{enGestionMes}</span>
+                <span className="text-[10px] text-blue-400/80 block mt-0.5">En trámite</span>
+              </div>
+              <div className="w-9 h-9 rounded-xl bg-blue-950/60 border border-blue-800 text-blue-400 flex items-center justify-center font-bold">
+                <Clock className="w-4 h-4" />
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-[#121620] border border-[#22293b] flex items-center justify-between shadow">
+              <div>
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">Pendiente Cliente</span>
+                <span className="text-xl font-black text-amber-400">{pendientesMes}</span>
+                <span className="text-[10px] text-amber-400/80 block mt-0.5">Acción requerida</span>
+              </div>
+              <div className="w-9 h-9 rounded-xl bg-amber-950/60 border border-amber-800 text-amber-400 flex items-center justify-center font-bold">
+                <AlertCircle className="w-4 h-4" />
+              </div>
+            </div>
+          </div>
+
+          {/* Filtros de Estado */}
+          <div className="flex items-center justify-between gap-3 p-3 bg-[#121620] border border-[#22293b] rounded-2xl flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] font-bold text-slate-400 mr-1 flex items-center gap-1">
+                <Filter className="w-3.5 h-3.5 text-rose-400" />
+                Estado:
+              </span>
+              {(['TODOS', 'Pendiente', 'En Gestión', 'Resuelto', 'Cerrado'] as const).map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setStatusFilter(st)}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    statusFilter === st
+                      ? 'bg-rose-600 text-white shadow'
+                      : 'bg-[#181f2d] text-slate-300 hover:text-white border border-[#252f44]'
+                  }`}
+                >
+                  {st === 'TODOS' ? 'Todos' : st}
+                </button>
+              ))}
+            </div>
+
+            <div className="text-xs text-slate-400 font-mono">
+              Mostrando <strong className="text-white">{filteredInformes.length}</strong> de {currentMonthInformes.length} informe(s)
+            </div>
+          </div>
+
+          {/* Tabla de Informes a Clientes */}
+          <div className="p-4 rounded-2xl bg-[#121620] border border-[#22293b] shadow space-y-3">
+            <div className="flex items-center justify-between border-b border-[#1f2637] pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <Send className="w-4 h-4 text-rose-400" />
+                  <span>Informes Remitidos a Clientes · {formatPeriodName(selectedPeriod)}</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Planilla oficial de entrega de informes operativos, casos y seguimiento post-envío.
+                </p>
+              </div>
+
+              {!canEditInformes && (
+                <span className="text-[11px] px-2.5 py-1 rounded-lg bg-amber-950/60 text-amber-300 border border-amber-800/60 font-semibold flex items-center gap-1">
+                  <Lock className="w-3 h-3" />
+                  Solo vista
+                </span>
+              )}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-[#161b26] border-b border-[#252c3e] text-slate-300 font-bold uppercase tracking-wider text-[10px]">
+                    <th className="py-2.5 px-3 text-center w-12">N°</th>
+                    <th className="py-2.5 px-3 min-w-[200px]">
+                      <div className="flex items-center gap-1.5">
+                        <Building className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Cliente / Objetivo</span>
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-3 min-w-[140px]">
+                      <div className="flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-blue-400" />
+                        <span>N° de Caso</span>
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-3 min-w-[120px]">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Fecha Envío</span>
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-3 min-w-[260px]">
+                      <span>Descripción del Informe (Breve)</span>
+                    </th>
+                    <th className="py-2.5 px-3 min-w-[260px]">
+                      <span>Seguimiento & Medidas Tomadas</span>
+                    </th>
+                    <th className="py-2.5 px-3 text-center min-w-[140px]">
+                      <span>Estado</span>
+                    </th>
+                    <th className="py-2.5 px-3 min-w-[140px]">
+                      <span>Registrado Por</span>
+                    </th>
+                    {canEditInformes && <th className="py-2.5 px-2 text-center w-20">Acción</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1e2433]">
+                  {filteredInformes.map((item) => (
+                    <tr key={item.id} className="hover:bg-[#161b26]/70 transition-colors group">
+                      {/* N° Correlativo */}
+                      <td className="py-3 px-3 text-center font-mono font-bold text-slate-300">
+                        <span className="px-2 py-0.5 rounded bg-black/40 border border-[#2b374e]">
+                          #{item.orderNumber}
+                        </span>
+                      </td>
+
+                      {/* CLIENTE */}
+                      <td className="py-3 px-3 font-semibold text-white">
+                        <div className="flex items-center gap-2">
+                          <span className="text-rose-400 font-bold">●</span>
+                          <span>{item.clientName}</span>
+                        </div>
+                        {item.sentVia && (
+                          <span className="text-[10px] text-slate-400 font-normal block pl-3.5">
+                            Vía: {item.sentVia}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* CASO NÚMERO */}
+                      <td className="py-3 px-3 font-mono font-bold text-cyan-300">
+                        <span className="px-2 py-0.5 rounded bg-cyan-950/40 border border-cyan-800/50">
+                          {item.caseNumber}
+                        </span>
+                      </td>
+
+                      {/* FECHA DE ENVÍO */}
+                      <td className="py-3 px-3 font-mono text-slate-200">
+                        {item.sendDate}
+                      </td>
+
+                      {/* DESCRIPCIÓN (NO OBLIGATORIA) */}
+                      <td className="py-3 px-3 text-slate-300">
+                        {item.description ? (
+                          <p className="line-clamp-2 text-xs leading-relaxed" title={item.description}>
+                            {item.description}
+                          </p>
+                        ) : (
+                          <span className="text-slate-500 italic text-[11px]">- Sin descripción -</span>
+                        )}
+                      </td>
+
+                      {/* SEGUIMIENTO (NO OBLIGATORIA) */}
+                      <td className="py-3 px-3 text-slate-300">
+                        {item.followUp ? (
+                          <div className="p-2 rounded-xl bg-[#0d121c] border border-[#1e283b] text-xs leading-relaxed text-slate-200">
+                            {item.followUp}
+                          </div>
+                        ) : (
+                          <span className="text-slate-500 italic text-[11px]">- Sin medidas registradas -</span>
+                        )}
+                      </td>
+
+                      {/* ESTADO DINÁMICO */}
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        {canEditInformes ? (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleInformeStatus(item.id)}
+                            className="cursor-pointer hover:scale-105 transition-transform"
+                            title="Clic para cambiar de estado (Pendiente → En Gestión → Resuelto → Cerrado)"
+                          >
+                            {getStatusBadge(item.status)}
+                          </button>
+                        ) : (
+                          <div>{getStatusBadge(item.status)}</div>
+                        )}
+                      </td>
+
+                      {/* REGISTRADO POR */}
+                      <td className="py-3 px-3 text-slate-400 text-[11px]">
+                        <span className="font-semibold text-slate-300 block">{item.senderName || 'Operaciones'}</span>
+                        {item.updatedAt && (
+                          <span className="text-[10px] text-slate-500 font-mono">Modif: {item.updatedAt}</span>
+                        )}
+                      </td>
+
+                      {/* ACCIONES (SOLO AUXILIAR Y OPERACIONES) */}
+                      {canEditInformes && (
+                        <td className="py-3 px-2 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditInformeModal(item)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#20293d] transition-colors cursor-pointer"
+                              title="Editar informe"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteInforme(item.id)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-colors cursor-pointer"
+                              title="Eliminar informe"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+
+                  {filteredInformes.length === 0 && (
+                    <tr>
+                      <td colSpan={canEditInformes ? 9 : 8} className="py-12 text-center text-slate-400 text-xs">
+                        <Send className="w-8 h-8 text-slate-600 mx-auto mb-2 opacity-50" />
+                        <p className="font-semibold text-slate-300">
+                          No hay informes registrados para {formatPeriodName(selectedPeriod)}.
+                        </p>
+                        <p className="text-slate-500 text-[11px] mt-1">
+                          {canEditInformes
+                            ? 'Haz clic en "+ Nuevo Informe a Cliente" para registrar el primer informe del mes (N° 1).'
+                            : 'El personal autorizado (Auxiliar Administrativo u Operaciones) aún no ha cargado informes en este período.'}
+                        </p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* PLANILLA 2: PERSONAL SIN DISEP */}
+      {/* ========================================================================= */}
       {activeSheet === 'sin_disep' && (
         <div className="p-4 rounded-2xl bg-[#121620] border border-[#22293b] shadow space-y-3">
           <div className="flex items-center justify-between border-b border-[#1f2637] pb-3">
             <div>
               <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
                 <ShieldAlert className="w-4 h-4 text-blue-400" />
-                <span>Planilla 1: Personal Sin DISEP</span>
+                <span>Planilla 2: Personal Sin DISEP</span>
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
                 Detalle de vigiladores pendientes de habilitación o credencial DISEP, fecha de alta, objetivo asignado y estado del trámite.
@@ -438,7 +1158,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                     </div>
                   </th>
                   <th className="py-2.5 px-3 min-w-[280px]">Observaciones</th>
-                  {canEdit && <th className="py-2.5 px-2 text-center w-12">Acción</th>}
+                  {canEditAdmin && <th className="py-2.5 px-2 text-center w-12">Acción</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1e2433]">
@@ -448,7 +1168,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                     <td className="py-2 px-3">
                       <input
                         type="text"
-                        disabled={!canEdit}
+                        disabled={!canEditAdmin}
                         value={item.fullName}
                         onChange={(e) => handleChangeSinDisep(item.id, 'fullName', e.target.value)}
                         placeholder="Apellido y Nombre del vigilador..."
@@ -458,7 +1178,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                     <td className="py-2 px-3">
                       <input
                         type="date"
-                        disabled={!canEdit}
+                        disabled={!canEditAdmin}
                         value={item.entryDate}
                         onChange={(e) => handleChangeSinDisep(item.id, 'entryDate', e.target.value)}
                         className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-blue-500 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none transition-colors"
@@ -467,7 +1187,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                     <td className="py-2 px-3">
                       <input
                         type="text"
-                        disabled={!canEdit}
+                        disabled={!canEditAdmin}
                         value={item.assignedObjective}
                         onChange={(e) => handleChangeSinDisep(item.id, 'assignedObjective', e.target.value)}
                         placeholder="Objetivo o puesto asignado..."
@@ -477,14 +1197,14 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                     <td className="py-2 px-3">
                       <input
                         type="text"
-                        disabled={!canEdit}
+                        disabled={!canEditAdmin}
                         value={item.observations}
                         onChange={(e) => handleChangeSinDisep(item.id, 'observations', e.target.value)}
                         placeholder="Estado del trámite, turno, documentación pendiente..."
                         className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-blue-500 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none transition-colors"
                       />
                     </td>
-                    {canEdit && (
+                    {canEditAdmin && (
                       <td className="py-2 px-2 text-center">
                         <button
                           onClick={() => handleDeleteSinDisep(item.id)}
@@ -499,7 +1219,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                 ))}
                 {filteredSinDisep.length === 0 && (
                   <tr>
-                    <td colSpan={canEdit ? 6 : 5} className="py-8 text-center text-slate-400 text-xs">
+                    <td colSpan={canEditAdmin ? 6 : 5} className="py-8 text-center text-slate-400 text-xs">
                       No hay registros cargados en Personal Sin DISEP.
                     </td>
                   </tr>
@@ -510,17 +1230,19 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
         </div>
       )}
 
-      {/* SHEET 2: PERSONAL QUE DEBE UNIFORME */}
+      {/* ========================================================================= */}
+      {/* PLANILLA 3: PERSONAL QUE DEBE UNIFORME */}
+      {/* ========================================================================= */}
       {activeSheet === 'debe_uniforme' && (
         <div className="p-4 rounded-2xl bg-[#121620] border border-[#22293b] shadow space-y-3">
           <div className="flex items-center justify-between border-b border-[#1f2637] pb-3">
             <div>
               <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
                 <Shirt className="w-4 h-4 text-amber-400" />
-                <span>Planilla 2: Personal que Debe Uniforme</span>
+                <span>Planilla 3: Personal que Debe Uniforme</span>
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Control de prendas, equipamiento e indumentaria pendiente de devolución por parte del personal dado de baja o activo.
+                Seguimiento de indumentaria corporativa, borcegos, camperas y prendas adeudadas por colaboradores desvinculados o en proceso de restitución.
               </p>
             </div>
             <span className="text-xs font-mono text-slate-400">
@@ -536,29 +1258,14 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                   <th className="py-2.5 px-3 min-w-[200px]">
                     <div className="flex items-center gap-1.5">
                       <User className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Nombre y Apellido del Vigilador</span>
+                      <span>Nombre y Apellido</span>
                     </div>
                   </th>
-                  <th className="py-2.5 px-3 min-w-[140px]">
-                    <div className="flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Fecha de Ingreso</span>
-                    </div>
-                  </th>
-                  <th className="py-2.5 px-3 min-w-[140px]">
-                    <div className="flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-red-400" />
-                      <span>Fecha de Baja</span>
-                    </div>
-                  </th>
-                  <th className="py-2.5 px-3 min-w-[180px]">
-                    <div className="flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-blue-400" />
-                      <span>Objetivo Asignado</span>
-                    </div>
-                  </th>
-                  <th className="py-2.5 px-3 min-w-[260px]">Observaciones (Prendas Adeudadas)</th>
-                  {canEdit && <th className="py-2.5 px-2 text-center w-12">Acción</th>}
+                  <th className="py-2.5 px-3 min-w-[130px]">Fecha Ingreso</th>
+                  <th className="py-2.5 px-3 min-w-[130px]">Fecha Egreso / Baja</th>
+                  <th className="py-2.5 px-3 min-w-[180px]">Último Objetivo</th>
+                  <th className="py-2.5 px-3 min-w-[300px]">Prendas / Elementos Adeudados</th>
+                  {canEditAdmin && <th className="py-2.5 px-2 text-center w-12">Acción</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1e2433]">
@@ -568,52 +1275,52 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                     <td className="py-2 px-3">
                       <input
                         type="text"
-                        disabled={!canEdit}
+                        disabled={!canEditAdmin}
                         value={item.fullName}
                         onChange={(e) => handleChangeDebeUniforme(item.id, 'fullName', e.target.value)}
-                        placeholder="Apellido y Nombre del vigilador..."
+                        placeholder="Apellido y Nombre..."
                         className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-amber-500 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold focus:outline-none transition-colors"
                       />
                     </td>
                     <td className="py-2 px-3">
                       <input
                         type="date"
-                        disabled={!canEdit}
+                        disabled={!canEditAdmin}
                         value={item.entryDate}
                         onChange={(e) => handleChangeDebeUniforme(item.id, 'entryDate', e.target.value)}
-                        className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-amber-500 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none transition-colors"
+                        className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-amber-500 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 font-mono focus:outline-none transition-colors"
                       />
                     </td>
                     <td className="py-2 px-3">
                       <input
                         type="date"
-                        disabled={!canEdit}
+                        disabled={!canEditAdmin}
                         value={item.exitDate}
                         onChange={(e) => handleChangeDebeUniforme(item.id, 'exitDate', e.target.value)}
-                        className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-amber-500 rounded-lg px-2.5 py-1.5 text-xs text-red-300 font-mono focus:outline-none transition-colors"
+                        className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-amber-500 rounded-lg px-2.5 py-1.5 text-xs text-rose-300 font-mono focus:outline-none transition-colors"
                       />
                     </td>
                     <td className="py-2 px-3">
                       <input
                         type="text"
-                        disabled={!canEdit}
+                        disabled={!canEditAdmin}
                         value={item.assignedObjective}
                         onChange={(e) => handleChangeDebeUniforme(item.id, 'assignedObjective', e.target.value)}
-                        placeholder="Último objetivo asignado..."
-                        className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-amber-500 rounded-lg px-2.5 py-1.5 text-xs text-blue-200 font-semibold focus:outline-none transition-colors"
+                        placeholder="Último objetivo..."
+                        className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-amber-500 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none transition-colors"
                       />
                     </td>
                     <td className="py-2 px-3">
                       <input
                         type="text"
-                        disabled={!canEdit}
+                        disabled={!canEditAdmin}
                         value={item.observations}
                         onChange={(e) => handleChangeDebeUniforme(item.id, 'observations', e.target.value)}
-                        placeholder="Detalle de prendas adeudadas, estado de devolución..."
-                        className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-amber-500 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none transition-colors"
+                        placeholder="Detalle de prendas adeudadas..."
+                        className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-amber-500 rounded-lg px-2.5 py-1.5 text-xs text-amber-200 focus:outline-none transition-colors"
                       />
                     </td>
-                    {canEdit && (
+                    {canEditAdmin && (
                       <td className="py-2 px-2 text-center">
                         <button
                           onClick={() => handleDeleteDebeUniforme(item.id)}
@@ -628,13 +1335,192 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                 ))}
                 {filteredDebeUniforme.length === 0 && (
                   <tr>
-                    <td colSpan={canEdit ? 7 : 6} className="py-8 text-center text-slate-400 text-xs">
-                      No hay registros cargados en Personal que Debe Uniforme.
+                    <td colSpan={canEditAdmin ? 7 : 6} className="py-8 text-center text-slate-400 text-xs">
+                      No hay registros cargados en Devolución de Uniformes.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: REGISTRAR / EDITAR INFORME A CLIENTE */}
+      {/* ========================================================================= */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div
+            className="w-full max-w-xl bg-[#121620] border border-[#2b374e] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 bg-[#161c29] border-b border-[#252f44] flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-400">
+                  <Send className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    {editingInformeId ? 'Editar Informe Remitido' : 'Nuevo Informe a Cliente'}
+                  </h3>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    Período: {formatPeriodName(selectedPeriod)} · N° asignado: #{editingInformeId ? (currentMonthInformes.find(i => i.id === editingInformeId)?.orderNumber || 1) : currentMonthInformes.length + 1}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#202737] transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleSaveInformeModal} className="p-5 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Cliente */}
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                    Cliente / Objetivo <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    list="clientes-sugeridos"
+                    required
+                    value={formClientName}
+                    onChange={(e) => setFormClientName(e.target.value)}
+                    placeholder="Ej. Bodegas Luján de Cuyo"
+                    className="w-full px-3 py-2 bg-[#161c28] border border-[#2b374e] rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-rose-500"
+                  />
+                  <datalist id="clientes-sugeridos">
+                    {CLIENTES_HABITUALES.map((cl) => (
+                      <option key={cl} value={cl} />
+                    ))}
+                  </datalist>
+                </div>
+
+                {/* Número de Caso */}
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                    N° de Caso / Expediente <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formCaseNumber}
+                    onChange={(e) => setFormCaseNumber(e.target.value)}
+                    placeholder="Ej. CASO #4105"
+                    className="w-full px-3 py-2 bg-[#161c28] border border-[#2b374e] rounded-xl text-xs text-cyan-300 font-mono font-bold focus:outline-none focus:border-rose-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Fecha de Envío */}
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                    Fecha de Envío <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={formSendDate}
+                    onChange={(e) => setFormSendDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#161c28] border border-[#2b374e] rounded-xl text-xs text-white font-mono focus:outline-none focus:border-rose-500"
+                  />
+                </div>
+
+                {/* Vía de Envío */}
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                    Vía de Envío
+                  </label>
+                  <select
+                    value={formSentVia}
+                    onChange={(e) => setFormSentVia(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#161c28] border border-[#2b374e] rounded-xl text-xs text-white focus:outline-none focus:border-rose-500 cursor-pointer"
+                  >
+                    <option value="Email Corporativo">Email Corporativo</option>
+                    <option value="WhatsApp Corporativo">WhatsApp Corporativo</option>
+                    <option value="Entrega en Mano (Físico)">Entrega en Mano (Físico)</option>
+                    <option value="Portal de Cliente">Portal de Cliente</option>
+                  </select>
+                </div>
+
+                {/* Estado Inicial */}
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                    Estado de Resolución
+                  </label>
+                  <select
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value as InformeStatus)}
+                    className="w-full px-3 py-2 bg-[#161c28] border border-[#2b374e] rounded-xl text-xs text-white font-bold focus:outline-none focus:border-rose-500 cursor-pointer"
+                  >
+                    <option value="Pendiente">Pendiente (Acción requerida)</option>
+                    <option value="En Gestión">En Gestión (Medidas en curso)</option>
+                    <option value="Resuelto">Resuelto (Solución confirmada)</option>
+                    <option value="Cerrado">Cerrado</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Descripción (No obligatoria) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-bold uppercase text-slate-400 block">
+                    Descripción Breve del Informe
+                  </label>
+                  <span className="text-[10px] text-slate-500 italic">Opcional</span>
+                </div>
+                <textarea
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                  rows={2}
+                  placeholder="Detalla sucintamente el asunto o motivo del informe remitido al cliente..."
+                  className="w-full px-3 py-2 bg-[#161c28] border border-[#2b374e] rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-rose-500 resize-none"
+                />
+              </div>
+
+              {/* Seguimiento / Medidas (No obligatoria) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-bold uppercase text-slate-400 block">
+                    Seguimiento & Medidas Tomadas
+                  </label>
+                  <span className="text-[10px] text-slate-500 italic">Opcional</span>
+                </div>
+                <textarea
+                  value={formFollowUp}
+                  onChange={(e) => setFormFollowUp(e.target.value)}
+                  rows={3}
+                  placeholder="¿Qué medidas tomó la empresa? ¿El cliente realizó alguna acción o confirmó recepción? ¿Se resolvió?"
+                  className="w-full px-3 py-2 bg-[#161c28] border border-[#2b374e] rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-rose-500 resize-none"
+                />
+              </div>
+
+              {/* Footer Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#20293d]">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white bg-[#181f2d] hover:bg-[#20293d] transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-gradient-to-r from-[#BE2629] to-[#d32f32] hover:brightness-110 text-white font-bold text-xs shadow-lg transition-all cursor-pointer active:scale-95"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{editingInformeId ? 'Guardar Cambios' : 'Registrar Informe'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

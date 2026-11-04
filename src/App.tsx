@@ -1647,6 +1647,8 @@ export default function App() {
               <AdminInformativeSheetsView
                 currentPersona={currentPersona}
                 onNotify={showToast}
+                currentPeriod={currentPeriod}
+                onPeriodChange={handlePeriodChange}
               />
             )}
 
