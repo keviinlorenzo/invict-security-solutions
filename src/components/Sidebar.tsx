@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { InvictLogo } from './InvictLogo';
 
-export type ActiveTab = 'dashboard' | 'tasks' | 'admin_sheets' | 'reports' | 'calendar' | 'expenses' | 'feed';
+export type ActiveTab = 'dashboard' | 'statistics' | 'tasks' | 'admin_sheets' | 'reports' | 'calendar' | 'expenses' | 'feed';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -74,6 +74,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'dashboard',
       label: isSubGerencia ? 'Dashboard Gerencial (Solo Vista)' : 'Dashboard Gerencial',
       icon: <LayoutDashboard className="w-4 h-4" />,
+      restrictedToGerencia: true,
+      roleRequiredLabel: 'C-Level',
+    },
+    {
+      id: 'statistics',
+      label: 'Métricas y Estadísticas',
+      icon: <BarChart3 className="w-4 h-4 text-rose-400" />,
       restrictedToGerencia: true,
       roleRequiredLabel: 'C-Level',
     },

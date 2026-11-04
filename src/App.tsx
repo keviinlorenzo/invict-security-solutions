@@ -30,6 +30,7 @@ import { AdminInformativeSheetsView } from './components/AdminInformativeSheetsV
 import { ExecutiveReportsView } from './components/ExecutiveReportsView';
 import { ExpensesView } from './components/ExpensesView';
 import { InvictFeedView } from './components/InvictFeedView';
+import { GerencialMetricsAndStatisticsView } from './components/GerencialMetricsAndStatisticsView';
 import { FooterWatermark } from './components/FooterWatermark';
 import { PersonnelManagementModal } from './components/PersonnelManagementModal';
 import { EmailAlertsDrawer } from './components/EmailAlertsDrawer';
@@ -1484,9 +1485,9 @@ export default function App() {
 
   const unreadMentionsCount = unreadDirectMentions.length;
 
-  // Garantizar que ningún puesto que no sea Gerencia acceda al Dashboard Gerencial ni al filtro de área GERENCIA
+  // Garantizar que ningún puesto que no sea Gerencia acceda al Dashboard Gerencial, Estadísticas ni al filtro de área GERENCIA
   useEffect(() => {
-    if (!isCurrentUserExecutive && activeTab === 'dashboard') {
+    if (!isCurrentUserExecutive && (activeTab === 'dashboard' || activeTab === 'statistics')) {
       setActiveTab('tasks');
     }
     if (!isCurrentUserGerencia && selectedArea === 'GERENCIA') {
@@ -1571,8 +1572,8 @@ export default function App() {
         <Sidebar
           activeTab={activeTab}
           onTabChange={(tab) => {
-            if (tab === 'dashboard' && !isCurrentUserExecutive) {
-              showToast('Acceso Restringido: El Dashboard Gerencial es de uso exclusivo para Dirección General y Sub Gerencia.');
+            if ((tab === 'dashboard' || tab === 'statistics') && !isCurrentUserExecutive) {
+              showToast('Acceso Restringido: Este panel es de uso exclusivo para Dirección General y Sub Gerencia.');
               setActiveTab('tasks');
               return;
             }
@@ -1670,6 +1671,36 @@ export default function App() {
                 <h2 className="text-lg font-black text-white">Acceso Restringido a Dirección General</h2>
                 <p className="text-xs text-slate-300 leading-relaxed">
                   El <strong>Dashboard Gerencial C-Level</strong> contiene métricas globales, auditoría de cuellos de botella y balances ejecutivos reservados exclusivamente para Dirección General y Sub Gerencia.
+                </p>
+                <button
+                  onClick={() => setActiveTab('tasks')}
+                  className="px-4 py-2 rounded-xl bg-[#BE2629] hover:bg-[#a52023] text-white text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Ir a Matriz de Tareas de Oficina
+                </button>
+              </div>
+            ) : null}
+
+            {activeTab === 'statistics' && isCurrentUserExecutive ? (
+              <GerencialMetricsAndStatisticsView
+                tasks={visibleTasks}
+                expenses={expenses}
+                currentPeriod={currentPeriod}
+                onPeriodChange={handlePeriodChange}
+                currentPersona={currentPersona}
+                isGerencia={isCurrentUserGerencia}
+                isSubGerencia={isCurrentUserSubGerencia}
+                onNavigateToTasks={() => setActiveTab('tasks')}
+                onNavigateToDashboard={() => setActiveTab('dashboard')}
+              />
+            ) : activeTab === 'statistics' && !isCurrentUserExecutive ? (
+              <div className="p-8 rounded-3xl bg-[#121622] border border-amber-600/60 text-center max-w-xl mx-auto my-12 shadow-2xl space-y-4 animate-in fade-in">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/40">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <h2 className="text-lg font-black text-white">Acceso Restringido a Gerencia General</h2>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  El panel de <strong>Métricas y Estadísticas Corporativas con Fórmulas de las Condiciones</strong> contiene análisis directivo y gráficos de alta dirección reservados exclusivamente para Dirección General.
                 </p>
                 <button
                   onClick={() => setActiveTab('tasks')}

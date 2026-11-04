@@ -17,7 +17,8 @@ import {
   ChevronRight,
   Lock,
   ArrowRightLeft,
-  Compass
+  Compass,
+  BarChart3
 } from 'lucide-react';
 import { AreaType, UserPersona } from '../types';
 import { ActiveTab } from './Sidebar';
@@ -243,24 +244,45 @@ export const MobileNavBar: React.FC<MobileNavBarProps> = ({
               </span>
 
               {isExecutive && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onTabChange('dashboard');
-                    setIsDrawerOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === 'dashboard'
-                      ? 'bg-[#BE2629] text-white'
-                      : 'bg-[#161c28] text-amber-300 hover:bg-[#1f2738] border border-amber-800/40'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <LayoutDashboard className="w-4 h-4 text-amber-400" />
-                    <span>{isSubGerencia ? 'Dashboard & Planillas (Solo Vista)' : 'Dashboard & Planillas Gerenciales'}</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onTabChange('dashboard');
+                      setIsDrawerOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      activeTab === 'dashboard'
+                        ? 'bg-[#BE2629] text-white'
+                        : 'bg-[#161c28] text-amber-300 hover:bg-[#1f2738] border border-amber-800/40'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <LayoutDashboard className="w-4 h-4 text-amber-400" />
+                      <span>{isSubGerencia ? 'Dashboard & Planillas (Solo Vista)' : 'Dashboard & Planillas Gerenciales'}</span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onTabChange('statistics');
+                      setIsDrawerOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      activeTab === 'statistics'
+                        ? 'bg-[#BE2629] text-white'
+                        : 'bg-[#161c28] text-rose-300 hover:bg-[#1f2738] border border-rose-800/40'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4 text-rose-400" />
+                      <span>Métricas y Estadísticas (Hubbard)</span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+                </>
               )}
 
               <button
