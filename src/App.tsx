@@ -102,8 +102,18 @@ export default function App() {
   // 1. Core State with LocalStorage Persistence
   const [tasks, setTasks] = useState<Task[]>(() => {
     const saved = localStorage.getItem('invict_tasks');
-    const base = saved ? JSON.parse(saved) : INITIAL_TASKS;
-    return ensureMonthHasFixedTasks(DEFAULT_PERIOD, base);
+    const base: Task[] = saved ? JSON.parse(saved) : INITIAL_TASKS;
+    // Sincronizar automáticamente el monthPeriod con la fecha límite (dueDate) real de cada tarea
+    const normalized = base.map((t) => {
+      if (t.dueDate && t.dueDate.length >= 7 && t.dueDate.includes('-')) {
+        const dueP = t.dueDate.slice(0, 7);
+        if (dueP !== t.monthPeriod) {
+          return { ...t, monthPeriod: dueP };
+        }
+      }
+      return t;
+    });
+    return ensureMonthHasFixedTasks(DEFAULT_PERIOD, normalized);
   });
 
   const [expenses, setExpenses] = useState<Expense[]>(() => {

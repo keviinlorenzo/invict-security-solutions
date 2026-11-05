@@ -363,7 +363,7 @@ export function determineHubbardCondition(values: number[]): {
     };
   }
 
-  // Filtrar ceros iniciales
+  // Filtrar valores no numéricos
   const valid = values.filter((v) => typeof v === 'number' && !isNaN(v));
   if (valid.length === 0 || valid.every((v) => v === 0)) {
     return {
@@ -381,55 +381,63 @@ export function determineHubbardCondition(values: number[]): {
     };
   }
 
-  // Tomar los últimos dos puntos para la tendencia inmediata y los últimos 4 para tendencia media
-  const last = valid[valid.length - 1];
-  const prev = valid[valid.length - 2];
+  const n = valid.length;
+  const first = valid[0];
+  const last = valid[n - 1];
 
-  let slope = 0;
-  if (prev > 0) {
-    slope = Math.round(((last - prev) / prev) * 100);
-  } else if (last > 0) {
-    slope = 100;
+  // 1. Variación global de la serie desde el inicio al final plasmada en la gráfica
+  const totalChange = first > 0 ? ((last - first) / first) * 100 : (last > 0 ? 100 : 0);
+
+  // 2. Pendiente por regresión lineal a lo largo de toda la curva graficada
+  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  for (let i = 0; i < n; i++) {
+    sumX += i;
+    sumY += valid[i];
+    sumXY += i * valid[i];
+    sumXX += i * i;
   }
+  const meanY = sumY / n;
+  const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+  const trendTotalChange = meanY > 0 ? ((slope * (n - 1)) / meanY) * 100 : 0;
 
-  // Comprobar si ha mantenido un nivel elevado durante 4 o más períodos consecutivos
-  const recent4 = valid.slice(-4);
-  const isSustainedHigh =
-    recent4.length >= 4 &&
-    recent4.every((v) => v >= 85) &&
-    slope >= -2;
+  // 3. Pendiente ponderada final que refleja visualmente la dirección de la línea
+  const effectiveSlope = Math.round(0.65 * trendTotalChange + 0.35 * totalChange);
 
-  if (isSustainedHigh) {
+  // Comprobar Condición de Poder: nivel elevado y sostenido (ej: eficacia >= 85% promedio y sin caída)
+  const isHighEfficacy = meanY >= 85 && last >= 85 && effectiveSlope >= -2;
+  const isSustainedHigh = valid.slice(-3).every((v) => v >= 85) && effectiveSlope >= -2;
+
+  if (isHighEfficacy || isSustainedHigh) {
     return {
       condition: HUBBARD_CONDITIONS.poder,
-      slopePercentage: slope,
-      label: `Consolidación de Poder (Nivel Sostenido: ${last})`,
+      slopePercentage: effectiveSlope,
+      label: `Consolidación de Poder (${effectiveSlope >= 0 ? '+' : ''}${effectiveSlope}%)`,
     };
   }
 
-  if (slope > 18) {
+  if (effectiveSlope > 12) {
     return {
       condition: HUBBARD_CONDITIONS.afluencia,
-      slopePercentage: slope,
-      label: `Tendencia en Afluencia (+${slope}%)`,
+      slopePercentage: effectiveSlope,
+      label: `Tendencia en Afluencia (+${effectiveSlope}%)`,
     };
-  } else if (slope >= 2 && slope <= 18) {
+  } else if (effectiveSlope >= 1 && effectiveSlope <= 12) {
     return {
       condition: HUBBARD_CONDITIONS.normal,
-      slopePercentage: slope,
-      label: `Tendencia de Aumento Normal (+${slope}%)`,
+      slopePercentage: effectiveSlope,
+      label: `Tendencia de Aumento Normal (+${effectiveSlope}%)`,
     };
-  } else if (slope < 2 && slope >= -10) {
+  } else if (effectiveSlope < 1 && effectiveSlope >= -8) {
     return {
       condition: HUBBARD_CONDITIONS.emergencia,
-      slopePercentage: slope,
-      label: `Tendencia Estancada en Emergencia (${slope}%)`,
+      slopePercentage: effectiveSlope,
+      label: `Tendencia en Emergencia (${effectiveSlope}%)`,
     };
   } else {
     return {
       condition: HUBBARD_CONDITIONS.peligro_superior,
-      slopePercentage: slope,
-      label: `Tendencia Crítica en Peligro (${slope}%)`,
+      slopePercentage: effectiveSlope,
+      label: `Tendencia en Peligro (${effectiveSlope}%)`,
     };
   }
 }

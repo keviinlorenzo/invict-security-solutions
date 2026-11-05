@@ -186,12 +186,18 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     if (editNotes !== (task.notes || '')) changes.push('Notas actualizadas');
 
     const desc = changes.length > 0 ? `Modificó campos (${changes.join(', ')})` : 'Actualizó datos de la tarea';
+    let targetMonthPeriod = task.monthPeriod;
+    if (editDueDate && editDueDate.length >= 7 && editDueDate.includes('-')) {
+      targetMonthPeriod = editDueDate.slice(0, 7);
+    }
+
     const updatedTask: Task = {
       ...task,
       title: editTitle,
       area: editArea,
       assignee: editAssignee,
       dueDate: editDueDate,
+      monthPeriod: targetMonthPeriod,
       priority: editPriority,
       nature: editNature,
       weeklyDayOfWeek: editNature === 'Fija Semanal' ? getDayOfWeekFromDateString(editDueDate) : task.weeklyDayOfWeek,

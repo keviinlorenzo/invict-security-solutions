@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Task, Expense, UserPersona } from '../types';
 import {
   computeMonthlyCompanyStatistics,
@@ -35,11 +35,14 @@ import {
   Lock,
   Flame,
   Zap,
-  Users
+  Users,
+  Image as ImageIcon,
+  Loader2
 } from 'lucide-react';
 import { formatPeriodName, getAdjacentPeriod } from '../utils/dateUtils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 
 interface GerencialMetricsAndStatisticsViewProps {
   tasks: Task[];
@@ -69,6 +72,8 @@ export const GerencialMetricsAndStatisticsView: React.FC<GerencialMetricsAndStat
   const [selectedYear, setSelectedYear] = useState<string>('2026');
   const [focusedMetric, setFocusedMetric] = useState<'all' | 'workload' | 'efficiency' | 'financial' | 'clients' | 'conditions'>('all');
   const [chartTypePreference, setChartTypePreference] = useState<'line' | 'bar' | 'mixed'>('line');
+  const [isExportingJPG, setIsExportingJPG] = useState(false);
+  const dashboardRef = useRef<HTMLDivElement>(null);
 
   // Estado del Modal de Fórmulas Hubbard
   const [isFormulaModalOpen, setIsFormulaModalOpen] = useState(false);
@@ -189,8 +194,35 @@ export const GerencialMetricsAndStatisticsView: React.FC<GerencialMetricsAndStat
     doc.save(`INVICT_Estadisticas_Gerenciales_${timeMode === 'monthly' ? currentPeriod : selectedYear}.pdf`);
   };
 
+  // Exportar Reporte de Estadísticas Completo a JPG
+  const handleExportStatsJPG = async () => {
+    if (!dashboardRef.current || isExportingJPG) return;
+    try {
+      setIsExportingJPG(true);
+      const canvas = await html2canvas(dashboardRef.current, {
+        scale: 2,
+        backgroundColor: '#090b0f',
+        useCORS: true,
+        logging: false,
+        windowWidth: 1400,
+      });
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const periodLabel = timeMode === 'monthly' ? currentPeriod : selectedYear;
+      const link = document.createElement('a');
+      link.href = imgData;
+      link.download = `INVICT_Metricas_Gerenciales_Conjunto_${periodLabel}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Error exportando conjunto de métricas a JPG:', err);
+    } finally {
+      setIsExportingJPG(false);
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <div ref={dashboardRef} className="space-y-6">
       {/* 1. Header Principal y Tarjeta de Identificación */}
       <div className="p-5 bg-[#121620] border border-[#232b3d] rounded-2xl shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
@@ -235,6 +267,21 @@ export const GerencialMetricsAndStatisticsView: React.FC<GerencialMetricsAndStat
           >
             <Download className="w-4 h-4" />
             <span>Exportar (PDF)</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={isExportingJPG}
+            onClick={handleExportStatsJPG}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-lg transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+            title="Exportar todo el panel de métricas en conjunto como imagen JPG en alta resolución"
+          >
+            {isExportingJPG ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <ImageIcon className="w-4 h-4" />
+            )}
+            <span>Exportar (JPG)</span>
           </button>
         </div>
       </div>

@@ -60,7 +60,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   isSubGerencia = false,
 }) => {
   // Filter tasks by current period first
-  const periodTasks = tasks.filter(t => (t.monthPeriod || '2026-10') === currentPeriod);
+  const periodTasks = tasks.filter(t => {
+    if (t.dueDate && t.dueDate.startsWith(currentPeriod)) return true;
+    return (t.monthPeriod || '2026-10') === currentPeriod;
+  });
   const fixedTasksInPeriod = periodTasks.filter(t => (t.nature || 'Fija Mensual') === 'Fija Mensual');
 
   // Filter tasks by selected area

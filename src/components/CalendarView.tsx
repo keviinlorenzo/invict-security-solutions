@@ -165,7 +165,28 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   }, [year, month]);
 
   const periodTasks = useMemo(() => {
-    return tasks.filter(t => (t.monthPeriod || DEFAULT_PERIOD) === currentPeriod);
+    return tasks.filter(t => {
+      // 1. Filtrado directo por dueDate (fecha límite): ej. '2027-01-15' -> '2027-01'
+      if (t.dueDate) {
+        let cleanDue = t.dueDate;
+        if (cleanDue.includes('/')) {
+          const parts = cleanDue.split('/');
+          cleanDue = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
+        if (cleanDue.startsWith(currentPeriod)) return true;
+      }
+      // 2. Filtrado directo por startDate (fecha de inicio)
+      if (t.startDate) {
+        let cleanStart = t.startDate;
+        if (cleanStart.includes('/')) {
+          const parts = cleanStart.split('/');
+          cleanStart = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
+        if (cleanStart.startsWith(currentPeriod)) return true;
+      }
+      // 3. Fallback por monthPeriod asignado
+      return (t.monthPeriod || DEFAULT_PERIOD) === currentPeriod;
+    });
   }, [tasks, currentPeriod]);
 
   // Role-based filtering: Gerencia sees all or filtered by area; others see their department/assigned tasks

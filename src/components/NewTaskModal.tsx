@@ -130,6 +130,12 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
     const targetDueDate = isAlreadyCompleted ? executionDate : dueDate;
     const weeklyDay = nature === 'Fija Semanal' ? getDayOfWeekFromDateString(targetDueDate) : undefined;
 
+    // Asociar automáticamente el período al mes real de la fecha límite (ej: '2027-01-15' -> '2027-01')
+    let targetPeriod = currentPeriod;
+    if (targetDueDate && targetDueDate.length >= 7 && targetDueDate.includes('-')) {
+      targetPeriod = targetDueDate.slice(0, 7);
+    }
+
     onAddTask({
       title: title.trim(),
       area,
@@ -144,7 +150,7 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
       priority,
       category: isAlreadyCompleted ? `${category} (Realizada)` : category,
       notes: notes.trim(),
-      monthPeriod: currentPeriod,
+      monthPeriod: targetPeriod,
       commentsCount: 0,
       comments: [],
     });

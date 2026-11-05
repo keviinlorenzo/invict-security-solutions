@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { MetricSeries, DataPoint } from '../../utils/companyStatisticsService';
 import {
   TrendingUp,
@@ -12,9 +12,16 @@ import {
   CheckCircle2,
   Calendar,
   AlertTriangle,
-  Info
+  Info,
+  Download,
+  FileText,
+  Image as ImageIcon,
+  Loader2
 } from 'lucide-react';
 import { HubbardConditionFormula } from '../../data/hubbardConditionsData';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 
 interface HubbardStatisticGraphProps {
   series: MetricSeries;
@@ -33,6 +40,8 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
 }) => {
   const [localChartType, setLocalChartType] = useState<'line' | 'bar' | 'mixed'>(chartTypePreference);
   const [hoveredPointIndex, setHoveredPointIndex] = useState<number | null>(null);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   // Sync preference if changed externally
   React.useEffect(() => {
@@ -100,10 +109,133 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
     return `${Math.round(v).toLocaleString('es-AR')}`;
   };
 
+  const handleExportJPG = async () => {
+    if (!cardRef.current || isExporting) return;
+    try {
+      setIsExporting(true);
+      const canvas = await html2canvas(cardRef.current, {
+        scale: 2,
+        backgroundColor: '#121620',
+        useCORS: true,
+        logging: false,
+      });
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const cleanLabel = (series.periodLabel || 'Periodo').replace(/[\/\s:]+/g, '_');
+      const link = document.createElement('a');
+      link.href = imgData;
+      link.download = `INVICT_Estadistica_${series.id}_${cleanLabel}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Error exportando gráfico a JPG:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (!cardRef.current || isExporting) return;
+    try {
+      setIsExporting(true);
+      const canvas = await html2canvas(cardRef.current, {
+        scale: 2,
+        backgroundColor: '#121620',
+        useCORS: true,
+        logging: false,
+      });
+      const imgData = canvas.toDataURL('image/jpeg', 0.92);
+
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+
+      // Barra Corporativa Superior Roja
+      doc.setFillColor(190, 38, 41);
+      doc.rect(0, 0, pageWidth, 16, 'F');
+
+      // Membrete
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text('INVICT SECURITY SOLUTIONS S.A.', 14, 10);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(`ESTADÍSTICA OFICIAL HUBBARD · ÁREA: ${series.area} · PROYECTO: ${series.project}`, 14, 14);
+      doc.text(`Fecha: ${new Date().toLocaleDateString('es-AR')}`, pageWidth - 14, 11, { align: 'right' });
+
+      // Título
+      doc.setTextColor(20, 25, 35);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text(`${series.title.toUpperCase()} (${series.hubbardStatisticName})`, 14, 24);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text(
+        `Responsable: ${series.responsible}  |  Cargo: ${series.role}  |  Período: ${series.periodLabel}  |  Cuota: ${formatVal(series.quota)}  |  Condición: ${series.currentCondition.badgeTitle} (${series.slopePercentage >= 0 ? '+' : ''}${series.slopePercentage}%)`,
+        14,
+        29
+      );
+
+      // Inserción de la Imagen del Gráfico
+      const imgWidth = pageWidth - 28;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const maxImgHeight = 105;
+      const finalHeight = Math.min(imgHeight, maxImgHeight);
+      const finalWidth = (canvas.width * finalHeight) / canvas.height;
+      const imgX = (pageWidth - finalWidth) / 2;
+
+      doc.addImage(imgData, 'JPEG', imgX, 33, finalWidth, finalHeight);
+
+      // Tabla de Datos Inferior
+      const tableStartY = 33 + finalHeight + 4;
+      const tableRows = points.map((p) => [
+        p.label,
+        formatVal(p.value),
+        p.secondaryValue !== undefined ? formatVal(p.secondaryValue) : '-',
+        p.target ? formatVal(p.target) : formatVal(series.quota),
+        p.details || '-',
+      ]);
+
+      autoTable(doc, {
+        startY: tableStartY,
+        head: [['Punto / Período', 'Valor Registrado', 'Secundario / Margen', 'Meta / Cuota', 'Detalle Operativo']],
+        body: tableRows,
+        theme: 'striped',
+        headStyles: { fillColor: [190, 38, 41], textColor: [255, 255, 255], fontSize: 7.5, fontStyle: 'bold' },
+        bodyStyles: { fontSize: 7 },
+        margin: { left: 14, right: 14 },
+      });
+
+      // Pie de Página
+      const finalPageCount = (doc as any).internal.getNumberOfPages();
+      for (let i = 1; i <= finalPageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor(140, 150, 165);
+        doc.text(
+          `INVICT Security Solutions S.A. · Tecnología Administrativa Hubbard · Página ${i} de ${finalPageCount}`,
+          pageWidth / 2,
+          pageHeight - 5,
+          { align: 'center' }
+        );
+      }
+
+      const cleanLabel = (series.periodLabel || 'Periodo').replace(/[\/\s:]+/g, '_');
+      doc.save(`INVICT_Estadistica_${series.id}_${cleanLabel}.pdf`);
+    } catch (err) {
+      console.error('Error exportando gráfico a PDF:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const hoveredPoint = hoveredPointIndex !== null ? points[hoveredPointIndex] : null;
 
   return (
-    <div className="bg-[#121620] border border-[#232b3d] rounded-2xl shadow-xl overflow-hidden flex flex-col">
+    <div ref={cardRef} className="bg-[#121620] border border-[#232b3d] rounded-2xl shadow-xl overflow-hidden flex flex-col">
       {/* 1. Header Oficial Hubbard Management Technology */}
       <div className="bg-[#161c29] border-b border-[#242f45] p-4">
         {/* Top Identification Row */}
@@ -188,6 +320,34 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
                 title="Ver Gráfico Combinado"
               >
                 <Layers className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Botones de Exportación Individual (PDF y JPG) */}
+            <div className="flex items-center gap-1 bg-[#0d1017] border border-[#2b354c] p-0.5 rounded-xl">
+              <button
+                type="button"
+                disabled={isExporting}
+                onClick={handleExportPDF}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold text-rose-300 hover:text-white hover:bg-rose-950/70 border border-transparent hover:border-rose-700/50 transition-all cursor-pointer disabled:opacity-50"
+                title="Exportar este gráfico individual a PDF"
+              >
+                <FileText className="w-3.5 h-3.5 text-rose-400" />
+                <span>PDF</span>
+              </button>
+              <button
+                type="button"
+                disabled={isExporting}
+                onClick={handleExportJPG}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold text-emerald-300 hover:text-white hover:bg-emerald-950/70 border border-transparent hover:border-emerald-700/50 transition-all cursor-pointer disabled:opacity-50"
+                title="Exportar este gráfico individual como imagen JPG en alta resolución"
+              >
+                {isExporting ? (
+                  <Loader2 className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
+                ) : (
+                  <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />
+                )}
+                <span>JPG</span>
               </button>
             </div>
           </div>

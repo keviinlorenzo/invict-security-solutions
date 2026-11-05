@@ -233,6 +233,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   // Tasks of the selected period (defense-in-depth: never include GERENCIA tasks for non-Gerencia users)
   const periodTasks = tasks.filter(t => {
     if (!isGerencia && t.area === 'GERENCIA') return false;
+    if (t.dueDate && t.dueDate.startsWith(currentPeriod)) return true;
     return (t.monthPeriod || '2026-10') === currentPeriod;
   });
 
