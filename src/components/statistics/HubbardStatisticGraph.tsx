@@ -53,6 +53,9 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
   const maxVal = Math.max(...values, series.quota || 1) * 1.15;
   const minVal = 0;
 
+  // Color de la estadística determinado por la Condición Hubbard Detectada (Tecnología Hubbard)
+  const conditionColor = series.currentCondition?.color || accentColor || '#3b82f6';
+
   // SVG dimensions
   const svgWidth = 680;
   const svgHeight = 260;
@@ -242,9 +245,19 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-950/70 border border-rose-800/60 text-rose-300 font-bold uppercase tracking-wider">
-                ESTADÍSTICA OFICIAL
-              </span>
+              {series.postBadge ? (
+                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs font-bold ${series.postBadge.badgeClass}`}>
+                  <span className={`w-5 h-5 rounded-full text-white font-black text-[10px] flex items-center justify-center shrink-0 ${series.postBadge.avatarBg}`}>
+                    {series.postBadge.user.charAt(0)}
+                  </span>
+                  <span>{series.postBadge.areaName}</span>
+                  <span className="opacity-80 font-normal">({series.postBadge.user})</span>
+                </div>
+              ) : (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-950/70 border border-rose-800/60 text-rose-300 font-bold uppercase tracking-wider">
+                  ESTADÍSTICA OFICIAL
+                </span>
+              )}
               <span className="text-[11px] text-slate-400 font-mono">
                 ÁREA: <strong className="text-white">{series.area}</strong>
               </span>
@@ -256,7 +269,7 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
               <span>{series.title}</span>
             </h3>
             <p className="text-xs text-slate-300 mt-0.5 font-sans">
-              {series.hubbardStatisticName} · Unidad: <strong className="text-rose-400">{series.unit}</strong>
+              {series.hubbardStatisticName} · Unidad: <strong style={{ color: conditionColor }}>{series.unit}</strong>
             </p>
           </div>
 
@@ -385,8 +398,8 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
             <defs>
               {/* Gradient for area under line */}
               <linearGradient id={`grad-${series.id}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={accentColor} stopOpacity="0.45" />
-                <stop offset="90%" stopColor={accentColor} stopOpacity="0.02" />
+                <stop offset="0%" stopColor={conditionColor} stopOpacity="0.45" />
+                <stop offset="90%" stopColor={conditionColor} stopOpacity="0.02" />
               </linearGradient>
 
               {/* Gradient for secondary series */}
@@ -500,8 +513,8 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
                         y={y}
                         width={barW}
                         height={Math.max(2, barH)}
-                        fill={isHovered ? '#BE2629' : accentColor}
-                        opacity={localChartType === 'mixed' ? 0.35 : 0.85}
+                        fill={conditionColor}
+                        opacity={isHovered ? 1 : localChartType === 'mixed' ? 0.35 : 0.85}
                         rx="3"
                         className="transition-all cursor-pointer"
                         onMouseEnter={() => setHoveredPointIndex(idx)}
@@ -535,7 +548,7 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
                 <path
                   d={linePath}
                   fill="none"
-                  stroke={accentColor}
+                  stroke={conditionColor}
                   strokeWidth="3"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -557,7 +570,7 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
                       cx={x}
                       cy={y}
                       r="9"
-                      fill={accentColor}
+                      fill={conditionColor}
                       opacity="0.3"
                       className="animate-ping"
                     />
@@ -568,7 +581,7 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
                     cy={y}
                     r={isHovered ? '6' : '4.5'}
                     fill="#121620"
-                    stroke={accentColor}
+                    stroke={conditionColor}
                     strokeWidth={isHovered ? '3' : '2'}
                     onMouseEnter={() => setHoveredPointIndex(idx)}
                     onMouseLeave={() => setHoveredPointIndex(null)}
@@ -597,7 +610,7 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
         {hoveredPoint && (
           <div className="mt-2 p-2.5 rounded-xl bg-[#161c28] border border-[#2b374e] text-xs flex items-center justify-between gap-3 animate-in fade-in">
             <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-rose-400 shrink-0" />
+              <Calendar className="w-4 h-4 shrink-0" style={{ color: conditionColor }} />
               <div>
                 <span className="font-bold text-white block">{hoveredPoint.label}</span>
                 <span className="text-[11px] text-slate-300 font-mono">{hoveredPoint.details}</span>
@@ -605,7 +618,7 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
             </div>
             <div className="text-right font-mono shrink-0">
               <span className="text-[10px] text-slate-400 block uppercase">Registro:</span>
-              <span className="font-black text-rose-400 text-sm">{formatVal(hoveredPoint.value)}</span>
+              <span className="font-black text-sm" style={{ color: conditionColor }}>{formatVal(hoveredPoint.value)}</span>
             </div>
           </div>
         )}
