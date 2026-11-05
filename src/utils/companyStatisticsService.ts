@@ -1,4 +1,4 @@
-import { Task, Expense, AreaType } from '../types';
+import { Task, Expense, AreaType, UserPersona } from '../types';
 import { getManagerialMonthData } from '../data/managerialSheetsData';
 import { determineHubbardCondition, HubbardConditionFormula } from '../data/hubbardConditionsData';
 
@@ -66,7 +66,7 @@ export interface CompanyStatisticsData {
   allPostsList: PostStatisticItem[];
 }
 
-export const COMPANY_POSTS_METADATA: {
+export interface PostDefinition {
   area: AreaType;
   name: string;
   responsible: string;
@@ -76,96 +76,7 @@ export const COMPANY_POSTS_METADATA: {
   quotaWorkloadMonthly: number;
   quotaEfficiency: number;
   project: string;
-}[] = [
-  {
-    area: 'OPERACIONES',
-    name: 'Operaciones (Puestos & Oficina)',
-    responsible: 'Kevin',
-    role: 'Jefe de Operaciones & Logística',
-    avatarBg: 'bg-indigo-700',
-    badgeClass: 'bg-indigo-950/80 text-indigo-300 border-indigo-700/60',
-    quotaWorkloadMonthly: 8,
-    quotaEfficiency: 90,
-    project: 'SERVICIOS DE VIGILANCIA Y LOGÍSTICA',
-  },
-  {
-    area: 'SUPERVISIÓN',
-    name: 'Supervisión en Terreno / Móvil',
-    responsible: 'Bilbao',
-    role: 'Supervisor de Zona & Relevos',
-    avatarBg: 'bg-stone-700',
-    badgeClass: 'bg-cyan-950/80 text-cyan-300 border-cyan-700/60',
-    quotaWorkloadMonthly: 6,
-    quotaEfficiency: 90,
-    project: 'INSPECCIÓN DE PUESTOS Y MÓVILES',
-  },
-  {
-    area: 'RRHH',
-    name: 'Recursos Humanos (RR.HH.)',
-    responsible: 'Pilar',
-    role: 'Responsable de Recursos Humanos',
-    avatarBg: 'bg-amber-700',
-    badgeClass: 'bg-amber-950/80 text-amber-300 border-amber-700/60',
-    quotaWorkloadMonthly: 6,
-    quotaEfficiency: 90,
-    project: 'LEGAJOS, EPP Y RELACIONES LABORALES',
-  },
-  {
-    area: 'ADM',
-    name: 'Administración (ADM)',
-    responsible: 'Giuliana',
-    role: 'Responsable de Administración & Finanzas',
-    avatarBg: 'bg-blue-700',
-    badgeClass: 'bg-blue-950/80 text-blue-300 border-blue-700/60',
-    quotaWorkloadMonthly: 7,
-    quotaEfficiency: 90,
-    project: 'FACTURACIÓN, CUENTAS Y FORMULARIO 931',
-  },
-  {
-    area: 'AUX_ADM',
-    name: 'Auxiliar Administrativo',
-    responsible: 'Valeria',
-    role: 'Auxiliar Administrativa',
-    avatarBg: 'bg-emerald-700',
-    badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60',
-    quotaWorkloadMonthly: 6,
-    quotaEfficiency: 90,
-    project: 'CAJA CHICA, INSUMOS Y ARCHIVO FÍSICO',
-  },
-  {
-    area: 'SELECCION',
-    name: 'Selección de Personal',
-    responsible: 'Mariana',
-    role: 'Responsable de Selección & Reclutamiento',
-    avatarBg: 'bg-purple-700',
-    badgeClass: 'bg-purple-950/80 text-purple-300 border-purple-700/60',
-    quotaWorkloadMonthly: 5,
-    quotaEfficiency: 90,
-    project: 'ENTREVISTAS, REPRIV Y PSICOTÉCNICOS',
-  },
-  {
-    area: 'SUB_GERENCIA',
-    name: 'Sub Gerencia / Vicepresidencia',
-    responsible: 'Laura',
-    role: 'Sub Gerente / Vicepresidencia',
-    avatarBg: 'bg-rose-900',
-    badgeClass: 'bg-rose-950/80 text-rose-300 border-rose-700/60',
-    quotaWorkloadMonthly: 6,
-    quotaEfficiency: 92,
-    project: 'SUPERVISIÓN INTEGRAL Y AUDITORÍA DE PUESTOS',
-  },
-  {
-    area: 'GERENCIA',
-    name: 'Gerencia General (C-Level)',
-    responsible: 'Yamila',
-    role: 'Gerente General (C-Level)',
-    avatarBg: 'bg-red-700',
-    badgeClass: 'bg-red-950/80 text-red-300 border-red-700/60',
-    quotaWorkloadMonthly: 8,
-    quotaEfficiency: 95,
-    project: 'DIRECCIÓN ESTRATÉGICA Y GOBERNANZA',
-  },
-];
+}
 
 const MONTH_NAMES_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const MONTH_NAMES_FULL = [
@@ -174,21 +85,296 @@ const MONTH_NAMES_FULL = [
 ];
 
 /**
- * Obtiene o calcula las estadísticas mensuales de la empresa (globales y por puesto).
+ * Parser inteligente de fechas: soporta YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY y días aislados.
+ */
+export function parseDateParts(dateStr?: string): { year: number; month: number; day: number } | null {
+  if (!dateStr) return null;
+  const s = String(dateStr).trim();
+  if (!s) return null;
+
+  if (s.includes('-')) {
+    const parts = s.split('-').map(Number);
+    if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      return {
+        year: parts[0],
+        month: parts[1],
+        day: parts[2] && !isNaN(parts[2]) ? parts[2] : 15,
+      };
+    }
+  }
+
+  if (s.includes('/')) {
+    const parts = s.split('/').map(Number);
+    if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+      if (parts[0] > 12) {
+        return { year: parts[2], month: parts[1], day: parts[0] };
+      }
+      if (parts[1] > 12) {
+        return { year: parts[2], month: parts[0], day: parts[1] };
+      }
+      if (parts[0] > 1000) {
+        return { year: parts[0], month: parts[1], day: parts[2] };
+      }
+      // Por defecto en Argentina DD/MM/YYYY
+      return { year: parts[2], month: parts[1], day: parts[0] };
+    }
+  }
+
+  const onlyNum = parseInt(s, 10);
+  if (!isNaN(onlyNum) && onlyNum >= 1 && onlyNum <= 31) {
+    return { year: 2026, month: 11, day: onlyNum };
+  }
+
+  return null;
+}
+
+/**
+ * Determina si una tarea pertenece al período objetivo (ej. '2026-11').
+ */
+function isTaskInTargetPeriod(t: Task, targetPeriod: string): boolean {
+  if (t.monthPeriod && t.monthPeriod.startsWith(targetPeriod)) return true;
+  if (t.dueDate) {
+    const dp = parseDateParts(t.dueDate);
+    if (dp) {
+      const p = `${dp.year}-${String(dp.month).padStart(2, '0')}`;
+      if (p === targetPeriod) return true;
+    }
+  }
+  if (t.startDate) {
+    const dp = parseDateParts(t.startDate);
+    if (dp) {
+      const p = `${dp.year}-${String(dp.month).padStart(2, '0')}`;
+      if (p === targetPeriod) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Obtiene el número de día del mes en que está programada la tarea.
+ */
+function getTaskDay(t: Task): number {
+  if (t.dueDate) {
+    const dp = parseDateParts(t.dueDate);
+    if (dp && dp.day >= 1 && dp.day <= 31) return dp.day;
+  }
+  if (t.startDate) {
+    const dp = parseDateParts(t.startDate);
+    if (dp && dp.day >= 1 && dp.day <= 31) return dp.day;
+  }
+  return 15;
+}
+
+/**
+ * Evalúa si una tarea corresponde a un puesto o responsable específico.
+ */
+function isTaskAssignedToPost(t: Task, meta: PostDefinition): boolean {
+  if (t.area && t.area === meta.area) return true;
+  if (t.assignee) {
+    const a = t.assignee.toLowerCase().trim();
+    const r = meta.responsible.toLowerCase().trim();
+    if (a === r || a.includes(r) || r.includes(a)) return true;
+    const rFirst = r.split(' ')[0];
+    if (rFirst && rFirst.length > 2 && a.includes(rFirst)) return true;
+  }
+  return false;
+}
+
+/**
+ * Construye la lista de definiciones de puestos dinámicamente a partir de los usuarios
+ * y puestos actualmente configurados en la aplicación.
+ */
+export function buildDynamicPostDefinitions(allPersonas?: UserPersona[]): PostDefinition[] {
+  const AREA_METADATA: Record<AreaType, { name: string; badge: string; project: string }> = {
+    OPERACIONES: {
+      name: 'Operaciones (Puestos & Oficina)',
+      badge: 'bg-indigo-950/80 text-indigo-300 border-indigo-700/60',
+      project: 'SERVICIOS DE VIGILANCIA Y LOGÍSTICA',
+    },
+    SUPERVISIÓN: {
+      name: 'Supervisión en Terreno / Móvil',
+      badge: 'bg-cyan-950/80 text-cyan-300 border-cyan-700/60',
+      project: 'INSPECCIÓN DE PUESTOS Y MÓVILES',
+    },
+    RRHH: {
+      name: 'Recursos Humanos (RR.HH.)',
+      badge: 'bg-amber-950/80 text-amber-300 border-amber-700/60',
+      project: 'LEGAJOS, EPP Y RELACIONES LABORALES',
+    },
+    ADM: {
+      name: 'Administración (ADM)',
+      badge: 'bg-blue-950/80 text-blue-300 border-blue-700/60',
+      project: 'FACTURACIÓN, CUENTAS Y FORMULARIO 931',
+    },
+    AUX_ADM: {
+      name: 'Auxiliar Administrativo',
+      badge: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60',
+      project: 'CAJA CHICA, INSUMOS Y ARCHIVO FÍSICO',
+    },
+    SELECCION: {
+      name: 'Selección de Personal',
+      badge: 'bg-purple-950/80 text-purple-300 border-purple-700/60',
+      project: 'ENTREVISTAS, REPRIV Y PSICOTÉCNICOS',
+    },
+    SUB_GERENCIA: {
+      name: 'Sub Gerencia / Vicepresidencia',
+      badge: 'bg-rose-950/80 text-rose-300 border-rose-700/60',
+      project: 'SUPERVISIÓN INTEGRAL Y AUDITORÍA DE PUESTOS',
+    },
+    GERENCIA: {
+      name: 'Gerencia General (C-Level)',
+      badge: 'bg-red-950/80 text-red-300 border-red-700/60',
+      project: 'DIRECCIÓN ESTRATÉGICA Y GOBERNANZA',
+    },
+    TODOS: {
+      name: 'Coordinación General',
+      badge: 'bg-slate-900 text-slate-300 border-slate-700',
+      project: 'COORDINACIÓN GENERAL DE OFICINA',
+    },
+  };
+
+  if (allPersonas && allPersonas.length > 0) {
+    // Excluir cuentas genéricas master duplicadas
+    const filtered = allPersonas.filter(p => p.id !== 'p-master-c-level');
+
+    // Mapear cada puesto actualmente cargado en la aplicación
+    return filtered.map(p => {
+      let displayName = p.name;
+      // Normalizar nombres si tenían versiones incompletas
+      if (displayName === 'Yamila') displayName = 'Yamila González';
+      if (displayName === 'Laura' || displayName === 'Laura (Sub Gerencia)') displayName = 'Laura González';
+
+      const areaMeta = AREA_METADATA[p.department] || {
+        name: p.role || p.department,
+        badge: 'bg-slate-800 text-slate-200 border-slate-700',
+        project: 'CONTROL OPERATIVO',
+      };
+
+      return {
+        area: p.department,
+        name: areaMeta.name,
+        responsible: displayName,
+        role: p.role,
+        avatarBg: p.avatarBg || 'bg-slate-700',
+        badgeClass: areaMeta.badge,
+        quotaWorkloadMonthly: p.department === 'GERENCIA' ? 8 : 6,
+        quotaEfficiency: p.department === 'GERENCIA' ? 95 : 90,
+        project: areaMeta.project,
+      };
+    });
+  }
+
+  // Fallback con los 8 puestos actualizados y sus nombres reales
+  return [
+    {
+      area: 'OPERACIONES',
+      name: 'Operaciones (Puestos & Oficina)',
+      responsible: 'Kevin',
+      role: 'Jefe de Operaciones & Logística',
+      avatarBg: 'bg-indigo-700',
+      badgeClass: 'bg-indigo-950/80 text-indigo-300 border-indigo-700/60',
+      quotaWorkloadMonthly: 8,
+      quotaEfficiency: 90,
+      project: 'SERVICIOS DE VIGILANCIA Y LOGÍSTICA',
+    },
+    {
+      area: 'SUPERVISIÓN',
+      name: 'Supervisión en Terreno / Móvil',
+      responsible: 'Bilbao',
+      role: 'Supervisor de Zona & Relevos',
+      avatarBg: 'bg-stone-700',
+      badgeClass: 'bg-cyan-950/80 text-cyan-300 border-cyan-700/60',
+      quotaWorkloadMonthly: 6,
+      quotaEfficiency: 90,
+      project: 'INSPECCIÓN DE PUESTOS Y MÓVILES',
+    },
+    {
+      area: 'RRHH',
+      name: 'Recursos Humanos (RR.HH.)',
+      responsible: 'Pilar',
+      role: 'Responsable de Recursos Humanos',
+      avatarBg: 'bg-amber-700',
+      badgeClass: 'bg-amber-950/80 text-amber-300 border-amber-700/60',
+      quotaWorkloadMonthly: 6,
+      quotaEfficiency: 90,
+      project: 'LEGAJOS, EPP Y RELACIONES LABORALES',
+    },
+    {
+      area: 'ADM',
+      name: 'Administración (ADM)',
+      responsible: 'Giuliana',
+      role: 'Responsable de Administración & Finanzas',
+      avatarBg: 'bg-blue-700',
+      badgeClass: 'bg-blue-950/80 text-blue-300 border-blue-700/60',
+      quotaWorkloadMonthly: 7,
+      quotaEfficiency: 90,
+      project: 'FACTURACIÓN, CUENTAS Y FORMULARIO 931',
+    },
+    {
+      area: 'AUX_ADM',
+      name: 'Auxiliar Administrativo',
+      responsible: 'Valeria',
+      role: 'Auxiliar Administrativa',
+      avatarBg: 'bg-emerald-700',
+      badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60',
+      quotaWorkloadMonthly: 6,
+      quotaEfficiency: 90,
+      project: 'CAJA CHICA, INSUMOS Y ARCHIVO FÍSICO',
+    },
+    {
+      area: 'SELECCION',
+      name: 'Selección de Personal',
+      responsible: 'Mariana',
+      role: 'Responsable de Selección & Reclutamiento',
+      avatarBg: 'bg-purple-700',
+      badgeClass: 'bg-purple-950/80 text-purple-300 border-purple-700/60',
+      quotaWorkloadMonthly: 5,
+      quotaEfficiency: 90,
+      project: 'ENTREVISTAS, REPRIV Y PSICOTÉCNICOS',
+    },
+    {
+      area: 'SUB_GERENCIA',
+      name: 'Sub Gerencia / Vicepresidencia',
+      responsible: 'Laura González',
+      role: 'Sub Gerente / Vicepresidencia',
+      avatarBg: 'bg-rose-900',
+      badgeClass: 'bg-rose-950/80 text-rose-300 border-rose-700/60',
+      quotaWorkloadMonthly: 6,
+      quotaEfficiency: 92,
+      project: 'SUPERVISIÓN INTEGRAL Y AUDITORÍA DE PUESTOS',
+    },
+    {
+      area: 'GERENCIA',
+      name: 'Gerencia General (C-Level)',
+      responsible: 'Yamila González',
+      role: 'Gerente General (C-Level)',
+      avatarBg: 'bg-red-700',
+      badgeClass: 'bg-red-950/80 text-red-300 border-red-700/60',
+      quotaWorkloadMonthly: 8,
+      quotaEfficiency: 95,
+      project: 'DIRECCIÓN ESTRATÉGICA Y GOBERNANZA',
+    },
+  ];
+}
+
+export const COMPANY_POSTS_METADATA = buildDynamicPostDefinitions();
+
+/**
+ * Obtiene o calcula las estadísticas mensuales de la empresa (globales y por puesto)
+ * basándose 100% en las tareas reales plasmadas en la aplicación.
  */
 export function computeMonthlyCompanyStatistics(
   period: string, // '2026-11'
   allTasks: Task[],
-  allExpenses: Expense[]
+  allExpenses: Expense[],
+  allPersonas?: UserPersona[]
 ): CompanyStatisticsData {
   const [yearStr, monthStr] = period.split('-');
   const monthIdx = parseInt(monthStr, 10) - 1;
   const monthName = MONTH_NAMES_FULL[monthIdx] || period;
 
-  // Filtrar tareas del mes seleccionado
-  const periodTasks = allTasks.filter((t) =>
-    (t.monthPeriod || '').startsWith(period) || (t.dueDate || '').startsWith(period)
-  );
+  // Filtrar tareas que pertenecen al período objetivo
+  const periodTasks = allTasks.filter((t) => isTaskInTargetPeriod(t, period));
 
   // Semanas estándar del mes
   const weeks = [
@@ -198,31 +384,15 @@ export function computeMonthlyCompanyStatistics(
     { label: 'Semana 4 (22 al fin de mes)', shortLabel: 'Sem 4', startDay: 22, endDay: 31 },
   ];
 
-  const getDayNumber = (dueDate?: string): number => {
-    if (!dueDate) return 1;
-    let clean = dueDate;
-    if (clean.includes('/')) {
-      const parts = clean.split('/');
-      clean = parts[0];
-    } else if (clean.includes('-')) {
-      clean = clean.slice(8, 10);
-    }
-    const n = parseInt(clean, 10);
-    return isNaN(n) ? 1 : n;
-  };
-
-  // 1. Carga Laboral Global Semanal
+  // 1. Carga Laboral Global Semanal (Total tareas reales)
   const workloadDataPoints: DataPoint[] = weeks.map((w, idx) => {
     const weekTasks = periodTasks.filter((t) => {
-      const dayNum = getDayNumber(t.dueDate);
-      return dayNum >= w.startDay && dayNum <= w.endDay;
+      const day = getTaskDay(t);
+      return day >= w.startDay && day <= w.endDay;
     });
 
-    const fallbackValues = [12, 14, 17, 21];
-    const total = weekTasks.length > 0 ? weekTasks.length : fallbackValues[idx];
-    const completed = weekTasks.length > 0
-      ? weekTasks.filter((t) => t.status === 'Completada').length
-      : Math.round(total * (0.80 + idx * 0.04));
+    const total = weekTasks.length;
+    const completed = weekTasks.filter((t) => t.status === 'Completada').length;
     const pending = Math.max(0, total - completed);
 
     return {
@@ -231,7 +401,7 @@ export function computeMonthlyCompanyStatistics(
       value: total,
       secondaryValue: completed,
       tertiaryValue: pending,
-      target: 15,
+      target: 10,
       details: `${total} tareas programadas (${completed} ejecutadas, ${pending} en curso)`,
     };
   });
@@ -239,20 +409,24 @@ export function computeMonthlyCompanyStatistics(
   const workloadValues = workloadDataPoints.map((d) => d.value);
   const workloadCond = determineHubbardCondition(workloadValues);
 
-  // 2. Eficacia Global del Personal Semanal (% Éxito en tiempo y forma)
-  const efficiencyDataPoints: DataPoint[] = workloadDataPoints.map((w, idx) => {
-    const total = w.value || 1;
+  // 2. Eficacia Global del Personal Semanal (% Real de Tareas Completadas)
+  const totalPeriodTasks = periodTasks.length;
+  const totalPeriodCompleted = periodTasks.filter(t => t.status === 'Completada').length;
+  const overallPeriodEff = totalPeriodTasks > 0
+    ? Math.round((totalPeriodCompleted / totalPeriodTasks) * 100)
+    : 85;
+
+  const efficiencyDataPoints: DataPoint[] = workloadDataPoints.map((w) => {
+    const total = w.value;
     const comp = w.secondaryValue || 0;
-    const baseRate = Math.round((comp / total) * 100);
-    const progressiveFallback = [83, 86, 90, 94][idx];
-    const rate = Math.min(100, Math.max(60, baseRate > 0 ? baseRate : progressiveFallback));
+    const rate = total > 0 ? Math.round((comp / total) * 100) : overallPeriodEff;
 
     return {
       label: w.label,
       shortLabel: w.shortLabel,
       value: rate,
       target: 90,
-      details: `${rate}% de eficacia operativa en tareas asignadas`,
+      details: `${rate}% de eficacia operativa en tareas de la semana`,
     };
   });
 
@@ -285,42 +459,31 @@ export function computeMonthlyCompanyStatistics(
   const financialValues = financialDataPoints.map((d) => d.value);
   const financialCond = determineHubbardCondition(financialValues);
 
-  // 4. Estadísticas Distribuidas por PUESTO / USUARIO
+  // 4. Estadísticas Distribuidas por PUESTO / USUARIO (100% Dinámicas de la Aplicación)
+  const postDefinitions = buildDynamicPostDefinitions(allPersonas);
   const postStatistics: Record<string, PostStatisticItem> = {};
   const allPostsList: PostStatisticItem[] = [];
 
-  COMPANY_POSTS_METADATA.forEach((meta) => {
-    // Filtrar tareas que correspondan al área o al responsable del puesto
-    const postTasks = allTasks.filter(
-      (t) =>
-        t.area === meta.area ||
-        (t.assignee && t.assignee.toLowerCase().includes(meta.responsible.toLowerCase()))
-    );
+  postDefinitions.forEach((meta) => {
+    // Tareas reales asignadas al puesto en este mes
+    const postMonthTasks = periodTasks.filter((t) => isTaskAssignedToPost(t, meta));
 
-    const postMonthTasks = postTasks.filter(
-      (t) =>
-        (t.monthPeriod || '').startsWith(period) ||
-        (t.dueDate || '').startsWith(period)
-    );
-
-    const totalPostMonth = postMonthTasks.length > 0 ? postMonthTasks.length : Math.max(3, postTasks.length);
+    const totalPostMonth = postMonthTasks.length;
     const completedPostMonth = postMonthTasks.filter((t) => t.status === 'Completada').length;
     const pendingPostMonth = Math.max(0, totalPostMonth - completedPostMonth);
-    const effRatePostMonth = totalPostMonth > 0 ? Math.round((completedPostMonth / totalPostMonth) * 100) : 88;
+    const effRatePostMonth = totalPostMonth > 0
+      ? Math.round((completedPostMonth / totalPostMonth) * 100)
+      : 90;
 
     // Puntos semanales para la Carga del Puesto
-    const postWorkloadPoints: DataPoint[] = weeks.map((w, idx) => {
+    const postWorkloadPoints: DataPoint[] = weeks.map((w) => {
       const weekPTasks = postMonthTasks.filter((t) => {
-        const dayNum = getDayNumber(t.dueDate);
-        return dayNum >= w.startDay && dayNum <= w.endDay;
+        const day = getTaskDay(t);
+        return day >= w.startDay && day <= w.endDay;
       });
 
-      // Si no hay tareas en esa semana particular, proporcionar valor armónico proporcional
-      const fallbackW = [2, 3, 3, 4][idx];
-      const count = weekPTasks.length > 0 ? weekPTasks.length : fallbackW;
-      const comp = weekPTasks.length > 0
-        ? weekPTasks.filter((t) => t.status === 'Completada').length
-        : Math.max(1, count - 1);
+      const count = weekPTasks.length;
+      const comp = weekPTasks.filter((t) => t.status === 'Completada').length;
       const pend = Math.max(0, count - comp);
 
       return {
@@ -329,7 +492,7 @@ export function computeMonthlyCompanyStatistics(
         value: count,
         secondaryValue: comp,
         tertiaryValue: pend,
-        target: meta.quotaWorkloadMonthly / 4,
+        target: Math.max(1, Math.round(meta.quotaWorkloadMonthly / 4)),
         details: `${meta.name}: ${count} tareas (${comp} completadas, ${pend} pendientes)`,
       };
     });
@@ -338,19 +501,17 @@ export function computeMonthlyCompanyStatistics(
     const postWorkloadCond = determineHubbardCondition(postWorkloadVals);
 
     // Puntos semanales para la Eficacia del Puesto
-    const postEffPoints: DataPoint[] = postWorkloadPoints.map((p, idx) => {
-      const t = p.value || 1;
+    const postEffPoints: DataPoint[] = postWorkloadPoints.map((p) => {
+      const t = p.value;
       const c = p.secondaryValue || 0;
-      const calcRate = Math.round((c / t) * 100);
-      const fallbackEff = [80, 85, 90, 95][idx];
-      const rate = Math.min(100, Math.max(50, calcRate > 0 ? calcRate : fallbackEff));
+      const rate = t > 0 ? Math.round((c / t) * 100) : effRatePostMonth;
 
       return {
         label: p.label,
         shortLabel: p.shortLabel,
         value: rate,
         target: meta.quotaEfficiency,
-        details: `${meta.responsible}: ${rate}% de eficacia de resolución en tareas`,
+        details: `${meta.responsible}: ${rate}% de eficacia de resolución`,
       };
     });
 
@@ -381,8 +542,8 @@ export function computeMonthlyCompanyStatistics(
         dataPoints: postWorkloadPoints,
         currentCondition: postWorkloadCond.condition,
         slopePercentage: postWorkloadCond.slopePercentage,
-        currentValue: postWorkloadVals.reduce((a, b) => a + b, 0),
-        summary: `Volumen registrado de ${postWorkloadVals.reduce((a, b) => a + b, 0)} tareas en ${monthName} para el puesto de ${meta.name}.`,
+        currentValue: totalPostMonth,
+        summary: `${totalPostMonth} tareas registradas (${completedPostMonth} completadas, ${pendingPostMonth} en curso) para ${meta.responsible} en ${monthName}.`,
         periodLabel: `${monthName} ${yearStr}`,
         postBadge: {
           area: meta.area,
@@ -405,8 +566,8 @@ export function computeMonthlyCompanyStatistics(
         dataPoints: postEffPoints,
         currentCondition: postEffCond.condition,
         slopePercentage: postEffCond.slopePercentage,
-        currentValue: Math.round(postEffVals.reduce((a, b) => a + b, 0) / postEffVals.length),
-        summary: `Tasa media de eficacia mensual del ${Math.round(postEffVals.reduce((a, b) => a + b, 0) / postEffVals.length)}% en tareas asignadas a ${meta.responsible}.`,
+        currentValue: effRatePostMonth,
+        summary: `Tasa de eficacia en tiempo y forma del ${effRatePostMonth}% para las tareas asignadas a ${meta.responsible}.`,
         periodLabel: `${monthName} ${yearStr}`,
         postBadge: {
           area: meta.area,
@@ -439,8 +600,8 @@ export function computeMonthlyCompanyStatistics(
       dataPoints: workloadDataPoints,
       currentCondition: workloadCond.condition,
       slopePercentage: workloadCond.slopePercentage,
-      currentValue: workloadValues.reduce((a, b) => a + b, 0),
-      summary: `Volumen corporativo total de ${workloadValues.reduce((a, b) => a + b, 0)} tareas en ${monthName}.`,
+      currentValue: periodTasks.length,
+      summary: `Volumen corporativo total de ${periodTasks.length} tareas en ${monthName}.`,
       periodLabel: `${monthName} ${yearStr}`,
       postBadge: {
         area: 'TODOS',
@@ -463,8 +624,8 @@ export function computeMonthlyCompanyStatistics(
       dataPoints: efficiencyDataPoints,
       currentCondition: efficiencyCond.condition,
       slopePercentage: efficiencyCond.slopePercentage,
-      currentValue: Math.round(efficiencyValues.reduce((a, b) => a + b, 0) / efficiencyValues.length),
-      summary: `Promedio de cumplimiento corporativo del ${Math.round(efficiencyValues.reduce((a, b) => a + b, 0) / efficiencyValues.length)}% en el mes.`,
+      currentValue: overallPeriodEff,
+      summary: `Cumplimiento corporativo consolidado del ${overallPeriodEff}% en el mes de ${monthName}.`,
       periodLabel: `${monthName} ${yearStr}`,
       postBadge: {
         area: 'TODOS',
@@ -504,32 +665,26 @@ export function computeMonthlyCompanyStatistics(
 }
 
 /**
- * Obtiene o calcula las estadísticas anuales de la empresa (globales y por puesto).
+ * Obtiene o calcula las estadísticas anuales de la empresa (globales y por puesto)
+ * basándose 100% en las tareas reales plasmadas en la aplicación.
  */
 export function computeYearlyCompanyStatistics(
   year: string, // '2026'
   allTasks: Task[],
-  allExpenses: Expense[]
+  allExpenses: Expense[],
+  allPersonas?: UserPersona[]
 ): CompanyStatisticsData {
-  // Construir 12 meses
+  // Construir 12 meses con tareas reales
   const monthsData = MONTH_NAMES_SHORT.map((shortName, idx) => {
     const monthNum = String(idx + 1).padStart(2, '0');
     const periodKey = `${year}-${monthNum}`;
 
-    const monthTasks = allTasks.filter(
-      (t) => (t.monthPeriod || '').startsWith(periodKey) || (t.dueDate || '').startsWith(periodKey)
-    );
-    const baseTaskCount = [38, 42, 46, 44, 49, 52, 55, 58, 62, 67, 72, 75][idx] || 50;
-    const totalTasks = monthTasks.length > 0 ? monthTasks.length : baseTaskCount;
-    const completedTasks = monthTasks.length > 0
-      ? monthTasks.filter((t) => t.status === 'Completada').length
-      : Math.round(totalTasks * (0.80 + idx * 0.012));
+    const monthTasks = allTasks.filter((t) => isTaskInTargetPeriod(t, periodKey));
+    const totalTasks = monthTasks.length;
+    const completedTasks = monthTasks.filter((t) => t.status === 'Completada').length;
     const pendingTasks = Math.max(0, totalTasks - completedTasks);
+    const eff = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 88;
 
-    // Eficacia %
-    const eff = Math.min(100, Math.round((completedTasks / totalTasks) * 100));
-
-    // Facturación y gastos
     const baseBilling = [3600000, 3800000, 4100000, 4250000, 4500000, 4700000, 4900000, 5100000, 5250000, 5420000, 5650000, 5900000][idx];
     const baseExp = [2100000, 2200000, 2350000, 2400000, 2500000, 2600000, 2700000, 2780000, 2820000, 2850000, 2920000, 3050000][idx];
     const margin = baseBilling - baseExp;
@@ -555,7 +710,7 @@ export function computeYearlyCompanyStatistics(
     value: m.totalTasks,
     secondaryValue: m.completedTasks,
     tertiaryValue: m.pendingTasks,
-    target: 50,
+    target: 20,
     details: `${m.fullLabel}: ${m.totalTasks} tareas registradas (${m.completedTasks} completadas)`,
   }));
   const workloadVals = workloadPoints.map((p) => p.value);
@@ -590,28 +745,17 @@ export function computeYearlyCompanyStatistics(
   const totalYearBilling = finVals.reduce((a, b) => a + b, 0);
 
   // 4. Estadísticas Anuales por Puesto
+  const postDefinitions = buildDynamicPostDefinitions(allPersonas);
   const postStatistics: Record<string, PostStatisticItem> = {};
   const allPostsList: PostStatisticItem[] = [];
 
-  COMPANY_POSTS_METADATA.forEach((meta) => {
-    const postTasks = allTasks.filter(
-      (t) =>
-        t.area === meta.area ||
-        (t.assignee && t.assignee.toLowerCase().includes(meta.responsible.toLowerCase()))
-    );
+  postDefinitions.forEach((meta) => {
+    const postYearTasks = allTasks.filter((t) => isTaskAssignedToPost(t, meta));
 
-    const postYearWorkloadPoints: DataPoint[] = monthsData.map((m, idx) => {
-      const monthTasks = postTasks.filter(
-        (t) =>
-          (t.monthPeriod || '').startsWith(m.periodKey) ||
-          (t.dueDate || '').startsWith(m.periodKey)
-      );
-
-      const baseVal = [5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 11, 12][idx];
-      const count = monthTasks.length > 0 ? monthTasks.length : baseVal;
-      const comp = monthTasks.length > 0
-        ? monthTasks.filter((t) => t.status === 'Completada').length
-        : Math.max(1, count - 1);
+    const postYearWorkloadPoints: DataPoint[] = monthsData.map((m) => {
+      const mTasks = postYearTasks.filter((t) => isTaskInTargetPeriod(t, m.periodKey));
+      const count = mTasks.length;
+      const comp = mTasks.filter((t) => t.status === 'Completada').length;
       const pend = Math.max(0, count - comp);
 
       return {
@@ -628,12 +772,10 @@ export function computeYearlyCompanyStatistics(
     const postWorkloadVals = postYearWorkloadPoints.map((p) => p.value);
     const postWorkloadCond = determineHubbardCondition(postWorkloadVals);
 
-    const postYearEffPoints: DataPoint[] = postYearWorkloadPoints.map((p, idx) => {
-      const t = p.value || 1;
+    const postYearEffPoints: DataPoint[] = postYearWorkloadPoints.map((p) => {
+      const t = p.value;
       const c = p.secondaryValue || 0;
-      const calcRate = Math.round((c / t) * 100);
-      const fallbackEff = [80, 82, 85, 87, 88, 90, 91, 92, 93, 94, 95, 96][idx];
-      const rate = Math.min(100, Math.max(60, calcRate > 0 ? calcRate : fallbackEff));
+      const rate = t > 0 ? Math.round((c / t) * 100) : 90;
 
       return {
         label: p.label,
@@ -647,6 +789,11 @@ export function computeYearlyCompanyStatistics(
     const postEffVals = postYearEffPoints.map((p) => p.value);
     const postEffCond = determineHubbardCondition(postEffVals);
 
+    const totalYearPostTasks = postWorkloadVals.reduce((a, b) => a + b, 0);
+    const completedYearPostTasks = postYearWorkloadPoints.reduce((a, b) => a + (b.secondaryValue || 0), 0);
+    const pendingYearPostTasks = postYearWorkloadPoints.reduce((a, b) => a + (b.tertiaryValue || 0), 0);
+    const avgYearEffPost = Math.round(postEffVals.reduce((a, b) => a + b, 0) / postEffVals.length);
+
     const postItem: PostStatisticItem = {
       area: meta.area,
       areaName: meta.name,
@@ -654,10 +801,10 @@ export function computeYearlyCompanyStatistics(
       role: meta.role,
       avatarBg: meta.avatarBg,
       badgeClass: meta.badgeClass,
-      totalTasks: postWorkloadVals.reduce((a, b) => a + b, 0),
-      completedTasks: postYearWorkloadPoints.reduce((a, b) => a + (b.secondaryValue || 0), 0),
-      pendingTasks: postYearWorkloadPoints.reduce((a, b) => a + (b.tertiaryValue || 0), 0),
-      efficiencyPercentage: Math.round(postEffVals.reduce((a, b) => a + b, 0) / postEffVals.length),
+      totalTasks: totalYearPostTasks,
+      completedTasks: completedYearPostTasks,
+      pendingTasks: pendingYearPostTasks,
+      efficiencyPercentage: avgYearEffPost,
       workloadSeries: {
         id: `post-workload-${meta.area.toLowerCase()}`,
         title: `Evolución Anual de Tareas: ${meta.name}`,
@@ -671,8 +818,8 @@ export function computeYearlyCompanyStatistics(
         dataPoints: postYearWorkloadPoints,
         currentCondition: postWorkloadCond.condition,
         slopePercentage: postWorkloadCond.slopePercentage,
-        currentValue: postWorkloadVals.reduce((a, b) => a + b, 0),
-        summary: `Total de ${postWorkloadVals.reduce((a, b) => a + b, 0)} tareas anuales procesadas por ${meta.responsible}.`,
+        currentValue: totalYearPostTasks,
+        summary: `Total anual de ${totalYearPostTasks} tareas gestionadas por ${meta.responsible} en ${year}.`,
         periodLabel: `Año ${year}`,
         postBadge: {
           area: meta.area,
@@ -695,8 +842,8 @@ export function computeYearlyCompanyStatistics(
         dataPoints: postYearEffPoints,
         currentCondition: postEffCond.condition,
         slopePercentage: postEffCond.slopePercentage,
-        currentValue: Math.round(postEffVals.reduce((a, b) => a + b, 0) / postEffVals.length),
-        summary: `Eficacia anual promedio del ${Math.round(postEffVals.reduce((a, b) => a + b, 0) / postEffVals.length)}% para el puesto ${meta.name}.`,
+        currentValue: avgYearEffPost,
+        summary: `Eficacia promedio anual del ${avgYearEffPost}% para las tareas del puesto ${meta.name}.`,
         periodLabel: `Año ${year}`,
         postBadge: {
           area: meta.area,
@@ -722,7 +869,7 @@ export function computeYearlyCompanyStatistics(
       hubbardStatisticName: `Volumen Anual de Tareas y Procesos (${year})`,
       unit: 'Tareas/Mes',
       responsible: 'Dirección General (INVICT)',
-      role: 'Gerencia General (C-Level)',
+      role: 'Gerente General (C-Level)',
       area: 'PLANIFICACIÓN CORPORATIVA',
       project: 'EVOLUCIÓN INTERANUAL DE PRODUCTIVIDAD',
       quota: 50,
@@ -746,7 +893,7 @@ export function computeYearlyCompanyStatistics(
       hubbardStatisticName: `Porcentaje Anual de Cumplimiento Corporativo (${year})`,
       unit: '% Cumplimiento',
       responsible: 'Dirección General (INVICT)',
-      role: 'Gerencia General (C-Level)',
+      role: 'Gerente General (C-Level)',
       area: 'DESEMPEÑO & RRHH',
       project: 'ESTÁNDAR DE EXCELENCIA OPERATIVA',
       quota: 90,

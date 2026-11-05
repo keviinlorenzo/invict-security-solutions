@@ -58,6 +58,7 @@ interface GerencialMetricsAndStatisticsViewProps {
   currentPeriod: string;
   onPeriodChange: (period: string) => void;
   currentPersona?: UserPersona;
+  allPersonas?: UserPersona[];
   isGerencia: boolean;
   isSubGerencia?: boolean;
   onNavigateToTasks?: () => void;
@@ -70,6 +71,7 @@ export const GerencialMetricsAndStatisticsView: React.FC<GerencialMetricsAndStat
   currentPeriod,
   onPeriodChange,
   currentPersona,
+  allPersonas,
   isGerencia,
   isSubGerencia = false,
   onNavigateToTasks,
@@ -89,14 +91,14 @@ export const GerencialMetricsAndStatisticsView: React.FC<GerencialMetricsAndStat
   const [isFormulaModalOpen, setIsFormulaModalOpen] = useState(false);
   const [selectedFormulaId, setSelectedFormulaId] = useState<HubbardConditionId>('normal');
 
-  // 2. Cálculo de Datos Estadísticos (Mensual o Anual, Global y por Puestos)
+  // 2. Cálculo de Datos Estadísticos (Mensual o Anual, Global y por Puestos 100% dinámicos)
   const statsData: CompanyStatisticsData = useMemo(() => {
     if (timeMode === 'monthly') {
-      return computeMonthlyCompanyStatistics(currentPeriod, tasks, expenses);
+      return computeMonthlyCompanyStatistics(currentPeriod, tasks, expenses, allPersonas);
     } else {
-      return computeYearlyCompanyStatistics(selectedYear, tasks, expenses);
+      return computeYearlyCompanyStatistics(selectedYear, tasks, expenses, allPersonas);
     }
-  }, [timeMode, currentPeriod, selectedYear, tasks, expenses]);
+  }, [timeMode, currentPeriod, selectedYear, tasks, expenses, allPersonas]);
 
   const handleOpenConditionFormula = (condition: HubbardConditionFormula) => {
     setSelectedFormulaId(condition.id);

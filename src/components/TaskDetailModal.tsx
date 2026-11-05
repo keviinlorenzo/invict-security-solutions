@@ -329,6 +329,10 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                       }
                       setEditError(null);
                       setEditArea(val);
+                      const matched = allPersonas.find(p => p.department === val);
+                      if (matched) {
+                        setEditAssignee(matched.name);
+                      }
                     }}
                     className="w-full px-3 py-2 bg-[#161c28] border border-[#2b374e] rounded-lg text-xs text-white"
                   >

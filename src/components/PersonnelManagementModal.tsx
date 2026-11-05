@@ -369,6 +369,7 @@ export const PersonnelManagementModal: React.FC<PersonnelManagementModalProps> =
                         onChange={(e) => {
                           const dept = e.target.value as AreaType;
                           let prof: UserProfileType = 'operaciones';
+                          if (dept === 'SUPERVISIÓN') prof = 'supervisión';
                           if (dept === 'RRHH') prof = 'recursos humanos';
                           if (dept === 'ADM') prof = 'administración';
                           if (dept === 'AUX_ADM') prof = 'auxiliar';
@@ -380,6 +381,7 @@ export const PersonnelManagementModal: React.FC<PersonnelManagementModalProps> =
                         className="w-full px-3 py-2 bg-[#0b0e14] border border-[#2b364e] rounded-xl text-xs text-white font-bold cursor-pointer"
                       >
                         <option value="OPERACIONES">OPERACIONES</option>
+                        <option value="SUPERVISIÓN">SUPERVISIÓN</option>
                         <option value="RRHH">RRHH</option>
                         <option value="ADM">ADM</option>
                         <option value="AUX_ADM">AUX_ADM</option>

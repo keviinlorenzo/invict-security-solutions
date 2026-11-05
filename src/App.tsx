@@ -105,13 +105,16 @@ export default function App() {
     const base: Task[] = saved ? JSON.parse(saved) : INITIAL_TASKS;
     // Sincronizar automáticamente el monthPeriod con la fecha límite (dueDate) real de cada tarea
     const normalized = base.map((t) => {
-      if (t.dueDate && t.dueDate.length >= 7 && t.dueDate.includes('-')) {
-        const dueP = t.dueDate.slice(0, 7);
-        if (dueP !== t.monthPeriod) {
-          return { ...t, monthPeriod: dueP };
+      let updated = { ...t };
+      if (updated.assignee === 'Yamila') updated.assignee = 'Yamila González';
+      if (updated.assignee === 'Laura') updated.assignee = 'Laura González';
+      if (updated.dueDate && updated.dueDate.length >= 7 && updated.dueDate.includes('-')) {
+        const dueP = updated.dueDate.slice(0, 7);
+        if (dueP !== updated.monthPeriod) {
+          updated.monthPeriod = dueP;
         }
       }
-      return t;
+      return updated;
     });
     return ensureMonthHasFixedTasks(DEFAULT_PERIOD, normalized);
   });
@@ -134,6 +137,12 @@ export default function App() {
   const [personas, setPersonas] = useState<UserPersona[]>(() => {
     const saved = localStorage.getItem('invict_personas');
     let list: UserPersona[] = saved ? JSON.parse(saved) : [...USER_PERSONAS];
+    // Sincronizar nombres actualizados en caso de existir copias históricas en localStorage
+    list = list.map(p => {
+      if (p.id === 'p-yamila' && p.name === 'Yamila') return { ...p, name: 'Yamila González' };
+      if (p.id === 'p-laura' && (p.name === 'Laura' || p.name === 'Laura (Sub Gerencia)')) return { ...p, name: 'Laura González' };
+      return p;
+    });
     const custom = getCustomPosts();
     const deleted = getDeletedPostIds();
     custom.forEach(cp => {
@@ -144,8 +153,12 @@ export default function App() {
 
   const [currentPersona, setCurrentPersona] = useState<UserPersona>(() => {
     const savedId = localStorage.getItem('invict_active_persona_id');
-    const list = localStorage.getItem('invict_personas') ? JSON.parse(localStorage.getItem('invict_personas')!) : USER_PERSONAS;
-    return list.find((p: UserPersona) => p.id === savedId) || list[0];
+    const raw = localStorage.getItem('invict_personas');
+    let list = raw ? JSON.parse(raw) : USER_PERSONAS;
+    let found = list.find((p: UserPersona) => p.id === savedId) || list[0];
+    if (found.id === 'p-yamila' && found.name === 'Yamila') found = { ...found, name: 'Yamila González' };
+    if (found.id === 'p-laura' && (found.name === 'Laura' || found.name === 'Laura (Sub Gerencia)')) found = { ...found, name: 'Laura González' };
+    return found;
   });
 
   const [currentPeriod, setCurrentPeriod] = useState<string>(() => {
@@ -1698,6 +1711,7 @@ export default function App() {
                 currentPeriod={currentPeriod}
                 onPeriodChange={handlePeriodChange}
                 currentPersona={currentPersona}
+                allPersonas={personas}
                 isGerencia={isCurrentUserGerencia}
                 isSubGerencia={isCurrentUserSubGerencia}
                 onNavigateToTasks={() => setActiveTab('tasks')}

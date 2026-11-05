@@ -14,7 +14,7 @@ export const USER_PERSONAS: UserPersona[] = [
   },
   {
     id: 'p-yamila',
-    name: 'Yamila',
+    name: 'Yamila González',
     email: 'yamila@invictsecurity.com.ar',
     role: 'Gerente General (C-Level)',
     department: 'GERENCIA',
@@ -25,7 +25,7 @@ export const USER_PERSONAS: UserPersona[] = [
   },
   {
     id: 'p-laura',
-    name: 'Laura',
+    name: 'Laura González',
     email: 'laura@invictsecurity.com.ar',
     role: 'Sub Gerente / Vicepresidencia',
     department: 'SUB_GERENCIA',
@@ -240,7 +240,7 @@ export const INITIAL_TASKS: Task[] = [
     id: 't-oct-7',
     area: 'GERENCIA',
     title: 'Revisión integral de indicadores KPI y desvíos presupuestarios del mes de Octubre',
-    assignee: 'Yamila',
+    assignee: 'Yamila González',
     assigneeEmail: 'yamila@invictsecurity.com.ar',
     status: 'No iniciada',
     priority: 'Alta',
@@ -250,7 +250,7 @@ export const INITIAL_TASKS: Task[] = [
     monthPeriod: '2026-10',
     startDate: '2026-10-15',
     dueDate: '2026-10-21',
-    notes: 'Reunión de Directorio con Laura y Domingo para control de margen operativo y cobranzas.',
+    notes: 'Reunión de Directorio con Laura González y Domingo para control de margen operativo y cobranzas.',
     category: 'Supervisión C-Level',
     commentsCount: 0,
   },
@@ -258,7 +258,7 @@ export const INITIAL_TASKS: Task[] = [
     id: 't-oct-subg-1',
     area: 'SUB_GERENCIA',
     title: 'Auditoría ejecutiva y control de novedades de objetivos operativos',
-    assignee: 'Laura',
+    assignee: 'Laura González',
     assigneeEmail: 'laura@invictsecurity.com.ar',
     status: 'No iniciada',
     priority: 'Alta',
@@ -271,6 +271,31 @@ export const INITIAL_TASKS: Task[] = [
     notes: 'Supervisión integral de informes de ronda nocturna y ausentismo.',
     category: 'Auditoría C-Level',
     commentsCount: 0,
+  },
+  {
+    id: 'task-1793726972408',
+    area: 'SUB_GERENCIA',
+    title: 'Capacitacion de gestion opertaiva (SOFTWEARE)',
+    assignee: 'Laura González',
+    assigneeEmail: 'laura@invictsecurity.com.ar',
+    status: 'En curso',
+    priority: 'Alta',
+    nature: 'Fija Mensual',
+    shiftType: 'General',
+    objectiveLocation: 'Base Central / Mendoza',
+    monthPeriod: '2026-11',
+    startDate: '2026-11-03',
+    dueDate: '2026-11-15',
+    notes: 'Firmar el manual del vigilador de Atomo , SOF Y hacer Naalool al personal . Verificar que se utilice de forma',
+    category: 'Capacitación Operativa',
+    commentsCount: 0,
+    lastModifiedBy: {
+      id: 'acc-subgerencia',
+      name: 'Laura González',
+      profile: 'SUB_GERENTE',
+    },
+    lastModifiedAt: '03/11/2026, 14:29:32 hs',
+    lastModifiedAction: 'Creación de tarea',
   },
   {
     id: 't-oct-8',
@@ -348,7 +373,7 @@ export const INITIAL_TASKS: Task[] = [
     id: 't-oct-12',
     area: 'GERENCIA',
     title: 'Cierre de facturación mensual y auditoría de horas extraordinarias',
-    assignee: 'Yamila',
+    assignee: 'Yamila González',
     assigneeEmail: 'yamila@invictsecurity.com.ar',
     status: 'No iniciada',
     priority: 'Alta',
@@ -365,6 +390,7 @@ export const INITIAL_TASKS: Task[] = [
 ];
 
 export const STANDARD_FIXED_TASKS_TEMPLATE: Omit<Task, 'id' | 'monthPeriod' | 'commentsCount'>[] = [
+  // OPERACIONES
   {
     area: 'OPERACIONES',
     title: 'Primera semana del mes: Reunión con Supervisores y RRHH - General',
@@ -395,6 +421,23 @@ export const STANDARD_FIXED_TASKS_TEMPLATE: Omit<Task, 'id' | 'monthPeriod' | 'c
     notes: 'Emisión del cronograma de turnos de vigilancia con 5 días hábiles para reclamos.',
     category: 'Planificación de Turnos',
   },
+  // SUPERVISIÓN
+  {
+    area: 'SUPERVISIÓN',
+    title: 'Relevo y verificación de libro de guardia nocturno y rondines',
+    assignee: 'Bilbao',
+    assigneeEmail: 'bilbao@invictsecurity.com.ar',
+    status: 'No iniciada',
+    priority: 'Alta',
+    nature: 'Fija Mensual',
+    shiftType: 'Noche',
+    objectiveLocation: 'Objetivos Mendoza Este & Luján',
+    startDate: '08',
+    dueDate: '16',
+    notes: 'Inspección de rondines RFID, libro de novedades y control vehicular de puestos.',
+    category: 'Supervisión en Terreno',
+  },
+  // RECURSOS HUMANOS
   {
     area: 'RRHH',
     title: 'Verificar planillas EPP (con foto y firmada por vigiladores) - Nómina de abrigo',
@@ -410,6 +453,7 @@ export const STANDARD_FIXED_TASKS_TEMPLATE: Omit<Task, 'id' | 'monthPeriod' | 'c
     notes: 'Auditoría mensual de entrega de indumentaria, calzado de seguridad y firmas de conformidad.',
     category: 'Indumentaria & EPP',
   },
+  // ADMINISTRACIÓN
   {
     area: 'ADM',
     title: 'Presentación y envío del Formulario 931 AFIP a Clientes (Fuesmen, Kraft, Coir)',
@@ -425,6 +469,7 @@ export const STANDARD_FIXED_TASKS_TEMPLATE: Omit<Task, 'id' | 'monthPeriod' | 'c
     notes: 'Comprobantes de pago y nómina 931 distribuidos a las gerencias de compras.',
     category: 'Cumplimiento Impositivo',
   },
+  // AUXILIAR ADMINISTRATIVO
   {
     area: 'AUX_ADM',
     title: 'Archivo de legajos físicos y fotocopias de antecedentes policiales (REPRIV)',
@@ -454,6 +499,54 @@ export const STANDARD_FIXED_TASKS_TEMPLATE: Omit<Task, 'id' | 'monthPeriod' | 'c
     dueDate: '28',
     notes: 'Consolidación de tickets y comprobantes para rendición a Gerencia.',
     category: 'Caja Chica',
+  },
+  // SELECCIÓN DE PERSONAL
+  {
+    area: 'SELECCION',
+    title: 'Búsqueda activa, entrevistas y psicotécnicos de nuevos vigiladores',
+    assignee: 'Mariana',
+    assigneeEmail: 'mariana@invictsecurity.com.ar',
+    status: 'No iniciada',
+    priority: 'Alta',
+    nature: 'Fija Mensual',
+    shiftType: 'General',
+    objectiveLocation: 'Base Central Maipú',
+    startDate: '05',
+    dueDate: '18',
+    notes: 'Convocatorias de personal, antecedentes y coordinación de exámenes de ingreso.',
+    category: 'Selección de Personal',
+  },
+  // SUB GERENCIA / VICEPRESIDENCIA
+  {
+    area: 'SUB_GERENCIA',
+    title: 'Auditoría ejecutiva y control de novedades de objetivos operativos',
+    assignee: 'Laura González',
+    assigneeEmail: 'laura@invictsecurity.com.ar',
+    status: 'No iniciada',
+    priority: 'Alta',
+    nature: 'Fija Mensual',
+    shiftType: 'General',
+    objectiveLocation: 'Base Central / Objetivos Mendoza',
+    startDate: '10',
+    dueDate: '25',
+    notes: 'Supervisión integral de informes de guardia, novedades y control transversal de puestos.',
+    category: 'Auditoría C-Level',
+  },
+  // GERENCIA GENERAL
+  {
+    area: 'GERENCIA',
+    title: 'Cierre de facturación mensual y auditoría de horas extraordinarias',
+    assignee: 'Yamila González',
+    assigneeEmail: 'yamila@invictsecurity.com.ar',
+    status: 'No iniciada',
+    priority: 'Alta',
+    nature: 'Fija Mensual',
+    shiftType: 'General',
+    objectiveLocation: 'Sede Central',
+    startDate: '22',
+    dueDate: '30',
+    notes: 'Control de rentabilidad por cliente, balances gerenciales y directivas corporativas.',
+    category: 'Supervisión C-Level',
   },
 ];
 
