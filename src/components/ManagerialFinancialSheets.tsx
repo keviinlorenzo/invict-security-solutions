@@ -198,12 +198,22 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
   }, [currentPeriod]);
 
   useEffect(() => {
+    const handleSheetsUpdate = (e: any) => {
+      if (e?.detail?.period && e.detail.period !== currentPeriod) return;
+      setSheetsData(getManagerialMonthData(currentPeriod));
+    };
+    window.addEventListener('invict_managerial_sheets_mutation', handleSheetsUpdate);
+    window.addEventListener('storage', handleSheetsUpdate);
     const unsub = subscribeToCloudSync((payload) => {
       if (payload.type === 'SHEET_MUTATION' || payload.type === 'FULL_STATE_SYNC' || payload.stateSnapshot) {
         setSheetsData(getManagerialMonthData(currentPeriod));
       }
     });
-    return () => unsub();
+    return () => {
+      window.removeEventListener('invict_managerial_sheets_mutation', handleSheetsUpdate);
+      window.removeEventListener('storage', handleSheetsUpdate);
+      unsub();
+    };
   }, [currentPeriod]);
 
   // Filters state
@@ -946,14 +956,28 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black font-mono text-white">
-            {formatCurrencyARS(totalIncome)}
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2 font-mono">
-            <span>{sheetsData.clientBilling.length} clientes activos</span>
-            <span className="text-emerald-400 font-semibold text-[10px] bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-800/50">
-              fx: Suma Total Neto
+          <div className="text-2xl font-black font-mono text-white flex items-baseline justify-between">
+            <span>{formatCurrencyARS(totalIncome)}</span>
+            <span className="text-[11px] font-semibold text-slate-400 font-sans">
+              ({sheetsData.clientBilling.length} clientes activos)
             </span>
+          </div>
+          <div className="mt-2 pt-1.5 border-t border-[#1e2638] flex flex-col gap-0.5 text-[10px] font-mono">
+            <div className="flex items-center justify-between">
+              <span className="text-amber-400 font-semibold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Pendientes de Cobro:
+              </span>
+              <span className="font-bold text-amber-300">
+                {formatCurrencyARS(metrics.totalUnpaidAmount || 0)} ({metrics.unpaidInvoicesCount || 0} impagos)
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-slate-400">
+              <span className="text-emerald-400">Cobrados: {formatCurrencyARS(metrics.paidInvoicesAmount || 0)}</span>
+              <span className="text-emerald-400 font-semibold text-[10px] bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-800/50">
+                fx: Suma Total Neto
+              </span>
+            </div>
           </div>
         </div>
 
@@ -974,14 +998,32 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
               <UserCheck className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black font-mono text-amber-300">
-            {formatCurrencyARS(totalDirectCosts)}
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2 font-mono">
-            <span>{sheetsData.salaries.length} colaboradores</span>
-            <span className="text-amber-400 font-semibold text-[10px] bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-800/50">
-              fx: Suma Recibo + X
+          <div className="text-2xl font-black font-mono text-amber-300 flex items-baseline justify-between">
+            <span>{formatCurrencyARS(totalDirectCosts)}</span>
+            <span className="text-[11px] font-semibold text-slate-400 font-sans">
+              ({metrics.countSalaries ?? sheetsData.salaries.length} colaboradores)
             </span>
+          </div>
+          <div className="mt-2 pt-1.5 border-t border-[#1e2638] flex flex-col gap-0.5 text-[10px] font-mono">
+            <div className="flex items-center justify-between">
+              <span className="text-amber-400 font-semibold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Pendientes de Pago:
+              </span>
+              <span className="font-bold text-amber-300">
+                {formatCurrencyARS(metrics.unpaidSalariesAmount || 0)} ({metrics.unpaidSalariesCount || 0} impagos)
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-slate-400">
+              <span className="text-emerald-400">
+                Pagados: {formatCurrencyARS(metrics.paidSalariesAmount || 0)} ({metrics.paidSalariesCount || 0} pagados)
+              </span>
+              {metrics.totalAdvances > 0 ? (
+                <span className="text-sky-400">Anticipos: {formatCurrencyARS(metrics.totalAdvances)}</span>
+              ) : (
+                <span className="text-amber-400/80">fx: Suma Recibo + X</span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1042,14 +1084,25 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black font-mono text-emerald-400">
-            {formatCurrencyARS(globalNetMargin)}
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2 font-mono">
-            <span>Rendimiento neto:</span>
-            <span className="font-bold text-white px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800/50">
+          <div className="text-2xl font-black font-mono text-emerald-400 flex items-baseline justify-between">
+            <span>{formatCurrencyARS(globalNetMargin)}</span>
+            <span className="font-bold text-white px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800/50 text-[11px]">
               {globalNetMarginPercent}% Libre
             </span>
+          </div>
+          <div className="mt-2 pt-1.5 border-t border-[#1e2638] flex flex-col gap-0.5 text-[10px] font-mono">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Costos Operativos Totales:</span>
+              <span className="font-bold text-rose-300">
+                {formatCurrencyARS(totalAllCosts)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-slate-400">
+              <span>Resultado Operativo:</span>
+              <span className={globalNetMargin >= 0 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                {globalNetMargin >= 0 ? 'Superávit C-Level' : 'Déficit Operativo'}
+              </span>
+            </div>
           </div>
         </div>
       </div>

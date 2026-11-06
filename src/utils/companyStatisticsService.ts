@@ -1,5 +1,5 @@
 import { Task, Expense, AreaType, UserPersona } from '../types';
-import { getManagerialMonthData } from '../data/managerialSheetsData';
+import { getManagerialMonthData, calculateManagerialMetrics } from '../data/managerialSheetsData';
 import { determineHubbardCondition, HubbardConditionFormula } from '../data/hubbardConditionsData';
 
 export interface DataPoint {
@@ -29,6 +29,9 @@ export interface MetricSeries {
   currentValue: number;
   summary: string;
   periodLabel?: string;
+  netMargin?: number;
+  netMarginPercent?: number;
+  totalCosts?: number;
   postBadge?: {
     area: AreaType;
     areaName: string;
@@ -433,17 +436,19 @@ export function computeMonthlyCompanyStatistics(
   const efficiencyValues = efficiencyDataPoints.map((d) => d.value);
   const efficiencyCond = determineHubbardCondition(efficiencyValues);
 
-  // 3. Finanzas del Mes (Facturación vs Gastos vs Margen)
+  // 3. Finanzas del Mes (Facturación vs Costos Totales vs Margen Neto Real según Planillas de Gerencia)
   const managerial = getManagerialMonthData(period);
-  const totalBilling = (managerial.clientBilling || []).reduce((acc, c) => acc + (c.totalNet || 0), 0) || 5420000;
-  const periodExpenses = allExpenses.filter((e) => (e.date || '').startsWith(period));
-  const totalExp = periodExpenses.reduce((acc, e) => acc + (e.amount || 0), 0) || 2850000;
+  const managerialMetrics = calculateManagerialMetrics(period, managerial);
+  const totalBilling = managerialMetrics.totalIncome;
+  const totalExp = managerialMetrics.totalAllCosts;
+  const netMargin = managerialMetrics.globalNetMargin;
+  const netMarginPercent = managerialMetrics.globalNetMarginPercent;
 
   const weeklyFractions = [0.22, 0.24, 0.26, 0.28];
   const financialDataPoints: DataPoint[] = weeks.map((w, idx) => {
     const fraction = weeklyFractions[idx];
     const bVal = Math.round(totalBilling * fraction);
-    const eVal = Math.round(totalExp * [0.23, 0.24, 0.26, 0.27][idx]);
+    const eVal = Math.round(totalExp * fraction);
     const margin = Math.round(bVal - eVal);
     return {
       label: w.label,
@@ -451,8 +456,8 @@ export function computeMonthlyCompanyStatistics(
       value: bVal,
       secondaryValue: eVal,
       tertiaryValue: margin,
-      target: 1200000,
-      details: `Facturado: $ ${bVal.toLocaleString('es-AR')} · Gastos: $ ${eVal.toLocaleString('es-AR')} · Margen: $ ${margin.toLocaleString('es-AR')}`,
+      target: Math.round(totalBilling * 0.25),
+      details: `Facturado: $ ${bVal.toLocaleString('es-AR')} · Costos: $ ${eVal.toLocaleString('es-AR')} · Margen Neto: $ ${margin.toLocaleString('es-AR')}`,
     };
   });
 
@@ -649,7 +654,10 @@ export function computeMonthlyCompanyStatistics(
       currentCondition: financialCond.condition,
       slopePercentage: financialCond.slopePercentage,
       currentValue: totalBilling,
-      summary: `Facturación de $ ${totalBilling.toLocaleString('es-AR')} con gastos de $ ${totalExp.toLocaleString('es-AR')}.`,
+      netMargin,
+      netMarginPercent,
+      totalCosts: totalExp,
+      summary: `Facturación real de $ ${totalBilling.toLocaleString('es-AR')} con costos de $ ${totalExp.toLocaleString('es-AR')} y margen neto libre de $ ${netMargin.toLocaleString('es-AR')} (${netMarginPercent}%).`,
       periodLabel: `${monthName} ${yearStr}`,
       postBadge: {
         area: 'ADM',
@@ -685,9 +693,15 @@ export function computeYearlyCompanyStatistics(
     const pendingTasks = Math.max(0, totalTasks - completedTasks);
     const eff = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 88;
 
-    const baseBilling = [3600000, 3800000, 4100000, 4250000, 4500000, 4700000, 4900000, 5100000, 5250000, 5420000, 5650000, 5900000][idx];
-    const baseExp = [2100000, 2200000, 2350000, 2400000, 2500000, 2600000, 2700000, 2780000, 2820000, 2850000, 2920000, 3050000][idx];
-    const margin = baseBilling - baseExp;
+    const monthManagerial = getManagerialMonthData(periodKey);
+    const monthMetrics = calculateManagerialMetrics(periodKey, monthManagerial);
+    const baseBilling = monthMetrics.totalIncome > 0
+      ? monthMetrics.totalIncome
+      : [3600000, 3800000, 4100000, 4250000, 4500000, 4700000, 4900000, 5100000, 5250000, 5420000, 5650000, 5900000][idx];
+    const baseExp = monthMetrics.totalAllCosts > 0
+      ? monthMetrics.totalAllCosts
+      : [2100000, 2200000, 2350000, 2400000, 2500000, 2600000, 2700000, 2780000, 2820000, 2850000, 2920000, 3050000][idx];
+    const margin = monthMetrics.totalIncome > 0 ? monthMetrics.globalNetMargin : (baseBilling - baseExp);
 
     return {
       periodKey,

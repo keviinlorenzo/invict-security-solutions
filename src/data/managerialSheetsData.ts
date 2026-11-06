@@ -521,6 +521,11 @@ export function saveManagerialMonthData(period: string, data: ManagerialMonthDat
       { name: 'Gerencia General', profile: 'GERENTE', email: 'consultasinvictsolutionss.a@gmail.com' },
       { period, data }
     );
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('invict_managerial_sheets_mutation', { detail: { period, data } })
+      );
+    }
   } catch (err) {
     console.error('Error saving managerial data:', err);
   }
@@ -822,10 +827,31 @@ export function calculateManagerialMetrics(
   );
 
   // Total Costos Directos Reales (Suma exacta de Sueldo Neto = Recibo + X de los colaboradores cargados)
-  const totalDirectCosts = (data.salaries || []).reduce(
+  const salariesList = data.salaries || [];
+  const countSalaries = salariesList.length;
+  const totalDirectCosts = salariesList.reduce(
     (acc, s) => acc + ((s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary) + (s.extraAmount || 0)),
     0
   );
+
+  // Desglose de Sueldos: Pendientes de Pago (Impagos) vs Pagados
+  const unpaidSalaries = salariesList.filter(s => s.status === 'PENDIENTE');
+  const unpaidSalariesCount = unpaidSalaries.length;
+  const unpaidSalariesAmount = unpaidSalaries.reduce(
+    (acc, s) => acc + ((s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary) + (s.extraAmount || 0)),
+    0
+  );
+  const unpaidSalariesNetDisburse = unpaidSalaries.reduce(
+    (acc, s) => acc + Math.max(0, ((s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary) + (s.extraAmount || 0)) - (s.advance || 0)),
+    0
+  );
+  const paidSalaries = salariesList.filter(s => s.status === 'PAGO');
+  const paidSalariesCount = paidSalaries.length;
+  const paidSalariesAmount = paidSalaries.reduce(
+    (acc, s) => acc + ((s.receiptAmount !== undefined ? s.receiptAmount : s.netSalary) + (s.extraAmount || 0)),
+    0
+  );
+  const totalAdvances = salariesList.reduce((acc, s) => acc + (s.advance || 0), 0);
 
   // Total Gastos Fijos Reales y desglose de Pagados vs Pendientes/Impagos
   const fixedExpensesList = data.fixedExpenses || [];
@@ -842,12 +868,24 @@ export function calculateManagerialMetrics(
   const totalBankExpenses = (data.bankExpenses || []).reduce((acc, curr) => acc + (curr.amount || 0), 0);
 
   // Margen Neto Global Real (Ingresos - Costos Directos - Gastos Fijos - Gastos Bancarios)
-  const globalNetMargin = totalIncome - totalDirectCosts - totalFixedExpenses - totalBankExpenses;
+  const totalAllCosts = totalDirectCosts + totalFixedExpenses + totalBankExpenses;
+  const globalNetMargin = totalIncome - totalAllCosts;
   const globalNetMarginPercent = totalIncome > 0 ? Math.round((globalNetMargin / totalIncome) * 100) : 0;
 
-  // Alertas de Cobranza (facturas IMPAGO)
-  const unpaidInvoices = data.clientBilling.filter(c => c.status === 'IMPAGO');
-  const totalUnpaidAmount = unpaidInvoices.reduce((acc, curr) => acc + curr.totalNet, 0);
+  // Alertas y desglose de Cobranza de Clientes (Facturación PAGO vs IMPAGO)
+  const clientBillingList = data.clientBilling || [];
+  const unpaidInvoices = clientBillingList.filter(c => c.status === 'IMPAGO');
+  const totalUnpaidAmount = unpaidInvoices.reduce(
+    (acc, curr) => acc + (curr.totalNet !== undefined ? curr.totalNet : curr.hourlyRate * curr.totalHours),
+    0
+  );
+  const unpaidInvoicesCount = unpaidInvoices.length;
+  const paidInvoices = clientBillingList.filter(c => c.status === 'PAGO');
+  const paidInvoicesAmount = paidInvoices.reduce(
+    (acc, curr) => acc + (curr.totalNet !== undefined ? curr.totalNet : curr.hourlyRate * curr.totalHours),
+    0
+  );
+  const paidInvoicesCount = paidInvoices.length;
 
   // Distribución de Costos (Desglose porcentual)
   const totalExpenditure = totalDirectCosts + totalFixedExpenses + totalBankExpenses;
@@ -911,6 +949,13 @@ export function calculateManagerialMetrics(
     profitability,
     totalIncome,
     totalDirectCosts,
+    countSalaries,
+    unpaidSalariesAmount,
+    unpaidSalariesNetDisburse,
+    unpaidSalariesCount,
+    paidSalariesAmount,
+    paidSalariesCount,
+    totalAdvances,
     totalFixedExpenses,
     countFixedExpenses,
     unpaidFixedExpensesAmount,
@@ -918,12 +963,14 @@ export function calculateManagerialMetrics(
     paidFixedExpensesAmount,
     paidFixedExpensesCount,
     totalBankExpenses,
-    totalAllCosts: totalDirectCosts + totalFixedExpenses + totalBankExpenses,
+    totalAllCosts,
     globalNetMargin,
     globalNetMarginPercent,
     unpaidInvoices,
     totalUnpaidAmount,
-    unpaidInvoicesCount: unpaidInvoices.length,
+    unpaidInvoicesCount,
+    paidInvoicesAmount,
+    paidInvoicesCount,
     costDistribution,
     generalSummary,
   };

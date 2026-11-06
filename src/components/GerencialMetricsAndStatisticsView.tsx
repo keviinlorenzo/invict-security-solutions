@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Task, Expense, UserPersona, AreaType } from '../types';
+import { subscribeToCloudSync } from '../utils/cloudSyncService';
 import {
   computeMonthlyCompanyStatistics,
   computeYearlyCompanyStatistics,
@@ -90,6 +91,26 @@ export const GerencialMetricsAndStatisticsView: React.FC<GerencialMetricsAndStat
   // Estado del Modal de Fórmulas Hubbard
   const [isFormulaModalOpen, setIsFormulaModalOpen] = useState(false);
   const [selectedFormulaId, setSelectedFormulaId] = useState<HubbardConditionId>('normal');
+  const [sheetsVersion, setSheetsVersion] = useState(0);
+
+  // Sincronización en tiempo real con las planillas financieras completadas por Gerencia
+  useEffect(() => {
+    const handleSheetsUpdate = () => {
+      setSheetsVersion((v) => v + 1);
+    };
+    window.addEventListener('invict_managerial_sheets_mutation', handleSheetsUpdate);
+    window.addEventListener('storage', handleSheetsUpdate);
+    const unsub = subscribeToCloudSync((payload) => {
+      if (payload.type === 'SHEET_MUTATION' || payload.type === 'FULL_STATE_SYNC' || payload.stateSnapshot) {
+        setSheetsVersion((v) => v + 1);
+      }
+    });
+    return () => {
+      window.removeEventListener('invict_managerial_sheets_mutation', handleSheetsUpdate);
+      window.removeEventListener('storage', handleSheetsUpdate);
+      unsub();
+    };
+  }, []);
 
   // 2. Cálculo de Datos Estadísticos (Mensual o Anual, Global y por Puestos 100% dinámicos)
   const statsData: CompanyStatisticsData = useMemo(() => {
@@ -98,7 +119,7 @@ export const GerencialMetricsAndStatisticsView: React.FC<GerencialMetricsAndStat
     } else {
       return computeYearlyCompanyStatistics(selectedYear, tasks, expenses, allPersonas);
     }
-  }, [timeMode, currentPeriod, selectedYear, tasks, expenses, allPersonas]);
+  }, [timeMode, currentPeriod, selectedYear, tasks, expenses, allPersonas, sheetsVersion]);
 
   const handleOpenConditionFormula = (condition: HubbardConditionFormula) => {
     setSelectedFormulaId(condition.id);
@@ -583,12 +604,18 @@ export const GerencialMetricsAndStatisticsView: React.FC<GerencialMetricsAndStat
               </span>
             </div>
             <div className="text-2xl font-black font-mono text-white mt-1">
-              $ {Math.round(statsData.financialSeries.currentValue / 1000).toLocaleString('es-AR')}{' '}
-              <span className="text-xs font-normal text-slate-400">mil</span>
+              $ {statsData.financialSeries.currentValue.toLocaleString('es-AR')}
             </div>
             <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2 pt-2 border-t border-[#1f2738]">
-              <span>Margen Operativo:</span>
-              <span className="font-mono font-bold text-emerald-400">+47% Bruto</span>
+              <span>Margen Neto Libre:</span>
+              <span className={`font-mono font-bold ${(statsData.financialSeries.netMarginPercent ?? 28) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {statsData.financialSeries.netMarginPercent !== undefined ? `${statsData.financialSeries.netMarginPercent}% Libre` : '+28% Libre'}
+                {statsData.financialSeries.netMargin !== undefined && (
+                  <span className="text-[10px] text-slate-400 font-normal ml-1">
+                    ($ {statsData.financialSeries.netMargin.toLocaleString('es-AR')})
+                  </span>
+                )}
+              </span>
             </div>
           </div>
 
