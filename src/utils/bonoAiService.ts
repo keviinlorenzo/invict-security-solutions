@@ -1,4 +1,56 @@
 import { UserPersona, Task } from '../types';
+import {
+  getContractsExpiringSoon,
+  getFixedTermContracts,
+  getContractDaysRemaining,
+  isHumanResourcesUser,
+  describeContractDays,
+  formatContractDate,
+} from '../data/fixedTermContractsData';
+
+/**
+ * Consultas sobre contratos a plazo fijo. El detalle de vencimientos y el aviso de una semana
+ * es ÚNICAMENTE para el usuario de Recursos Humanos; el resto solo es derivado a la planilla (solo lectura).
+ */
+export function answerContractQuery(query: string, user: UserPersona): string | null {
+  const q = query.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const mentionsContracts =
+    q.includes('plazo fijo') || (q.includes('contrato') && (q.includes('venc') || q.includes('fin') || q.includes('termin') || q.includes('proxim')));
+  if (!mentionsContracts) return null;
+
+  const firstName = user.name.split(' ')[0];
+  if (!isHumanResourcesUser(user)) {
+    return (
+      `Hola **${firstName}**: los **Contratos a Plazo Fijo** se encuentran en **Planillas Informativas → 4. Contratos a Plazo Fijo** (solo lectura para tu puesto). ` +
+      `Las **alertas de vencimiento** (una semana antes) las recibe únicamente el usuario de **Recursos Humanos**, que es quien gestiona las renovaciones. ` +
+      `Las fechas de fin de contrato también aparecen en el **Calendario**, diferenciadas de las tareas.`
+    );
+  }
+
+  const all = getFixedTermContracts();
+  const soon = getContractsExpiringSoon(all);
+  if (all.length === 0) {
+    return `Hola **${firstName}**: todavía no hay contratos a plazo fijo cargados en la planilla. Cuando los cargues en **Planillas Informativas → 4. Contratos a Plazo Fijo**, te aviso **una semana antes** de cada vencimiento. 📋`;
+  }
+  const upcoming = all
+    .map((c) => ({ c, d: getContractDaysRemaining(c.endDate) }))
+    .filter((x) => x.d !== null && x.d >= 0)
+    .sort((a, b) => (a.d as number) - (b.d as number))
+    .slice(0, 5);
+  const soonLines = soon
+    .map((c) => `  • ⚠️ **${c.fullName}** (${c.assignedObjective || 'sin objetivo'}) — ${describeContractDays(c.daysRemaining)} (${formatContractDate(c.endDate)})`)
+    .join('\n');
+  const nextLines = upcoming
+    .map(({ c, d }) => `  • **${c.fullName}** — ${formatContractDate(c.endDate)} (${describeContractDays(d as number)})`)
+    .join('\n');
+  return (
+    `Hola **${firstName}**, hay **${all.length}** contratos a plazo fijo registrados.\n\n` +
+    (soon.length > 0
+      ? `🔔 **Vencen en 7 días o menos (${soon.length}):**\n${soonLines}\n\n`
+      : `✅ No hay contratos que venzan en los próximos 7 días.\n\n`) +
+    (nextLines ? `📅 **Próximos vencimientos:**\n${nextLines}` : '')
+  );
+}
 import { calculateDaysRemaining, getCurrentPeriodString, getNextPeriodString, formatPeriodName } from './dateUtils';
 import {
   generatePlainTextTable,

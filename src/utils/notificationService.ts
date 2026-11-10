@@ -2,6 +2,9 @@ import { Task, InternalMessage, UserPersona } from '../types';
 import { calculateDaysRemaining } from './dateUtils';
 import { sendEmailAlertForMention } from './emailAlertService';
 import { USER_PERSONAS } from '../data/mockData';
+import { getContractAlertsForPersona, describeContractDays, formatContractDate } from '../data/fixedTermContractsData';
+
+const NOTIFIED_CONTRACTS_KEY = 'invict_notified_contract_alerts';
 
 const NOTIFICATIONS_ENABLED_KEY = 'invict_web_notifications_enabled';
 const NOTIFIED_TASKS_KEY = 'invict_notified_tasks_ids';
@@ -161,4 +164,35 @@ export function notifySingleMention(
       requireInteraction: true,
     });
   }
+}
+
+/**
+ * Notificación nativa de fin de contrato a plazo fijo (una semana antes).
+ * ÚNICAMENTE se dispara en el dispositivo/sesión del usuario de Recursos Humanos.
+ * Se notifica una vez por contrato y por día para no repetir el aviso.
+ */
+export function checkAndTriggerContractExpiryNotifications(persona: UserPersona): void {
+  const alerts = getContractAlertsForPersona(persona); // [] si no es Recursos Humanos
+  if (alerts.length === 0) return;
+  if (!isNotificationSupported() || getNotificationPermission() !== 'granted' || !areWebNotificationsEnabled()) {
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const notified = getNotifiedIds(NOTIFIED_CONTRACTS_KEY);
+
+  alerts.forEach((c) => {
+    const key = `${c.id}|${c.endDate}|${today}`;
+    if (notified.has(key)) return;
+    showNativeNotification(`INVICT RR.HH.: Contrato a plazo fijo por vencer - ${c.fullName || 'Colaborador'}`, {
+      body: `${c.fullName || 'Colaborador'} (${c.assignedObjective || 'sin objetivo'}) - ${describeContractDays(c.daysRemaining)}.\nFin de contrato: ${formatContractDate(c.endDate)}`,
+      icon: '/icons/icon-192-v2.png',
+      badge: '/icons/icon-192-v2.png',
+      tag: `contract-${c.id}`,
+      requireInteraction: true,
+    });
+    notified.add(key);
+  });
+
+  saveNotifiedIds(NOTIFIED_CONTRACTS_KEY, notified);
 }

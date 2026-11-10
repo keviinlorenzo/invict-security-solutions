@@ -40,9 +40,17 @@ import {
 import {
   queryBonoIntelligentEngine,
   detectSuggestedAction,
+  answerContractQuery,
   BonoSuggestedAction,
   BonoHistoryTurn,
 } from '../utils/bonoAiService';
+import {
+  getContractAlertsForPersona,
+  describeContractDays,
+  formatContractDate,
+  FIXED_TERM_CONTRACTS_EVENT,
+} from '../data/fixedTermContractsData';
+import { subscribeToCloudSync } from '../utils/cloudSyncService';
 
 interface BonoMessage {
   id: string;
@@ -114,6 +122,46 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
       setHasUnreadAlert(true);
     }
   }, [urgentUserTasks.length, isOpen]);
+
+  // BONO avisa una semana antes del fin de contratos a plazo fijo: ÚNICAMENTE al usuario de Recursos Humanos
+  useEffect(() => {
+    const check = () => {
+      const alerts = getContractAlertsForPersona(currentUser); // [] si no es RR.HH.
+      if (alerts.length === 0) return;
+      const today = new Date().toISOString().slice(0, 10);
+      const storeKey = `bono_contract_alerts_${currentUser.id}`;
+      let notified: string[] = [];
+      try {
+        notified = JSON.parse(localStorage.getItem(storeKey) || '[]');
+      } catch (e) {}
+      const fresh = alerts.filter(a => !notified.includes(`${a.id}|${a.endDate}|${today}`));
+      if (fresh.length === 0) return;
+      const lines = fresh
+        .map(a => `• **${a.fullName || 'Colaborador'}** (${a.assignedObjective || 'sin objetivo'}) — ${describeContractDays(a.daysRemaining)} · fin: ${formatContractDate(a.endDate)}`)
+        .join('\n');
+      const bonoMsg: BonoMessage = {
+        id: `bono-contract-${Date.now()}`,
+        sender: 'bono',
+        text: `🔔 **Aviso de Recursos Humanos:** ${fresh.length === 1 ? 'un contrato a plazo fijo está' : `${fresh.length} contratos a plazo fijo están`} por finalizar (**una semana o menos**):\n\n${lines}\n\nRevisa la planilla en **Planillas Informativas → 4. Contratos a Plazo Fijo** para gestionar la renovación o baja.`,
+        timestamp: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+        modelLabel: 'BONO AI • Alerta RR.HH.',
+      };
+      setMessages(prev => [...prev, bonoMsg]);
+      setHasUnreadAlert(true);
+      try {
+        localStorage.setItem(storeKey, JSON.stringify([...notified, ...fresh.map(a => `${a.id}|${a.endDate}|${today}`)].slice(-200)));
+      } catch (e) {}
+    };
+    check();
+    window.addEventListener(FIXED_TERM_CONTRACTS_EVENT, check);
+    const unsub = subscribeToCloudSync(check);
+    const timer = window.setInterval(check, 60 * 60 * 1000);
+    return () => {
+      window.removeEventListener(FIXED_TERM_CONTRACTS_EVENT, check);
+      unsub();
+      window.clearInterval(timer);
+    };
+  }, [currentUser.id, currentUser.department, currentUser.profileType]);
 
   useEffect(() => {
     try {
@@ -214,6 +262,15 @@ export const BonoChatAssistant: React.FC<BonoChatAssistantProps> = ({
       if (memoryAnswer) {
         replyText = memoryAnswer;
         modelLabel = 'BONO AI • Memoria Contextual';
+      }
+
+      // 2b. Contratos a plazo fijo (alerta de una semana: solo Recursos Humanos)
+      if (!replyText) {
+        const contractAnswer = answerContractQuery(text, currentUser);
+        if (contractAnswer) {
+          replyText = contractAnswer;
+          modelLabel = 'BONO AI • Contratos a Plazo Fijo';
+        }
       }
 
       // 3. Query the Intelligent Hybrid + Cloud AI Engine (Free & Unlimited)

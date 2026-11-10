@@ -93,7 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'admin_sheets',
-      label: 'Planillas Informativas & Informes',
+      label: 'Planillas Informativas',
       icon: <FileText className="w-4 h-4 text-blue-400" />,
     },
     {

@@ -26,6 +26,12 @@ import {
 } from 'lucide-react';
 import { calculateDaysRemaining } from '../utils/dateUtils';
 import { PROFILE_METADATA } from '../utils/authService';
+import {
+  ContractAlertItem,
+  isHumanResourcesUser,
+  describeContractDays,
+  formatContractDate,
+} from '../data/fixedTermContractsData';
 
 interface HeaderProps {
   currentPersona: UserPersona;
@@ -55,6 +61,7 @@ interface HeaderProps {
   totalEmailAlertsCount?: number;
   onSelectMentionMessage?: (messageId: string, taskId?: string) => void;
   selectedArea?: AreaType;
+  contractAlerts?: ContractAlertItem[];
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -85,6 +92,7 @@ export const Header: React.FC<HeaderProps> = ({
   totalEmailAlertsCount = 0,
   onSelectMentionMessage,
   selectedArea = 'TODOS',
+  contractAlerts = [],
 }) => {
   const [showPersonaMenu, setShowPersonaMenu] = useState(false);
   const [showNotificationMenu, setShowNotificationMenu] = useState(false);
@@ -132,7 +140,10 @@ export const Header: React.FC<HeaderProps> = ({
     );
   });
 
-  const totalAlertsCount = delayedTasks.length + personalMentions.length;
+  // Alertas de fin de contrato a plazo fijo: ÚNICAMENTE para el usuario de Recursos Humanos
+  const visibleContractAlerts = isHumanResourcesUser(currentPersona) ? contractAlerts : [];
+
+  const totalAlertsCount = delayedTasks.length + personalMentions.length + visibleContractAlerts.length;
 
   return (
     <header className="sticky top-0 z-50 flex items-center justify-between px-2.5 sm:px-6 py-2 sm:py-2.5 bg-[#0d0f14] border-b border-[#222734] shadow-sm select-none w-full max-w-full">
@@ -458,6 +469,32 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
 
                 <div className="max-h-80 overflow-y-auto divide-y divide-[#1f2535]">
+
+                  {/* Contratos a plazo fijo por vencer (solo Recursos Humanos) */}
+                  {visibleContractAlerts.length > 0 && (
+                    <div className="p-3 bg-violet-950/20">
+                      <div className="flex items-center gap-1.5 text-violet-300 text-[11px] font-bold uppercase mb-1.5">
+                        <Clock className="w-3.5 h-3.5 text-violet-300" />
+                        Contratos a Plazo Fijo por Vencer ({visibleContractAlerts.length})
+                      </div>
+                      {visibleContractAlerts.map(c => (
+                        <div
+                          key={c.id}
+                          className="text-xs text-slate-300 mb-2 p-2 rounded-xl border border-dashed border-violet-500/50 bg-[#10141f]"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-white truncate">{c.fullName || 'Sin nombre'}</span>
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 bg-violet-950/70 text-violet-200 border-violet-700/60">
+                              {describeContractDays(c.daysRemaining)}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">
+                            Objetivo: {c.assignedObjective || '-'} · Fin: {formatContractDate(c.endDate)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Tareas Vencidas o en 48hs del puesto seleccionado */}
                   {delayedTasks.length > 0 && (

@@ -33,6 +33,12 @@ import {
   ArrowDown
 } from 'lucide-react';
 import { broadcastCloudChange, subscribeToCloudSync } from '../utils/cloudSyncService';
+import { FixedTermContractsSheet } from './FixedTermContractsSheet';
+import {
+  canEditFixedTermContracts,
+  getFixedTermContracts,
+  FIXED_TERM_CONTRACTS_EVENT,
+} from '../data/fixedTermContractsData';
 import {
   formatPeriodName,
   getAdjacentPeriod,
@@ -234,7 +240,20 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
   currentPeriod,
   onPeriodChange,
 }) => {
-  const [activeSheet, setActiveSheet] = useState<'sin_disep' | 'debe_uniforme' | 'informes_clientes'>('informes_clientes');
+  const [activeSheet, setActiveSheet] = useState<'sin_disep' | 'debe_uniforme' | 'informes_clientes' | 'contratos'>('informes_clientes');
+  const [contractsCount, setContractsCount] = useState(() => getFixedTermContracts().length);
+
+  useEffect(() => {
+    const refresh = () => setContractsCount(getFixedTermContracts().length);
+    window.addEventListener(FIXED_TERM_CONTRACTS_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    const unsub = subscribeToCloudSync(refresh);
+    return () => {
+      window.removeEventListener(FIXED_TERM_CONTRACTS_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+      unsub();
+    };
+  }, []);
   const [sheetsData, setSheetsData] = useState<AdminInformativeSheetsData>(() => getAdminInformativeSheets());
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'TODOS' | InformeStatus>('TODOS');
@@ -861,7 +880,19 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
             </span>
 
             {/* Indicador dinámico de permisos según la planilla activa */}
-            {activeSheet === 'informes_clientes' ? (
+            {activeSheet === 'contratos' ? (
+              canEditFixedTermContracts(currentPersona) ? (
+                <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                  Modo Edición Habilitado ({currentPersona.department === 'GERENCIA' ? 'Gerencia' : 'Recursos Humanos'})
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase bg-amber-950/80 text-amber-300 border border-amber-700/60 rounded-full flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-400" />
+                  Modo Solo Lectura (Solo Recursos Humanos y Gerencia pueden editar)
+                </span>
+              )
+            ) : activeSheet === 'informes_clientes' ? (
               canEditInformes ? (
                 <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 rounded-full flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3 text-emerald-400" />
@@ -892,18 +923,22 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
           </div>
 
           <h2 className="text-xl font-black text-white tracking-tight">
-            {activeSheet === 'informes_clientes'
-              ? 'Planilla de Informes Enviados a Clientes'
+            {activeSheet === 'contratos'
+              ? 'Planillas Informativas: Contratos a Plazo Fijo'
+              : activeSheet === 'informes_clientes'
+              ? 'Planillas Informativas: Informes Enviados a Clientes'
               : 'Control Informativo: Personal Sin DISEP & Devolución de Uniformes'}
           </h2>
           <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-            {activeSheet === 'informes_clientes'
+            {activeSheet === 'contratos'
+              ? 'Registro numerado de contratos a plazo fijo: colaborador, objetivo asignado, inicio y fin de contrato. La fecha de fin se refleja en el calendario y Recursos Humanos recibe una alerta una semana antes del vencimiento.'
+              : activeSheet === 'informes_clientes'
               ? 'Registro correlativo mensual de informes de seguridad y novedades remitidos a clientes. Control de número de caso, fecha de despacho, medidas adoptadas y resolución de incidentes.'
               : 'Registro informativo compartido en tiempo real para todos los puestos de la oficina. Estas planillas son de consulta operativa y no alteran los porcentajes de tareas.'}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className={activeSheet === 'contratos' ? 'hidden' : 'flex flex-wrap items-center gap-2 shrink-0'}>
           <button
             onClick={handleExportCSV}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-slate-200 font-bold text-xs border border-[#2e3b54] shadow transition-all cursor-pointer active:scale-95"
@@ -996,6 +1031,22 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
               {sheetsData.debeUniforme.length}
             </span>
           </button>
+
+          {/* TAB 4: CONTRATOS A PLAZO FIJO (edición RR.HH. y Gerencia) */}
+          <button
+            onClick={() => setActiveSheet('contratos')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer border ${
+              activeSheet === 'contratos'
+                ? 'bg-violet-600 text-white border-violet-500 shadow-lg'
+                : 'bg-[#121620] text-slate-300 border-[#22293b] hover:bg-[#192030]'
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>4. CONTRATOS A PLAZO FIJO</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-black/30 text-white">
+              {contractsCount}
+            </span>
+          </button>
         </div>
 
         {/* Search & Month Controls */}
@@ -1041,6 +1092,13 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
           </div>
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* PLANILLA 4: CONTRATOS A PLAZO FIJO (EDITA RR.HH. Y GERENCIA) */}
+      {/* ========================================================================= */}
+      {activeSheet === 'contratos' && (
+        <FixedTermContractsSheet currentPersona={currentPersona} onNotify={onNotify} searchTerm={searchTerm} />
+      )}
 
       {/* ========================================================================= */}
       {/* PLANILLA 1: INFORMES A CLIENTES (EXCLUSIVA AUXILIAR ADM Y OPERACIONES) */}

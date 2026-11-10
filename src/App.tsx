@@ -75,7 +75,12 @@ import {
 import { resetMonthDataToZero } from './data/managerialSheetsData';
 import { getEmailNotificationLogs } from './utils/emailAlertService';
 import { registerServiceWorker } from './utils/serviceWorkerManager';
-import { checkAndTriggerDeadlineNotifications } from './utils/notificationService';
+import { checkAndTriggerDeadlineNotifications, checkAndTriggerContractExpiryNotifications } from './utils/notificationService';
+import {
+  ContractAlertItem,
+  getContractAlertsForPersona,
+  FIXED_TERM_CONTRACTS_EVENT,
+} from './data/fixedTermContractsData';
 import { exportTasksToCSV } from './utils/exportUtils';
 import { exportTasksToPDF } from './utils/pdfExportUtils';
 import {
@@ -395,6 +400,27 @@ export default function App() {
     registerServiceWorker();
     checkAndTriggerDeadlineNotifications(tasks);
   }, []);
+
+  // Alertas de fin de contrato a plazo fijo (una semana antes): ÚNICAMENTE usuario de Recursos Humanos
+  const [contractAlerts, setContractAlerts] = useState<ContractAlertItem[]>([]);
+  useEffect(() => {
+    const refresh = () => {
+      const alerts = getContractAlertsForPersona(currentPersona); // [] para cualquier perfil que no sea RR.HH.
+      setContractAlerts(alerts);
+      if (alerts.length > 0) checkAndTriggerContractExpiryNotifications(currentPersona);
+    };
+    refresh();
+    window.addEventListener(FIXED_TERM_CONTRACTS_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    const unsub = subscribeToCloudSync(refresh);
+    const timer = window.setInterval(refresh, 60 * 60 * 1000);
+    return () => {
+      window.removeEventListener(FIXED_TERM_CONTRACTS_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+      unsub();
+      window.clearInterval(timer);
+    };
+  }, [currentPersona]);
 
   // Google Calendar Auth Listener
   useEffect(() => {
@@ -1586,6 +1612,7 @@ export default function App() {
         onExportPeriodPDF={handleExportCurrentPeriodPDF}
         totalEmailAlertsCount={emailLogs.length}
         onSelectMentionMessage={handleNavigateToMentionMessage}
+        contractAlerts={contractAlerts}
         selectedArea={selectedArea}
       />
 

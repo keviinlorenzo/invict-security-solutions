@@ -1,6 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Task, AreaType, GoogleCalendarEvent, UserPersona } from '../types';
 import { User } from 'firebase/auth';
+import {
+  getContractCalendarEvents,
+  getContractDaysRemaining,
+  describeContractDays,
+  FIXED_TERM_CONTRACTS_EVENT,
+  ContractCalendarEvent,
+} from '../data/fixedTermContractsData';
+import { subscribeToCloudSync } from '../utils/cloudSyncService';
 import {
   formatPeriodName,
   getAdjacentPeriod,
@@ -151,6 +159,27 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const isGerencia = currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE';
   const todayStr = getTodayDateString();
   const [selectedDayDate, setSelectedDayDate] = useState<string | null>(todayStr);
+
+  // Fin de contratos a plazo fijo (se muestran diferenciados de las tareas cotidianas)
+  const [contractEvents, setContractEvents] = useState<ContractCalendarEvent[]>(() => getContractCalendarEvents());
+  useEffect(() => {
+    const refresh = () => setContractEvents(getContractCalendarEvents());
+    window.addEventListener(FIXED_TERM_CONTRACTS_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    const unsub = subscribeToCloudSync(refresh);
+    return () => {
+      window.removeEventListener(FIXED_TERM_CONTRACTS_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+      unsub();
+    };
+  }, []);
+  const contractsByDay = useMemo(() => {
+    const map: Record<string, ContractCalendarEvent[]> = {};
+    contractEvents.forEach((c) => {
+      (map[c.date] = map[c.date] || []).push(c);
+    });
+    return map;
+  }, [contractEvents]);
 
   const [yearStr, monthStr] = (currentPeriod || DEFAULT_PERIOD).split('-');
   const year = parseInt(yearStr, 10);
@@ -598,6 +627,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       </div>
                     ))}
 
+                    {(contractsByDay[cell.dateStr] || []).slice(0, 2).map((ct) => (
+                      <div
+                        key={ct.id}
+                        title={`Fin de contrato a plazo fijo: ${ct.fullName} (${ct.assignedObjective || 'Sin objetivo'})`}
+                        className="text-[10px] px-1.5 py-0.5 rounded border border-dashed border-violet-400/70 bg-violet-950/50 text-violet-200 truncate flex items-center gap-1"
+                      >
+                        <span className="text-[9px]">📋</span>
+                        <span className="text-[9px] font-bold uppercase text-violet-300">FIN CONTRATO:</span>
+                        <span className="truncate">{ct.fullName}</span>
+                      </div>
+                    ))}
+
                     {dayTasks.length > 3 && (
                       <div className="text-[9px] text-slate-400 font-mono text-center">
                         +{dayTasks.length - 3} más...
@@ -638,6 +679,29 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             </div>
 
             <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1">
+              {selectedDayDate && (contractsByDay[selectedDayDate] || []).map((ct) => {
+                const days = getContractDaysRemaining(ct.date);
+                return (
+                  <div
+                    key={ct.id}
+                    className="p-3 rounded-xl border border-dashed border-violet-400/60 bg-violet-950/30 space-y-1"
+                  >
+                    <span className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded border bg-violet-900/60 text-violet-200 border-violet-600/60">
+                      📋 Fin de Contrato a Plazo Fijo
+                    </span>
+                    <div className="text-xs font-bold text-white">{ct.fullName}</div>
+                    <div className="text-[11px] text-slate-300">
+                      Objetivo: <strong className="text-white">{ct.assignedObjective || 'Sin objetivo asignado'}</strong>
+                    </div>
+                    {days !== null && (
+                      <div className="text-[10px] font-mono text-violet-300">
+                        {days < 0 ? `Finalizó hace ${Math.abs(days)} días` : describeContractDays(days)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
               {selectedDayTasks.length === 0 ? (
                 <div className="text-center py-8 text-slate-500 text-xs">
                   <CalendarIcon className="w-8 h-8 mx-auto mb-2 opacity-30" />

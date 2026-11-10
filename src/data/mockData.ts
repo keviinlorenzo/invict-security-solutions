@@ -290,8 +290,8 @@ export const INITIAL_TASKS: Task[] = [
     category: 'Capacitación Operativa',
     commentsCount: 0,
     lastModifiedBy: {
-      id: 'acc-subgerencia',
       name: 'Laura González',
+      email: 'laura@invictsecurity.com.ar',
       profile: 'SUB_GERENTE',
     },
     lastModifiedAt: '03/11/2026, 14:29:32 hs',
