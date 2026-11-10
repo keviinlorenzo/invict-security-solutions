@@ -23,6 +23,27 @@ export async function cloudSyncHandler(req: any, res: any) {
   try {
     if (req.method === 'GET') {
       const sinceVersion = Number(req.query?.since || 0);
+
+      // Ultra-lightweight HEAD check if client sent sinceVersion
+      if (sinceVersion > 0) {
+        const checkRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/invict_cloud_state?id=eq.global_state&select=version,updated_at,client_id`,
+          { headers: HEADERS }
+        );
+        if (checkRes.ok) {
+          const checkRows = (await checkRes.json()) as any[];
+          const checkRow = checkRows?.[0];
+          const dbVer = Number(checkRow?.version || 0);
+          if (dbVer > 0 && dbVer <= sinceVersion) {
+            return res.status(200).json({
+              changed: false,
+              version: dbVer,
+              updatedAt: checkRow?.updated_at,
+            });
+          }
+        }
+      }
+
       const r = await fetch(
         `${SUPABASE_URL}/rest/v1/invict_cloud_state?id=eq.global_state&select=version,updated_at,client_id,last_event,state`,
         { headers: HEADERS }
@@ -55,12 +76,23 @@ export async function cloudSyncHandler(req: any, res: any) {
 
     if (req.method === 'POST') {
       const { clientId, event, partialState } = req.body || {};
+      const cleanEvent = event
+        ? {
+            id: event.id,
+            type: event.type,
+            timestamp: event.timestamp,
+            authorName: event.authorName,
+            authorProfile: event.authorProfile,
+            authorEmail: event.authorEmail,
+            summary: event.summary,
+          }
+        : null;
       const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/upsert_invict_cloud_state`, {
         method: 'POST',
         headers: HEADERS,
         body: JSON.stringify({
           p_client_id: clientId || null,
-          p_last_event: event || null,
+          p_last_event: cleanEvent,
           p_partial_state: partialState || {},
         }),
       });

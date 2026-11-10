@@ -119,7 +119,17 @@ export function collectLocalSharedState(): Record<string, any> {
     const raw = localStorage.getItem(key);
     if (raw !== null) {
       try {
-        snapshot[key] = JSON.parse(raw);
+        let parsed = JSON.parse(raw);
+        // Trim modification history to prevent unlimited state growth
+        if (key === 'invict_cloud_modifications' && Array.isArray(parsed) && parsed.length > 40) {
+          parsed = parsed.slice(-40);
+          try {
+            localStorage.setItem(key, JSON.stringify(parsed));
+          } catch {
+            // ignore
+          }
+        }
+        snapshot[key] = parsed;
       } catch {
         snapshot[key] = raw;
       }
@@ -157,6 +167,10 @@ export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>):
 
 // --- SUPABASE POSTGRES + REALTIME WEBSOCKET MULTI-DEVICE ENGINE ---
 let remoteSyncInitialized = false;
+let lastCheckTime = 0;
+let pushDebounceTimer: any = null;
+let pendingRemoteEvent: CloudSyncPayload | undefined;
+let pendingSnapshot: Record<string, any> | undefined;
 
 function handleRemoteRow(row: any, isInitialFetch: boolean) {
   if (!row) return;
@@ -189,28 +203,59 @@ function handleRemoteRow(row: any, isInitialFetch: boolean) {
   }
 }
 
+async function fetchFullRemoteState(isInitial = false) {
+  try {
+    const { data, error } = await supabase
+      .from('invict_cloud_state')
+      .select('id, version, updated_at, client_id, last_event, state')
+      .eq('id', 'global_state')
+      .maybeSingle();
+
+    if (!error && data) {
+      handleRemoteRow(data, isInitial);
+    }
+  } catch {
+    // network offline
+  }
+}
+
+async function checkRemoteVersion() {
+  const now = Date.now();
+  // Throttle check so it cannot run more frequently than once every 8s
+  if (now - lastCheckTime < 8000) return;
+  lastCheckTime = now;
+
+  try {
+    // Ultra-lightweight HEAD check (~60 bytes transferred instead of 400KB+)
+    const { data, error } = await supabase
+      .from('invict_cloud_state')
+      .select('id, version, updated_at, client_id')
+      .eq('id', 'global_state')
+      .maybeSingle();
+
+    if (error || !data) return;
+
+    const rowVersion = Number(data.version || 0);
+    // If version hasn't changed or came from this exact client, do not download state!
+    if (rowVersion > 0 && rowVersion <= lastServerVersion) return;
+    if (data.client_id === CLIENT_INSTANCE_ID) {
+      lastServerVersion = rowVersion;
+      return;
+    }
+
+    // Only download full state when an actual newer version from another client is confirmed
+    await fetchFullRemoteState(false);
+  } catch {
+    // network offline
+  }
+}
+
 function initRemoteSync() {
   if (remoteSyncInitialized || typeof window === 'undefined') return;
   remoteSyncInitialized = true;
 
-  // 1. Initial fetch from Supabase Postgres
-  const fetchFromSupabase = async (isInitial = false) => {
-    try {
-      const { data, error } = await supabase
-        .from('invict_cloud_state')
-        .select('id, version, updated_at, client_id, last_event, state')
-        .eq('id', 'global_state')
-        .maybeSingle();
-
-      if (!error && data) {
-        handleRemoteRow(data, isInitial);
-      }
-    } catch {
-      // network offline
-    }
-  };
-
-  fetchFromSupabase(true);
+  // 1. Initial fetch of full database state
+  fetchFullRemoteState(true);
 
   // 2. Supabase Realtime WebSocket subscription (instant push on any DB change + broadcast)
   try {
@@ -240,23 +285,47 @@ function initRemoteSync() {
     console.warn('Supabase Realtime subscription warning:', e);
   }
 
-  // 3. Periodic reconciliation every 5s and on window focus
-  setInterval(() => fetchFromSupabase(false), 5000);
-  window.addEventListener('focus', () => fetchFromSupabase(false));
+  // 3. Periodic fallback reconciliation: checks ONLY lightweight version every 60s
+  setInterval(() => checkRemoteVersion(), 60000);
+  window.addEventListener('focus', () => checkRemoteVersion());
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) fetchFromSupabase(false);
+    if (!document.hidden) checkRemoteVersion();
+  });
+
+  // Flush any pending debounced push on tab close/unload
+  window.addEventListener('beforeunload', () => {
+    if (pushDebounceTimer) {
+      clearTimeout(pushDebounceTimer);
+      pushDebounceTimer = null;
+      if (pendingSnapshot) {
+        executePushToRemote(pendingRemoteEvent, pendingSnapshot);
+      }
+    }
   });
 }
 
-async function pushStateToRemote(event?: CloudSyncPayload, stateSnapshot?: Record<string, any>) {
+async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Record<string, any>) {
   if (typeof window === 'undefined') return;
   const snapshot = stateSnapshot || collectLocalSharedState();
+
+  // Strip huge duplicate objects from event to keep egress and database row tiny
+  const lightweightEvent = event
+    ? {
+        id: event.id,
+        type: event.type,
+        timestamp: event.timestamp,
+        authorName: event.authorName,
+        authorProfile: event.authorProfile,
+        authorEmail: event.authorEmail,
+        summary: event.summary,
+      }
+    : null;
 
   // 1. Atomic RPC upsert directly to Supabase Postgres
   try {
     const { data, error } = await supabase.rpc('upsert_invict_cloud_state', {
       p_client_id: CLIENT_INSTANCE_ID,
-      p_last_event: event || null,
+      p_last_event: lightweightEvent,
       p_partial_state: snapshot,
     });
     if (!error && Array.isArray(data) && data[0]?.version) {
@@ -270,7 +339,7 @@ async function pushStateToRemote(event?: CloudSyncPayload, stateSnapshot?: Recor
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clientId: CLIENT_INSTANCE_ID,
-          event,
+          event: lightweightEvent,
           partialState: snapshot,
         }),
       });
@@ -283,18 +352,36 @@ async function pushStateToRemote(event?: CloudSyncPayload, stateSnapshot?: Recor
     }
   }
 
-  // 2. Also broadcast via Supabase Realtime channel for sub-100ms instant delivery
-  if (event) {
+  // 2. Broadcast lightweight notification via Supabase Realtime channel for sub-100ms instant delivery
+  if (lightweightEvent) {
     try {
       supabase.channel('invict-realtime-sync').send({
         type: 'broadcast',
         event: 'cloud_mutation',
-        payload: { clientId: CLIENT_INSTANCE_ID, event },
+        payload: { clientId: CLIENT_INSTANCE_ID, event: lightweightEvent },
       });
     } catch {
       // ignore
     }
   }
+}
+
+export function pushStateToRemote(event?: CloudSyncPayload, stateSnapshot?: Record<string, any>) {
+  pendingRemoteEvent = event;
+  pendingSnapshot = stateSnapshot || collectLocalSharedState();
+
+  if (pushDebounceTimer) {
+    clearTimeout(pushDebounceTimer);
+  }
+
+  pushDebounceTimer = setTimeout(() => {
+    pushDebounceTimer = null;
+    const evt = pendingRemoteEvent;
+    const snap = pendingSnapshot;
+    pendingRemoteEvent = undefined;
+    pendingSnapshot = undefined;
+    executePushToRemote(evt, snap);
+  }, 350);
 }
 
 export function subscribeToCloudSync(callback: SyncCallback): () => void {
