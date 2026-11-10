@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Plus, Trash2, Download, FileText, Search, AlertTriangle, CalendarClock, Lock } from 'lucide-react';
+import { Plus, Trash2, Download, FileText, Search, AlertTriangle, CalendarClock, Lock, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { UserPersona } from '../types';
 import { subscribeToCloudSync } from '../utils/cloudSyncService';
 import { getTodayDateString } from '../utils/dateUtils';
@@ -17,6 +17,9 @@ import {
   CONTRACT_ALERT_DAYS,
 } from '../data/fixedTermContractsData';
 
+type SortField = 'order' | 'fullName' | 'assignedObjective' | 'startDate' | 'endDate';
+type SortDirection = 'asc' | 'desc';
+
 interface Props {
   currentPersona: UserPersona;
   onNotify?: (msg: string) => void;
@@ -25,6 +28,8 @@ interface Props {
 
 export const FixedTermContractsSheet: React.FC<Props> = ({ currentPersona, onNotify, searchTerm }) => {
   const [contracts, setContracts] = useState<FixedTermContractItem[]>(() => getFixedTermContracts());
+  const [sortField, setSortField] = useState<SortField>('order');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const canEdit = canEditFixedTermContracts(currentPersona);
 
   useEffect(() => {
@@ -81,17 +86,58 @@ export const FixedTermContractsSheet: React.FC<Props> = ({ currentPersona, onNot
     onNotify?.('Contrato eliminado de la planilla.');
   };
 
+  const handleToggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
   const q = searchTerm.toLowerCase().trim();
   const filtered = useMemo(() => {
     const list = contracts.map((c, idx) => ({ ...c, order: idx + 1 }));
-    if (!q) return list;
-    return list.filter(
-      (c) =>
-        c.fullName.toLowerCase().includes(q) ||
-        c.assignedObjective.toLowerCase().includes(q) ||
-        (c.observations || '').toLowerCase().includes(q)
-    );
-  }, [contracts, q]);
+    let result = list;
+    if (q) {
+      result = list.filter(
+        (c) =>
+          c.fullName.toLowerCase().includes(q) ||
+          c.assignedObjective.toLowerCase().includes(q) ||
+          (c.observations || '').toLowerCase().includes(q)
+      );
+    }
+
+    if (sortField === 'order') {
+      return sortDirection === 'asc'
+        ? [...result].sort((a, b) => a.order - b.order)
+        : [...result].sort((a, b) => b.order - a.order);
+    }
+
+    return [...result].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'fullName') {
+        cmp = (a.fullName || '').localeCompare(b.fullName || '', 'es', { sensitivity: 'base' });
+      } else if (sortField === 'assignedObjective') {
+        cmp = (a.assignedObjective || '').localeCompare(b.assignedObjective || '', 'es', { sensitivity: 'base' });
+      } else if (sortField === 'startDate') {
+        const da = a.startDate || '';
+        const db = b.startDate || '';
+        if (!da && !db) cmp = 0;
+        else if (!da) cmp = 1;
+        else if (!db) cmp = -1;
+        else cmp = da.localeCompare(db);
+      } else if (sortField === 'endDate') {
+        const da = a.endDate || '';
+        const db = b.endDate || '';
+        if (!da && !db) cmp = 0;
+        else if (!da) cmp = 1;
+        else if (!db) cmp = -1;
+        else cmp = da.localeCompare(db);
+      }
+      return sortDirection === 'asc' ? cmp : -cmp;
+    });
+  }, [contracts, q, sortField, sortDirection]);
 
   const expiringCount = contracts.filter((c) => {
     const d = getContractDaysRemaining(c.endDate);
@@ -214,11 +260,86 @@ export const FixedTermContractsSheet: React.FC<Props> = ({ currentPersona, onNot
         <table className="w-full text-left text-xs min-w-[900px]">
           <thead>
             <tr className="bg-[#171c28] text-slate-400 uppercase text-[10px] tracking-wider">
-              <th className="py-2.5 px-3 w-12 text-center">N°</th>
-              <th className="py-2.5 px-3 min-w-[200px]">Colaborador</th>
-              <th className="py-2.5 px-3 min-w-[180px]">Objetivo Asignado</th>
-              <th className="py-2.5 px-3 min-w-[140px]">Inicio de Contrato</th>
-              <th className="py-2.5 px-3 min-w-[170px]">Fin de Contrato</th>
+              <th
+                onClick={() => handleToggleSort('order')}
+                className="py-2.5 px-3 w-14 text-center select-none cursor-pointer hover:text-white transition-colors group"
+                title={`Ordenar por N° (${sortField === 'order' && sortDirection === 'asc' ? 'descendente' : 'ascendente'})`}
+              >
+                <div className="flex items-center justify-center gap-1">
+                  <span>N°</span>
+                  <span className={`transition-opacity ${sortField === 'order' ? 'text-violet-400 opacity-100' : 'text-slate-500 opacity-0 group-hover:opacity-70'}`}>
+                    {sortField === 'order' ? (
+                      sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3" />
+                    )}
+                  </span>
+                </div>
+              </th>
+              <th
+                onClick={() => handleToggleSort('fullName')}
+                className="py-2.5 px-3 min-w-[200px] select-none cursor-pointer hover:text-white transition-colors group"
+                title={`Ordenar por Colaborador (${sortField === 'fullName' && sortDirection === 'asc' ? 'descendente' : 'ascendente'})`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Colaborador</span>
+                  <span className={`transition-opacity ${sortField === 'fullName' ? 'text-violet-400 opacity-100' : 'text-slate-500 opacity-0 group-hover:opacity-70'}`}>
+                    {sortField === 'fullName' ? (
+                      sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3" />
+                    )}
+                  </span>
+                </div>
+              </th>
+              <th
+                onClick={() => handleToggleSort('assignedObjective')}
+                className="py-2.5 px-3 min-w-[180px] select-none cursor-pointer hover:text-white transition-colors group"
+                title={`Ordenar por Objetivo Asignado (${sortField === 'assignedObjective' && sortDirection === 'asc' ? 'descendente' : 'ascendente'})`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Objetivo Asignado</span>
+                  <span className={`transition-opacity ${sortField === 'assignedObjective' ? 'text-violet-400 opacity-100' : 'text-slate-500 opacity-0 group-hover:opacity-70'}`}>
+                    {sortField === 'assignedObjective' ? (
+                      sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3" />
+                    )}
+                  </span>
+                </div>
+              </th>
+              <th
+                onClick={() => handleToggleSort('startDate')}
+                className="py-2.5 px-3 min-w-[140px] select-none cursor-pointer hover:text-white transition-colors group"
+                title={`Ordenar por Fecha de Inicio (${sortField === 'startDate' && sortDirection === 'asc' ? 'descendente' : 'ascendente'})`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Inicio de Contrato</span>
+                  <span className={`transition-opacity ${sortField === 'startDate' ? 'text-violet-400 opacity-100' : 'text-slate-500 opacity-0 group-hover:opacity-70'}`}>
+                    {sortField === 'startDate' ? (
+                      sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3" />
+                    )}
+                  </span>
+                </div>
+              </th>
+              <th
+                onClick={() => handleToggleSort('endDate')}
+                className="py-2.5 px-3 min-w-[170px] select-none cursor-pointer hover:text-white transition-colors group"
+                title={`Ordenar por Fecha de Fin (${sortField === 'endDate' && sortDirection === 'asc' ? 'descendente' : 'ascendente'})`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Fin de Contrato</span>
+                  <span className={`transition-opacity ${sortField === 'endDate' ? 'text-violet-400 opacity-100' : 'text-slate-500 opacity-0 group-hover:opacity-70'}`}>
+                    {sortField === 'endDate' ? (
+                      sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3" />
+                    )}
+                  </span>
+                </div>
+              </th>
               <th className="py-2.5 px-3 min-w-[220px]">Observaciones (opcional)</th>
               {canEdit && <th className="py-2.5 px-2 w-10" />}
             </tr>

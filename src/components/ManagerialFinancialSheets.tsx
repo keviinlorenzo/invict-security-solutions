@@ -457,6 +457,9 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
 
     updatedSalaries[index] = item;
     updateAndSaveData({ ...sheetsData, salaries: updatedSalaries });
+    if (field === 'status' && onNotify) {
+      onNotify(`Sueldo de "${item.fullName || 'colaborador'}" marcado como ${value}. Pendientes de pago sincronizados.`);
+    }
   };
 
   // Reordena alfabéticamente (A-Z) la lista de colaboradores
@@ -1789,7 +1792,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                 {/* Totals Row */}
                 <tfoot>
                   <tr className="bg-[#151a26] border-t-2 border-[#263148] font-mono font-bold text-xs">
-                    <td colSpan={3} className="py-3 px-3 text-white uppercase font-sans">
+                    <td colSpan={4} className="py-3 px-3 text-white uppercase font-sans">
                       TOTAL SUELDOS ({filteredSalaries.length} colaboradores)
                     </td>
                     <td className="py-3 px-3 text-right text-sky-300">
