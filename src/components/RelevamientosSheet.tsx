@@ -37,6 +37,7 @@ import {
   canEditRelevamientos,
   getRelevamientos,
   saveRelevamientos,
+  clearAllRelevamientos,
   RELEVAMIENTOS_EVENT
 } from '../data/relevamientosData';
 
@@ -432,6 +433,23 @@ export const RelevamientosSheet: React.FC<Props> = ({ currentPersona, onNotify, 
             <span>PDF</span>
           </button>
 
+          {canEdit && relevamientos.length > 0 && (
+            <button
+              onClick={() => {
+                if (window.confirm('¿Deseas vaciar la planilla de relevamientos? Todos los registros se eliminarán.')) {
+                  clearAllRelevamientos(currentPersona);
+                  setRelevamientos([]);
+                  onNotify?.('La planilla de relevamientos ha quedado vacía.');
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-bold text-xs border border-rose-800/60 shadow transition-all cursor-pointer active:scale-95"
+              title="Vaciar todos los registros de relevamientos"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>Vaciar Planilla</span>
+            </button>
+          )}
+
           {canEdit && (
             <button
               onClick={handleOpenAddModal}
@@ -624,16 +642,27 @@ export const RelevamientosSheet: React.FC<Props> = ({ currentPersona, onNotify, 
           <tbody className="divide-y divide-[#1e2433]">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={canEdit ? 8 : 7} className="py-12 text-center text-slate-500 text-xs">
-                  <ClipboardCheck className="w-8 h-8 text-slate-600 mx-auto mb-2 opacity-50" />
-                  <p className="font-semibold text-slate-400">No se encontraron relevamientos con los filtros aplicados.</p>
+                <td colSpan={canEdit ? 8 : 7} className="py-14 text-center text-slate-500 text-xs">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-950/60 text-indigo-400 border border-indigo-800/50 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                    <ClipboardCheck className="w-6 h-6" />
+                  </div>
+                  <p className="font-bold text-sm text-white mb-1">
+                    {relevamientos.length === 0
+                      ? 'Planilla de Relevamientos vacía y lista para operar'
+                      : 'No se encontraron relevamientos con los filtros aplicados'}
+                  </p>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto mb-4">
+                    {relevamientos.length === 0
+                      ? 'El sector de Operaciones (Marianela Sosa) puede comenzar a registrar los relevamientos oficiales de los clientes.'
+                      : 'Intenta cambiar de categoría o limpiar el campo de búsqueda.'}
+                  </p>
                   {canEdit && (
                     <button
                       onClick={handleOpenAddModal}
-                      className="mt-3 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer inline-flex items-center gap-1"
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-rose-600 hover:brightness-110 text-white font-bold text-xs cursor-pointer inline-flex items-center gap-1.5 shadow-lg active:scale-95 transition-transform"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>Agregar Primer Relevamiento</span>
+                      <span>+ Registrar Primer Relevamiento</span>
                     </button>
                   )}
                 </td>
