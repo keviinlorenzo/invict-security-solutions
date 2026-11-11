@@ -806,6 +806,40 @@ export default function App() {
     showToast(`Tarea creada por ${currentPersona.name} en el archivo compartido`);
   };
 
+  const handleAddMultipleTasks = (tasksList: Omit<Task, 'id'>[]) => {
+    if (!tasksList || tasksList.length === 0) return;
+    const formatted = formatModificationTimestamp(new Date());
+    const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
+    const mod = logCloudModification(
+      `Importó ${tasksList.length} tareas desde archivo Excel / CSV`,
+      undefined,
+      `${tasksList.length} tareas anotadas masivamente`
+    );
+
+    const createdTasks: Task[] = tasksList.map((t, idx) => ({
+      ...t,
+      id: `task-imp-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+      lastModifiedBy: {
+        name: currentPersona.name,
+        email: currentPersona.email,
+        profile: userProf,
+      },
+      lastModifiedAt: formatted,
+      lastModifiedAction: 'Importación masiva desde Excel',
+      history: [mod],
+    }));
+
+    const updatedTasks = [...createdTasks, ...tasks];
+    setTasks(updatedTasks);
+    broadcastCloudChange(
+      'TASK_MUTATION',
+      `${currentPersona.name} (${userProf}) importó masivamente ${createdTasks.length} tareas desde Excel`,
+      { name: currentPersona.name, profile: userProf, email: currentPersona.email },
+      updatedTasks
+    );
+    showToast(`¡${createdTasks.length} tareas importadas y guardadas exitosamente en la nube!`);
+  };
+
   const handleToggleMonthlyRecurrence = (targetTask: Task, stopRecurrence: boolean) => {
     const formatted = formatModificationTimestamp(new Date());
     const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
@@ -1770,6 +1804,7 @@ export default function App() {
                 onSelectTask={(task) => setSelectedTaskForDetail(task)}
                 onUpdateTaskStatus={handleUpdateTaskStatus}
                 onOpenNewTaskModal={() => setIsNewTaskModalOpen(true)}
+                onAddMultipleTasks={handleAddMultipleTasks}
                 onDeleteTask={handleDeleteTask}
                 globalSearchTerm={searchTerm}
                 currentPersona={currentPersona}
@@ -1952,6 +1987,7 @@ export default function App() {
         isOpen={isNewTaskModalOpen}
         onClose={() => setIsNewTaskModalOpen(false)}
         onAddTask={handleAddTask}
+        onAddMultipleTasks={handleAddMultipleTasks}
         currentPeriod={currentPeriod}
         defaultArea={selectedArea}
         personas={visiblePersonas}

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { AreaType, PriorityType, Task, TaskNature, UserPersona, ShiftType } from '../types';
-import { X, Plus, Calendar, Tag, User, Layers, Repeat, MapPin, Shield } from 'lucide-react';
+import { X, Plus, Calendar, Tag, User, Layers, Repeat, MapPin, Shield, FileSpreadsheet } from 'lucide-react';
 import { formatPeriodName, getTodayDateString } from '../utils/dateUtils';
 import { getDayOfWeekFromDateString, getDayOfWeekLabel, getWeeklyDatesForMonth } from '../utils/monthRenewalService';
+import { TaskExcelImportModal } from './TaskExcelImportModal';
 
 export const getDefaultAssigneeForArea = (area: AreaType, personas: UserPersona[]): string => {
   // 1. Revisar si hay un responsable recordado específicamente para esta área en localStorage
@@ -17,23 +18,24 @@ export const getDefaultAssigneeForArea = (area: AreaType, personas: UserPersona[
 
   // 3. Fallback predeterminado según organigrama corporativo
   const defaultMap: Record<AreaType, string> = {
-    'OPERACIONES': 'Kevin',
+    'OPERACIONES': 'Marianela Sosa',
     'SUPERVISIÓN': 'Bilbao',
     'RRHH': 'Pilar',
     'ADM': 'Giuliana',
-    'AUX_ADM': 'Valeria',
+    'AUX_ADM': 'Kevin',
     'SELECCION': 'Mariana',
     'SUB_GERENCIA': 'Laura',
     'GERENCIA': 'Yamila',
-    'TODOS': 'Kevin',
+    'TODOS': 'Marianela Sosa',
   };
-  return defaultMap[area] || 'Kevin';
+  return defaultMap[area] || 'Marianela Sosa';
 };
 
 interface NewTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddTask: (task: Omit<Task, 'id'>) => void;
+  onAddMultipleTasks?: (tasks: Omit<Task, 'id'>[]) => void;
   currentPeriod: string;
   defaultArea?: AreaType;
   personas: UserPersona[];
@@ -44,12 +46,14 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
   isOpen,
   onClose,
   onAddTask,
+  onAddMultipleTasks,
   currentPeriod,
   defaultArea = 'OPERACIONES',
   personas,
   currentUser,
 }) => {
   const isGerencia = currentUser ? (currentUser.department === 'GERENCIA' || currentUser.profileType === 'GERENTE') : false;
+  const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
 
   const determineInitialArea = (): AreaType => {
     // Si viene defaultArea específico diferente a TODOS
@@ -184,6 +188,26 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Banner para importar desde Excel */}
+        {onAddMultipleTasks && (
+          <div className="px-5 py-2.5 bg-[#101726] border-b border-[#1f293d] flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4 text-cyan-400 shrink-0" />
+              <span className="text-[11px] text-slate-300">
+                ¿Tienes un archivo con múltiples tareas anteriores?
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsExcelModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-950 hover:bg-cyan-900/90 text-cyan-300 border border-cyan-700/70 text-[11px] font-bold transition shadow-sm cursor-pointer whitespace-nowrap"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Importar Excel (.xlsx)</span>
+            </button>
+          </div>
+        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto text-xs">
@@ -386,6 +410,21 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
           </div>
         </form>
       </div>
+
+      {isExcelModalOpen && onAddMultipleTasks && (
+        <TaskExcelImportModal
+          isOpen={isExcelModalOpen}
+          onClose={() => setIsExcelModalOpen(false)}
+          onImportTasks={(importedTasks) => {
+            onAddMultipleTasks(importedTasks);
+            setIsExcelModalOpen(false);
+            onClose();
+          }}
+          defaultArea={area}
+          currentPeriod={currentPeriod}
+          allPersonas={personas}
+        />
+      )}
     </div>
   );
 };

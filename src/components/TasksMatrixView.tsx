@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Task, AreaType, TaskStatus, TaskNature, UserPersona, TaskModification, ShiftType } from '../types';
 import {
   Table,
@@ -31,7 +31,11 @@ import {
   EyeOff,
   User,
   Smartphone,
-  Crown
+  Crown,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { calculateDaysRemaining, formatDateLocale, formatPeriodName } from '../utils/dateUtils';
 import { getDayOfWeekLabel, getDayOfWeekFromDateString, isMonthlyTaskStoppedForPeriod } from '../utils/monthRenewalService';
@@ -39,6 +43,19 @@ import { exportTasksToCSV } from '../utils/exportUtils';
 import { exportTasksToPDF } from '../utils/pdfExportUtils';
 import { MonthlyPeriodSelector } from './MonthlyPeriodSelector';
 import { CloudFileSyncBar } from './CloudFileSyncBar';
+import { TaskExcelImportModal } from './TaskExcelImportModal';
+
+export type SortColumn =
+  | 'area'
+  | 'title'
+  | 'assignee'
+  | 'status'
+  | 'dueDate'
+  | 'alert'
+  | 'priority'
+  | 'lastModified';
+
+export type SortDirection = 'asc' | 'desc';
 
 interface TasksMatrixViewProps {
   tasks: Task[];
@@ -47,6 +64,7 @@ interface TasksMatrixViewProps {
   onSelectTask: (task: Task) => void;
   onUpdateTaskStatus: (taskId: string, newStatus: TaskStatus) => void;
   onOpenNewTaskModal: () => void;
+  onAddMultipleTasks?: (tasks: Omit<Task, 'id'>[]) => void;
   onDeleteTask?: (taskId: string) => void;
   globalSearchTerm: string;
   currentPersona?: UserPersona;
@@ -81,6 +99,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   onSelectTask,
   onUpdateTaskStatus,
   onOpenNewTaskModal,
+  onAddMultipleTasks,
   onDeleteTask,
   globalSearchTerm,
   currentPersona,
@@ -102,10 +121,23 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   const [statusFilter, setStatusFilter] = useState<'TODOS' | 'SOLO_PENDIENTES' | TaskStatus>('TODOS');
   const [natureFilter, setNatureFilter] = useState<'TODAS' | TaskNature>('TODAS');
   const [deadlineQuickFilter, setDeadlineQuickFilter] = useState<'TODAS' | 'HOY' | '48HS' | 'VENCIDAS'>('TODAS');
+  const [overdueSubFilter, setOverdueSubFilter] = useState<'TODAS' | '24hs' | '48hs'>('TODAS');
+  const [sortColumn, setSortColumn] = useState<SortColumn>('dueDate');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
   const [hideCompleted, setHideCompleted] = useState<boolean>(() => {
     return localStorage.getItem('invict_hide_completed') === 'true';
   });
+
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
 
   const toggleHideCompleted = () => {
     setHideCompleted(prev => {
@@ -174,7 +206,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
       id: 'OPERACIONES',
       label: 'Operaciones & Logística',
       shortLabel: 'OPERACIONES',
-      officer: getOfficersForArea('OPERACIONES', 'Kevin / Supervisores'),
+      officer: getOfficersForArea('OPERACIONES', 'Marianela Sosa / Supervisores'),
       icon: <ShieldAlert className="w-4 h-4" />,
       description: 'Coordinación de servicios, logística interna, supervisión y seguimiento de tareas de la empresa.',
       badgeClass: 'text-rose-400 bg-rose-950/60 border-rose-800/60',
@@ -245,6 +277,24 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
 
   const isFilteringOutCompleted = (hideCompleted || statusFilter === 'SOLO_PENDIENTES') && statusFilter !== 'Completada';
 
+  // Live Overdue Statistics for active tab
+  const overdueStats = useMemo(() => {
+    let totalVencidas = 0;
+    let vencidas24h = 0;
+    let vencidas48h = 0;
+    periodTasks.forEach(t => {
+      if (activeTabId !== 'TODOS' && t.area !== activeTabId) return;
+      if (t.status === 'Completada') return;
+      const info = calculateDaysRemaining(t.dueDate, t.completedDate, false);
+      if (info.status === 'vencida') {
+        totalVencidas++;
+        if (info.overdueCategory === 'vencida_24h') vencidas24h++;
+        if (info.overdueCategory === 'vencida_48h_plus') vencidas48h++;
+      }
+    });
+    return { totalVencidas, vencidas24h, vencidas48h };
+  }, [periodTasks, activeTabId]);
+
   // Filter tasks strictly by the active post tab, period, and deadline
   const filteredTasks = periodTasks.filter((t) => {
     if (activeTabId !== 'TODOS' && t.area !== activeTabId) return false;
@@ -261,10 +311,16 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
     if (natureFilter !== 'TODAS' && (t.nature || 'Fija Mensual') !== natureFilter) return false;
 
     if (deadlineQuickFilter !== 'TODAS') {
-      const { days, status } = calculateDaysRemaining(t.dueDate, t.completedDate);
-      if (deadlineQuickFilter === 'HOY' && days !== 0) return false;
-      if (deadlineQuickFilter === '48HS' && (days < 0 || days > 2)) return false;
-      if (deadlineQuickFilter === 'VENCIDAS' && status !== 'vencida') return false;
+      const isComp = t.status === 'Completada';
+      const daysInfo = calculateDaysRemaining(t.dueDate, t.completedDate, isComp);
+      if (deadlineQuickFilter === 'HOY' && daysInfo.days !== 0) return false;
+      if (deadlineQuickFilter === '48HS' && (daysInfo.days < 0 || daysInfo.days > 2)) return false;
+      if (deadlineQuickFilter === 'VENCIDAS') {
+        if (isComp) return false;
+        if (daysInfo.status !== 'vencida') return false;
+        if (overdueSubFilter === '24hs' && daysInfo.overdueCategory !== 'vencida_24h') return false;
+        if (overdueSubFilter === '48hs' && daysInfo.overdueCategory !== 'vencida_48h_plus') return false;
+      }
     }
 
     if (effectiveSearch) {
@@ -276,6 +332,63 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
     }
     return true;
   });
+
+  // Dynamic sorting of filtered tasks by selected column
+  const sortedTasks = useMemo(() => {
+    const list = [...filteredTasks];
+    list.sort((a, b) => {
+      let cmp = 0;
+      switch (sortColumn) {
+        case 'area':
+          cmp = (a.area || '').localeCompare(b.area || '', 'es');
+          break;
+        case 'title':
+          cmp = (a.title || '').localeCompare(b.title || '', 'es');
+          break;
+        case 'assignee':
+          cmp = (a.assignee || '').localeCompare(b.assignee || '', 'es');
+          break;
+        case 'status': {
+          const statusOrder: Record<string, number> = {
+            'Urgente/Prioritaria': 1,
+            'En curso': 2,
+            'No iniciada': 3,
+            'Completada': 4,
+          };
+          cmp = (statusOrder[a.status] || 9) - (statusOrder[b.status] || 9);
+          break;
+        }
+        case 'dueDate':
+          cmp = (a.dueDate || '').localeCompare(b.dueDate || '');
+          break;
+        case 'alert': {
+          const aDays = calculateDaysRemaining(a.dueDate, a.completedDate, a.status === 'Completada').days;
+          const bDays = calculateDaysRemaining(b.dueDate, b.completedDate, b.status === 'Completada').days;
+          cmp = aDays - bDays;
+          break;
+        }
+        case 'priority': {
+          const prioOrder: Record<string, number> = {
+            'Urgente': 1,
+            'Alta': 2,
+            'Media': 3,
+            'Normal': 4,
+            'Baja': 5,
+          };
+          cmp = (prioOrder[a.priority] || 9) - (prioOrder[b.priority] || 9);
+          break;
+        }
+        case 'lastModified': {
+          const aTime = a.lastModifiedAt || (a.history && a.history[0]?.timestamp) || '';
+          const bTime = b.lastModifiedAt || (b.history && b.history[0]?.timestamp) || '';
+          cmp = aTime.localeCompare(bTime);
+          break;
+        }
+      }
+      return sortDirection === 'asc' ? cmp : -cmp;
+    });
+    return list;
+  }, [filteredTasks, sortColumn, sortDirection]);
 
   const renderNatureBadge = (nature?: TaskNature, task?: Task) => {
     const val = nature || 'Fija Mensual';
@@ -634,7 +747,10 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
           <div className="flex items-center gap-1 bg-[#161b26] border border-[#263044] rounded-xl px-2 py-1 text-xs">
             <span className="text-[11px] text-slate-400 font-semibold">Plazo:</span>
             <button
-              onClick={() => setDeadlineQuickFilter('TODAS')}
+              onClick={() => {
+                setDeadlineQuickFilter('TODAS');
+                setOverdueSubFilter('TODAS');
+              }}
               className={`px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer ${
                 deadlineQuickFilter === 'TODAS'
                   ? 'bg-[#BE2629] text-white font-bold'
@@ -644,7 +760,10 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
               Todas
             </button>
             <button
-              onClick={() => setDeadlineQuickFilter('HOY')}
+              onClick={() => {
+                setDeadlineQuickFilter('HOY');
+                setOverdueSubFilter('TODAS');
+              }}
               className={`px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer ${
                 deadlineQuickFilter === 'HOY'
                   ? 'bg-amber-600 text-white font-bold'
@@ -654,7 +773,10 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
               Vence Hoy
             </button>
             <button
-              onClick={() => setDeadlineQuickFilter('48HS')}
+              onClick={() => {
+                setDeadlineQuickFilter('48HS');
+                setOverdueSubFilter('TODAS');
+              }}
               className={`px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer ${
                 deadlineQuickFilter === '48HS'
                   ? 'bg-amber-500 text-black font-bold'
@@ -664,16 +786,66 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
               ≤ 48hs
             </button>
             <button
-              onClick={() => setDeadlineQuickFilter('VENCIDAS')}
-              className={`px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer ${
+              onClick={() => {
+                const next = deadlineQuickFilter === 'VENCIDAS' ? 'TODAS' : 'VENCIDAS';
+                setDeadlineQuickFilter(next);
+                if (next === 'TODAS') setOverdueSubFilter('TODAS');
+              }}
+              className={`px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer flex items-center gap-1 ${
                 deadlineQuickFilter === 'VENCIDAS'
                   ? 'bg-red-600 text-white font-bold'
                   : 'text-red-400 hover:text-red-300'
               }`}
             >
-              Vencidas
+              <span>Vencidas</span>
+              {overdueStats.totalVencidas > 0 && (
+                <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold ${
+                  deadlineQuickFilter === 'VENCIDAS' ? 'bg-white text-red-600' : 'bg-red-950 text-red-300 border border-red-800/80 animate-pulse'
+                }`}>
+                  {overdueStats.totalVencidas}
+                </span>
+              )}
             </button>
           </div>
+
+          {/* Subfiltro específico de vencidas (>24hs vs >48hs críticas) */}
+          {deadlineQuickFilter === 'VENCIDAS' && (
+            <div className="flex items-center gap-1 bg-red-950/60 border border-red-700/80 rounded-xl px-2 py-1 text-xs animate-in fade-in shadow-inner">
+              <span className="text-[10px] text-red-300 font-bold uppercase px-0.5">Mora:</span>
+              <button
+                onClick={() => setOverdueSubFilter('TODAS')}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                  overdueSubFilter === 'TODAS'
+                    ? 'bg-red-600 text-white shadow'
+                    : 'text-red-300 hover:text-white'
+                }`}
+              >
+                Todas ({overdueStats.totalVencidas})
+              </button>
+              <button
+                onClick={() => setOverdueSubFilter('24hs')}
+                title="Vencidas recientes con mora de hasta 24hs"
+                className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                  overdueSubFilter === '24hs'
+                    ? 'bg-amber-600 text-white shadow'
+                    : 'text-amber-300 hover:text-white'
+                }`}
+              >
+                &gt;24hs ({overdueStats.vencidas24h})
+              </button>
+              <button
+                onClick={() => setOverdueSubFilter('48hs')}
+                title="Vencidas críticas con mora mayor a 48hs"
+                className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                  overdueSubFilter === '48hs'
+                    ? 'bg-rose-700 text-white shadow animate-pulse'
+                    : 'text-rose-300 hover:text-white'
+                }`}
+              >
+                &gt;48hs Críticas ({overdueStats.vencidas48h})
+              </button>
+            </div>
+          )}
 
           {/* Quick Filter: Ocultar / Mostrar Completadas */}
           <button
@@ -725,10 +897,37 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
               <option value="Completada" className="bg-[#121620]">Solo Completadas</option>
             </select>
           </div>
+
+          {/* Column Sort Selector */}
+          <div className="flex items-center gap-1 bg-[#161b26] border border-[#263044] rounded-xl px-2 py-1 text-xs">
+            <ArrowUpDown className="w-3 h-3 text-cyan-400" />
+            <span className="text-slate-400 font-semibold">Ordenar:</span>
+            <select
+              value={sortColumn}
+              onChange={(e) => setSortColumn(e.target.value as SortColumn)}
+              className="bg-transparent text-cyan-300 font-bold focus:outline-none cursor-pointer text-xs"
+            >
+              <option value="dueDate" className="bg-[#121620]">Fecha Límite</option>
+              <option value="alert" className="bg-[#121620]">Alerta / Días Restantes</option>
+              <option value="status" className="bg-[#121620]">Estado</option>
+              <option value="priority" className="bg-[#121620]">Prioridad</option>
+              <option value="area" className="bg-[#121620]">Puesto / Área</option>
+              <option value="title" className="bg-[#121620]">Tarea & Procedimiento</option>
+              <option value="assignee" className="bg-[#121620]">Responsable</option>
+              <option value="lastModified" className="bg-[#121620]">Última Modificación</option>
+            </select>
+            <button
+              onClick={() => setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')}
+              title={`Cambiar orden a ${sortDirection === 'asc' ? 'Descendente' : 'Ascendente'}`}
+              className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-cyan-400 text-[10px] font-bold cursor-pointer transition"
+            >
+              {sortDirection === 'asc' ? '▲ Asc' : '▼ Desc'}
+            </button>
+          </div>
         </div>
 
-        {/* Right Actions: Local Search, CSV, PDF and Add */}
-        <div className="flex items-center gap-2">
+        {/* Right Actions: Local Search, Excel Import, CSV, PDF and Add */}
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="relative w-full sm:w-44">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -739,6 +938,15 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
               className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#161b26] border border-[#263044] rounded-xl text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-[#BE2629]"
             />
           </div>
+
+          <button
+            onClick={() => setIsExcelImportOpen(true)}
+            title="Importar tareas masivamente desde un archivo Excel (.xlsx / .xls / .csv)"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-cyan-300 hover:text-white bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-700/60 rounded-xl transition-all active:scale-95 whitespace-nowrap cursor-pointer shadow-sm shadow-cyan-950/40"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">Importar Excel</span>
+          </button>
 
           <button
             onClick={handleExportCSV}
@@ -895,8 +1103,8 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
           {/* Mobile Task Cards (Diseño Táctil y Sencillo para Celulares) */}
           {mobileLayout === 'cards' && (
             <div className="md:hidden space-y-2.5">
-              {filteredTasks.map((task) => {
-                const daysInfo = calculateDaysRemaining(task.dueDate, task.completedDate);
+              {sortedTasks.map((task) => {
+                const daysInfo = calculateDaysRemaining(task.dueDate, task.completedDate, task.status === 'Completada');
                 const isMonthlyStopped = Boolean(
                   task.monthlyRecurrenceStopped ||
                     isMonthlyTaskStoppedForPeriod(task.area, task.title, task.monthPeriod || currentPeriod, tasks)
@@ -910,6 +1118,8 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
                         ? 'bg-[#0f141f]/70 border-[#1f283c] opacity-80'
                         : daysInfo.status === 'vencida'
                         ? 'bg-[#181116] border-red-900/60 shadow-sm'
+                        : daysInfo.status === 'urgente_48h'
+                        ? 'bg-[#181512] border-amber-900/60 shadow-sm'
                         : 'bg-[#121622] border-[#222b3d] hover:border-[#354360] shadow-sm'
                     }`}
                   >
@@ -1063,20 +1273,148 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
               <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-[#161b26] border-b border-[#252c3e] text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                  <th className="py-3 px-3.5">Puesto / Área</th>
-                  <th className="py-3 px-3.5 min-w-[260px]">Tarea & Procedimiento</th>
-                  <th className="py-3 px-3">Responsable</th>
-                  <th className="py-3 px-3 text-center">Estado (Clic para alternar)</th>
-                  <th className="py-3 px-3 font-mono">Límite</th>
-                  <th className="py-3 px-3 text-center">Alerta</th>
-                  <th className="py-3 px-3 text-center">Prioridad</th>
-                  <th className="py-3 px-3.5 min-w-[160px]">Última Modificación</th>
+                  <th
+                    className={`py-3 px-3.5 select-none cursor-pointer transition hover:text-white ${
+                      sortColumn === 'area' ? 'text-cyan-300 font-bold bg-white/5' : ''
+                    }`}
+                    onClick={() => handleSort('area')}
+                    title="Ordenar por Puesto / Área"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Puesto / Área</span>
+                      {sortColumn === 'area' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-cyan-400" /> : <ArrowDown className="w-3 h-3 text-cyan-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-600 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    className={`py-3 px-3.5 min-w-[260px] select-none cursor-pointer transition hover:text-white ${
+                      sortColumn === 'title' ? 'text-cyan-300 font-bold bg-white/5' : ''
+                    }`}
+                    onClick={() => handleSort('title')}
+                    title="Ordenar por Tarea & Procedimiento"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Tarea & Procedimiento</span>
+                      {sortColumn === 'title' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-cyan-400" /> : <ArrowDown className="w-3 h-3 text-cyan-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-600 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    className={`py-3 px-3 select-none cursor-pointer transition hover:text-white ${
+                      sortColumn === 'assignee' ? 'text-cyan-300 font-bold bg-white/5' : ''
+                    }`}
+                    onClick={() => handleSort('assignee')}
+                    title="Ordenar por Responsable"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Responsable</span>
+                      {sortColumn === 'assignee' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-cyan-400" /> : <ArrowDown className="w-3 h-3 text-cyan-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-600 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    className={`py-3 px-3 text-center select-none cursor-pointer transition hover:text-white ${
+                      sortColumn === 'status' ? 'text-cyan-300 font-bold bg-white/5' : ''
+                    }`}
+                    onClick={() => handleSort('status')}
+                    title="Ordenar por Estado"
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span>Estado</span>
+                      {sortColumn === 'status' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-cyan-400" /> : <ArrowDown className="w-3 h-3 text-cyan-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-600 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    className={`py-3 px-3 font-mono select-none cursor-pointer transition hover:text-white ${
+                      sortColumn === 'dueDate' ? 'text-cyan-300 font-bold bg-white/5' : ''
+                    }`}
+                    onClick={() => handleSort('dueDate')}
+                    title="Ordenar por Fecha Límite"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Límite</span>
+                      {sortColumn === 'dueDate' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-cyan-400" /> : <ArrowDown className="w-3 h-3 text-cyan-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-600 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    className={`py-3 px-3 text-center select-none cursor-pointer transition hover:text-white ${
+                      sortColumn === 'alert' ? 'text-cyan-300 font-bold bg-white/5' : ''
+                    }`}
+                    onClick={() => handleSort('alert')}
+                    title="Ordenar por Días Restantes / Alerta de Vencimiento"
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span>Alerta</span>
+                      {sortColumn === 'alert' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-cyan-400" /> : <ArrowDown className="w-3 h-3 text-cyan-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-600 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    className={`py-3 px-3 text-center select-none cursor-pointer transition hover:text-white ${
+                      sortColumn === 'priority' ? 'text-cyan-300 font-bold bg-white/5' : ''
+                    }`}
+                    onClick={() => handleSort('priority')}
+                    title="Ordenar por Prioridad"
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span>Prioridad</span>
+                      {sortColumn === 'priority' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-cyan-400" /> : <ArrowDown className="w-3 h-3 text-cyan-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-600 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    className={`py-3 px-3.5 min-w-[160px] select-none cursor-pointer transition hover:text-white ${
+                      sortColumn === 'lastModified' ? 'text-cyan-300 font-bold bg-white/5' : ''
+                    }`}
+                    onClick={() => handleSort('lastModified')}
+                    title="Ordenar por Fecha de Última Modificación"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Última Modificación</span>
+                      {sortColumn === 'lastModified' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-cyan-400" /> : <ArrowDown className="w-3 h-3 text-cyan-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-600 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+
                   <th className="py-3 px-3 text-right">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1e2433]">
-                {filteredTasks.map((task) => {
-                  const daysInfo = calculateDaysRemaining(task.dueDate, task.completedDate);
+                {sortedTasks.map((task) => {
+                  const daysInfo = calculateDaysRemaining(task.dueDate, task.completedDate, task.status === 'Completada');
                   return (
                     <tr
                       key={task.id}
@@ -1383,6 +1721,20 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
             );
           })}
         </div>
+      )}
+
+      {isExcelImportOpen && onAddMultipleTasks && (
+        <TaskExcelImportModal
+          isOpen={isExcelImportOpen}
+          onClose={() => setIsExcelImportOpen(false)}
+          onImportTasks={(tasksToImport) => {
+            onAddMultipleTasks(tasksToImport);
+            setIsExcelImportOpen(false);
+          }}
+          defaultArea={activeTabId !== 'TODOS' ? activeTabId : undefined}
+          currentPeriod={currentPeriod}
+          allPersonas={allPersonas}
+        />
       )}
     </div>
   );

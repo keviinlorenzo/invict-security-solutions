@@ -83,19 +83,22 @@ export function getAvailablePeriodsList(): { id: string; label: string }[] {
 
 export function calculateDaysRemaining(
   dueDateStr: string,
-  completedDateStr?: string
+  completedDateStr?: string,
+  isCompleted?: boolean
 ): {
   days: number;
   label: string;
   badgeClass: string;
   status: 'completada' | 'vencida' | 'urgente_48h' | 'en_termino';
+  overdueCategory: 'none' | 'vencida_24h' | 'vencida_48h_plus';
 } {
-  if (completedDateStr) {
+  if (completedDateStr || isCompleted) {
     return {
       days: 0,
       label: 'Completada',
       badgeClass: 'text-emerald-400 bg-emerald-950/70 border-emerald-800/80',
       status: 'completada',
+      overdueCategory: 'none',
     };
   }
   if (!dueDateStr) {
@@ -104,6 +107,7 @@ export function calculateDaysRemaining(
       label: 'Sin fecha',
       badgeClass: 'text-slate-400 bg-slate-900 border-slate-700',
       status: 'en_termino',
+      overdueCategory: 'none',
     };
   }
   // Parse YYYY-MM-DD or DD/MM/YYYY
@@ -123,18 +127,31 @@ export function calculateDaysRemaining(
   const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
   if (days < 0) {
-    return {
-      days,
-      label: `Vencida (${Math.abs(days)}d)`,
-      badgeClass: 'text-red-400 bg-red-950/80 border-red-800/80 font-bold',
-      status: 'vencida',
-    };
+    const absDays = Math.abs(days);
+    if (absDays <= 1) {
+      return {
+        days,
+        label: `Vencida (>24hs)`,
+        badgeClass: 'text-amber-300 bg-amber-950/90 border border-amber-500/80 font-bold shadow-sm shadow-amber-900/40',
+        status: 'vencida',
+        overdueCategory: 'vencida_24h',
+      };
+    } else {
+      return {
+        days,
+        label: `Vencida (>48hs · -${absDays}d)`,
+        badgeClass: 'text-rose-300 bg-rose-950/95 border border-rose-600/90 font-bold shadow-md shadow-rose-950/60 ring-1 ring-rose-500/30 animate-pulse',
+        status: 'vencida',
+        overdueCategory: 'vencida_48h_plus',
+      };
+    }
   } else if (days === 0) {
     return {
       days,
       label: 'Vence Hoy (<24h)',
       badgeClass: 'text-amber-300 bg-amber-950/80 border-amber-700/80 font-bold',
       status: 'urgente_48h',
+      overdueCategory: 'none',
     };
   } else if (days <= 2) {
     return {
@@ -142,6 +159,7 @@ export function calculateDaysRemaining(
       label: `${days}d restante${days > 1 ? 's' : ''} (48h)`,
       badgeClass: 'text-amber-400 bg-amber-950/60 border-amber-800/60',
       status: 'urgente_48h',
+      overdueCategory: 'none',
     };
   } else {
     return {
@@ -149,6 +167,7 @@ export function calculateDaysRemaining(
       label: `${days} días restantes`,
       badgeClass: 'text-slate-300 bg-[#161c28] border-[#252f44]',
       status: 'en_termino',
+      overdueCategory: 'none',
     };
   }
 }
