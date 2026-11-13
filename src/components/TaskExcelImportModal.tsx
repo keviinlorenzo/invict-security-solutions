@@ -25,10 +25,12 @@ interface ParsedTaskRow {
   area: AreaType | '';
   title: string;
   assignee: string;
+  startDate?: string;
   dueDate: string;
   priority: TaskPriority;
   status: TaskStatus;
   nature: TaskNature;
+  category?: string;
   notes?: string;
   objectiveLocation?: string;
   // Validation flags
@@ -56,6 +58,43 @@ const VALID_AREAS: { id: AreaType; label: string }[] = [
   { id: 'SUPERVISIÓN', label: 'Supervisión Operativa' },
 ];
 
+const DEFAULT_ASSIGNEE_BY_AREA: Record<AreaType, string> = {
+  GERENCIA: 'Yamila González',
+  SUB_GERENCIA: 'Laura González',
+  OPERACIONES: 'Marianela Sosa',
+  RRHH: 'Tamara',
+  ADM: 'Giuliana',
+  AUX_ADM: 'Kevin',
+  SELECCION: 'Mariana',
+  'SUPERVISIÓN': 'Bilbao',
+  TODOS: 'Marianela Sosa',
+};
+
+const KNOWN_OBJECTIVES: { patterns: RegExp[]; label: string }[] = [
+  { patterns: [/complejo\s+cepas/i, /\bcepas\b/i], label: 'Complejo Cepas' },
+  { patterns: [/torre\s+laureana/i, /\blaureana\b/i], label: 'Edificio Torre Laureana' },
+  { patterns: [/barrio\s+el\s+solar/i, /\bel\s+solar\b/i], label: 'Barrio El Solar' },
+  { patterns: [/c[aá]mara\s+de\s+la\s+construcci[oó]n/i], label: 'Cámara de la Construcción' },
+  { patterns: [/edificio\s+bancario/i, /\bbancario\b/i], label: 'Edificio Bancario' },
+  { patterns: [/la\s+consolata/i], label: 'Colegio La Consolata' },
+  { patterns: [/obra\s+hco\s+terminal\s+guaymall[eé]n/i, /obra\s+terminal\s+guaymall[eé]n/i], label: 'Obra HCO Terminal Guaymallén' },
+  { patterns: [/obra\s+hco\s+san\s+mart[ií]n/i], label: 'Obra HCO San Martín' },
+  { patterns: [/obra\s+godoy\s+cruz/i], label: 'Obra Godoy Cruz' },
+  { patterns: [/obra\s+paramillos/i, /\bparamillos\b/i], label: 'Obra Paramillos' },
+  { patterns: [/hco\s+base/i], label: 'HCO Base' },
+  { patterns: [/fuesmen\s+essenza/i], label: 'Fuesmen Essenza' },
+  { patterns: [/fuesmen\s+ciudad/i], label: 'Fuesmen Ciudad' },
+  { patterns: [/fuesmen\s+maip[uú]/i], label: 'Fuesmen Maipú' },
+  { patterns: [/fuesmen\s+san\s+rafael/i], label: 'Fuesmen San Rafael' },
+  { patterns: [/udi\s+san\s+mart[ií]n/i, /sede\s+palmira/i], label: 'UDI San Martín - Sede Palmira' },
+  { patterns: [/transporte\s+transvial/i, /\btransvial\b/i], label: 'Transporte Transvial' },
+  { patterns: [/\bemepa\b/i], label: 'Emepa' },
+  { patterns: [/el\s+resguardo/i], label: 'El Resguardo' },
+  { patterns: [/\bbuccolini\b/i], label: 'Buccolini' },
+  { patterns: [/\bkraft\b/i], label: 'Kraft' },
+  { patterns: [/\b[aá]tomos?\b/i], label: 'Supermercados Átomo' },
+];
+
 const VALID_PRIORITIES: TaskPriority[] = ['Baja', 'Normal', 'Media', 'Alta', 'Urgente'];
 const VALID_STATUSES: TaskStatus[] = ['No iniciada', 'En curso', 'Completada', 'Urgente/Prioritaria'];
 const VALID_NATURES: TaskNature[] = ['Fija Mensual', 'Fija Semanal', 'Variable', 'Imprevisto'];
@@ -69,93 +108,262 @@ export const TaskExcelImportModal: React.FC<TaskExcelImportModalProps> = ({
   allPersonas = [],
   onNotify,
 }) => {
+  const initialArea: AreaType = defaultArea && defaultArea !== 'TODOS' ? defaultArea : 'OPERACIONES';
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [rows, setRows] = useState<ParsedTaskRow[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMissingOnly, setFilterMissingOnly] = useState(false);
+  const [bulkArea, setBulkArea] = useState<AreaType>(initialArea);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
-  // Helper to parse dates from various formats (YYYY-MM-DD, DD/MM/YYYY, or Excel date numbers)
+  const getAssigneeForArea = (targetArea: AreaType): string => {
+    const matchPersona = allPersonas.find(p => p.department === targetArea);
+    if (matchPersona && matchPersona.name) return matchPersona.name;
+    return DEFAULT_ASSIGNEE_BY_AREA[targetArea] || 'Marianela Sosa';
+  };
+
+  const normalizeText = (val: any): string =>
+    String(val ?? '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+
+  // Helper to parse dates from various formats (YYYY-MM-DD, DD/MM/YYYY, DD-MM-YY, or Excel serial numbers)
   const parseDateString = (val: any): string => {
-    if (!val) return '';
-    if (typeof val === 'number') {
-      // Excel epoch starts at 1899-12-30
+    if (val === null || val === undefined || val === '') return '';
+    if (val instanceof Date && !isNaN(val.getTime())) {
+      return val.toISOString().split('T')[0];
+    }
+    if (typeof val === 'number' && val > 20000 && val < 90000) {
       const d = new Date(Math.round((val - 25569) * 86400 * 1000));
       if (!isNaN(d.getTime())) {
         return d.toISOString().split('T')[0];
       }
     }
     const str = String(val).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-      return str;
-    }
-    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
-      const parts = str.split('/');
-      const day = parts[0].padStart(2, '0');
-      const month = parts[1].padStart(2, '0');
-      const year = parts[2];
+    if (!str) return '';
+
+    // YYYY-MM-DD or YYYY/MM/DD
+    const isoMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (isoMatch) {
+      const year = isoMatch[1];
+      const month = isoMatch[2].padStart(2, '0');
+      const day = isoMatch[3].padStart(2, '0');
       return `${year}-${month}-${day}`;
     }
-    if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(str)) {
-      const parts = str.split('-');
-      const day = parts[0].padStart(2, '0');
-      const month = parts[1].padStart(2, '0');
-      const year = parts[2];
+
+    // DD/MM/YYYY or DD-MM-YYYY or DD/MM/YY
+    const dmyMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$/);
+    if (dmyMatch) {
+      const day = dmyMatch[1].padStart(2, '0');
+      const month = dmyMatch[2].padStart(2, '0');
+      let year = dmyMatch[3];
+      if (year.length === 2) year = `20${year}`;
       return `${year}-${month}-${day}`;
     }
-    // Try native Date parsing
-    const parsed = new Date(str);
-    if (!isNaN(parsed.getTime())) {
-      return parsed.toISOString().split('T')[0];
-    }
+
     return '';
+  };
+
+  // Infer due date from task description when date cell is empty
+  const inferDueDateFromTitle = (titleText: string, periodStr?: string): string => {
+    const basePeriod = periodStr && /^\d{4}-\d{2}$/.test(periodStr) ? periodStr : getTodayDateString().slice(0, 7);
+    const norm = normalizeText(titleText);
+
+    const dayMatch = norm.match(/\b(?:dia|el)\s*(\d{1,2})\s*de\s*cada\s*mes\b/);
+    if (dayMatch) {
+      const d = Math.min(28, Math.max(1, parseInt(dayMatch[1], 10)));
+      return `${basePeriod}-${String(d).padStart(2, '0')}`;
+    }
+    if (norm.includes('primera semana') || norm.includes('primer semana')) return `${basePeriod}-07`;
+    if (norm.includes('segunda semana')) return `${basePeriod}-14`;
+    if (norm.includes('tercer semana') || norm.includes('tercera semana')) return `${basePeriod}-21`;
+    if (norm.includes('cuarta semana') || norm.includes('fin de mes') || norm.includes('ultimo dia')) return `${basePeriod}-28`;
+
+    return `${basePeriod}-15`;
   };
 
   // Helper to match area from text
   const matchArea = (val: string): AreaType | '' => {
     if (!val) return '';
-    const norm = val.toUpperCase().trim();
-    if (norm === 'GERENCIA' || norm.includes('GEREN')) return 'GERENCIA';
+    const norm = normalizeText(val).toUpperCase();
+    if (norm === 'GERENCIA' || norm.includes('GEREN') || norm.includes('DIRECCION')) return 'GERENCIA';
     if (norm === 'SUB_GERENCIA' || norm.includes('SUB')) return 'SUB_GERENCIA';
     if (norm === 'OPERACIONES' || norm.includes('OPERAC') || norm.includes('LOGIST')) return 'OPERACIONES';
-    if (norm === 'RRHH' || norm.includes('RECURSOS') || norm.includes('HUMANOS')) return 'RRHH';
+    if (norm === 'RRHH' || norm.includes('RECURSOS') || norm.includes('HUMANOS') || norm.includes('RR.HH')) return 'RRHH';
     if (norm === 'AUX_ADM' || norm.includes('AUXILIAR') || norm.includes('AUX')) return 'AUX_ADM';
     if (norm === 'ADM' || norm.includes('ADMIN')) return 'ADM';
     if (norm === 'SELECCION' || norm.includes('SELECC') || norm.includes('RECLUT')) return 'SELECCION';
-    if (norm === 'SUPERVISIÓN' || norm === 'SUPERVISION' || norm.includes('SUPERV')) return 'SUPERVISIÓN';
+    if (norm === 'SUPERVISION' || norm.includes('SUPERV')) return 'SUPERVISIÓN';
     return '';
   };
 
   // Helper to match priority
-  const matchPriority = (val: string): TaskPriority => {
-    const norm = (val || '').toLowerCase().trim();
-    if (norm.includes('urg')) return 'Urgente';
+  const matchPriority = (val: string, titleText = '', notesText = ''): TaskPriority => {
+    const norm = normalizeText(val);
+    if (norm.includes('urg') || norm.includes('crit')) return 'Urgente';
     if (norm.includes('alt')) return 'Alta';
     if (norm.includes('baj')) return 'Baja';
     if (norm.includes('norm')) return 'Normal';
+    if (norm.includes('med')) return 'Media';
+
+    const combined = normalizeText(`${titleText} ${notesText}`);
+    if (
+      combined.includes('prohibicion estricta') ||
+      combined.includes('robo') ||
+      combined.includes('arma') ||
+      combined.includes('fuga') ||
+      combined.includes('sin luz') ||
+      combined.includes('alarma')
+    ) {
+      return 'Alta';
+    }
+    if (combined.includes('licencia') || combined.includes('apercibimiento') || combined.includes('licitacion')) {
+      return 'Alta';
+    }
     return 'Media';
   };
 
   // Helper to match status
-  const matchStatus = (val: string): TaskStatus => {
-    const norm = (val || '').toLowerCase().trim();
-    if (norm.includes('comple') || norm.includes('finaliz') || norm.includes('termin')) return 'Completada';
-    if (norm.includes('curso') || norm.includes('proceso') || norm.includes('haciendo')) return 'En curso';
+  const matchStatus = (val: string, titleText = ''): TaskStatus => {
+    const norm = normalizeText(val);
+    if (norm.includes('comple') || norm.includes('finaliz') || norm.includes('termin') || norm.includes('realizad') || norm === 'ok' || norm === 'si' || norm === 'hecho') {
+      return 'Completada';
+    }
+    if (norm.includes('curso') || norm.includes('proceso') || norm.includes('haciendo') || norm.includes('pendiente') || norm.includes('espera')) {
+      return 'En curso';
+    }
     if (norm.includes('urg') || norm.includes('priorit')) return 'Urgente/Prioritaria';
+    if (norm.includes('no iniciad') || norm.includes('sin iniciar')) return 'No iniciada';
+
+    // If status cell was blank, infer from past-tense reporting sentences ("Se entregó...", "Se envió...", "Se conectó...", etc.)
+    const normTitle = normalizeText(titleText);
+    if (/^se\s+(entreg|conect|envi|solicit|llev|organiz|realiz|complet|cerr|compr|atendi|reun|incorpor)/i.test(normTitle)) {
+      return 'Completada';
+    }
     return 'No iniciada';
   };
 
   // Helper to match nature
-  const matchNature = (val: string): TaskNature => {
-    const norm = (val || '').toLowerCase().trim();
+  const matchNature = (val: string, sectionNature?: TaskNature, titleText = ''): TaskNature => {
+    const norm = normalizeText(val);
     if (norm.includes('seman')) return 'Fija Semanal';
     if (norm.includes('imprev') || norm.includes('urgente')) return 'Imprevisto';
     if (norm.includes('variab')) return 'Variable';
-    return 'Fija Mensual';
+    if (norm.includes('mensual') || norm.includes('fija')) return 'Fija Mensual';
+
+    const normTitle = normalizeText(titleText);
+    if (normTitle.includes('semanal') || normTitle.includes('semana') || normTitle.includes('fin de semana')) {
+      return 'Fija Semanal';
+    }
+    if (normTitle.includes('cada mes') || normTitle.includes('mensual') || normTitle.includes('fin de mes')) {
+      return 'Fija Mensual';
+    }
+    return sectionNature || 'Fija Mensual';
+  };
+
+  // Infer objective location from title/notes when objective column is empty
+  const inferObjectiveLocation = (rawObj: string, titleText: string, notesText: string): string => {
+    if (rawObj && rawObj.trim()) return rawObj.trim();
+    const combined = `${titleText} ${notesText}`;
+    for (const item of KNOWN_OBJECTIVES) {
+      if (item.patterns.some(rx => rx.test(combined))) {
+        return item.label;
+      }
+    }
+    return '';
+  };
+
+  // Detect if a single-text-cell row is a Section Divider rather than an individual task
+  const isSectionHeaderText = (text: string): { isSection: boolean; cleanCategory: string; nature?: TaskNature } => {
+    const clean = text.trim().replace(/:+$/, '').trim();
+    const norm = normalizeText(clean);
+
+    if (/^tareas?\s+mensual(es)?$/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Tareas Mensuales', nature: 'Fija Mensual' };
+    }
+    if (/^tareas?\s+semanal(es)?$/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Tareas Semanales', nature: 'Fija Semanal' };
+    }
+    if (/^tareas?\s+diarias?$/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Tareas Diarias', nature: 'Fija Mensual' };
+    }
+    if (/^guardias?\s+pasivas?$/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Guardias Pasivas', nature: 'Variable' };
+    }
+    if (/^gestion\s+de\s+licencias/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Gestión de Licencias', nature: 'Variable' };
+    }
+    if (/^instalaciones?\s+de\s+camaras?$/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Instalación de Cámara', nature: 'Variable' };
+    }
+    if (/^capacitaciones?$/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Capacitaciones', nature: 'Variable' };
+    }
+    if (/^verificacion\s+de\s+informes/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Verificación de Informes', nature: 'Variable' };
+    }
+    if (/^reclutamiento$/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Reclutamiento', nature: 'Variable' };
+    }
+    if (/^regimen\s+disciplinario$/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Régimen Disciplinario', nature: 'Imprevisto' };
+    }
+    if (/^acondicionamiento\s+de\s+objetivos?$/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Acondicionamiento de Objetivos', nature: 'Variable' };
+    }
+    if (/^control\s+de\s+gestion/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Control de Gestión y Resolución', nature: 'Fija Mensual' };
+    }
+    if (/^a\s+los\s+clientes\s+pri(n)?cipalmente$/i.test(norm)) {
+      return { isSection: true, cleanCategory: 'Atención a Clientes', nature: 'Fija Mensual' };
+    }
+    // Also detect generic section headers ending with ":" and <= 40 chars without numbers
+    if (text.trim().endsWith(':') && clean.length <= 42 && !/\d/.test(clean)) {
+      return { isSection: true, cleanCategory: clean };
+    }
+
+    return { isSection: false, cleanCategory: '' };
+  };
+
+  // Format task title with section context when the cell only contains a person/client name (e.g. "Diaz Gabriela" under "Gestión de Licencias")
+  const enrichTitleWithSection = (rawTitle: string, currentCategory: string): string => {
+    const trimmed = rawTitle.trim();
+    if (!trimmed) return '';
+    if (!currentCategory) return trimmed;
+
+    const normCat = normalizeText(currentCategory);
+    const normTitle = normalizeText(trimmed);
+
+    // Do not prefix generic frequency sections
+    if (
+      normCat === 'tareas mensuales' ||
+      normCat === 'tareas semanales' ||
+      normCat === 'tareas diarias' ||
+      normCat === 'administrativo'
+    ) {
+      return trimmed;
+    }
+
+    // If the title already mentions the category topic, keep it as-is
+    if (
+      (normCat.includes('licencia') && normTitle.includes('licencia')) ||
+      (normCat.includes('camara') && normTitle.includes('camara')) ||
+      (normCat.includes('capacitacion') && normTitle.includes('capacitacion')) ||
+      (normCat.includes('informe') && normTitle.includes('informe')) ||
+      (normCat.includes('reclutamiento') && (normTitle.includes('reclut') || normTitle.includes('busqueda'))) ||
+      (normCat.includes('disciplinario') && normTitle.includes('apercibimiento')) ||
+      (normCat.includes('guardias pasivas') && normTitle.includes('guardia'))
+    ) {
+      return trimmed;
+    }
+
+    return `${currentCategory}: ${trimmed}`;
   };
 
   const validateRow = (r: Omit<ParsedTaskRow, 'missingFields'>): string[] => {
@@ -167,91 +375,339 @@ export const TaskExcelImportModal: React.FC<TaskExcelImportModalProps> = ({
     return missing;
   };
 
+  const handleBulkAreaChange = (newArea: AreaType) => {
+    setBulkArea(newArea);
+    const newAssignee = getAssigneeForArea(newArea);
+    setRows(prev =>
+      prev.map(r => {
+        const updated = {
+          ...r,
+          area: newArea,
+          assignee: newAssignee,
+        };
+        return {
+          ...updated,
+          missingFields: validateRow(updated),
+        };
+      })
+    );
+    if (onNotify) {
+      const areaLabel = VALID_AREAS.find(a => a.id === newArea)?.label || newArea;
+      onNotify(`Se asignó el puesto "${areaLabel}" (${newAssignee}) a las ${rows.length} tareas.`);
+    }
+  };
+
+  const parseSheetMatrixToTasks = (
+    matrix: any[][],
+    targetDefaultArea: AreaType,
+    sheetIdx: number
+  ): ParsedTaskRow[] => {
+    if (!matrix || matrix.length === 0) return [];
+
+    // 1. Locate header row within the first 15 rows (even if Column 0 header is blank!)
+    let headerRowIndex = -1;
+    let bestScore = 0;
+
+    const maxScan = Math.min(matrix.length, 15);
+    for (let r = 0; r < maxScan; r++) {
+      const row = matrix[r] || [];
+      let score = 0;
+      for (const cell of row) {
+        const norm = normalizeText(cell);
+        if (!norm) continue;
+        if (
+          norm === 'estado' ||
+          norm === 'status' ||
+          norm === 'situacion' ||
+          norm.includes('fecha de inicio') ||
+          norm.includes('fecha de entrega') ||
+          norm.includes('fecha limite') ||
+          norm === 'vencimiento' ||
+          norm === 'notas' ||
+          norm === 'observaciones' ||
+          norm.includes('tarea') ||
+          norm.includes('titulo') ||
+          norm.includes('procedimiento') ||
+          norm.includes('responsable') ||
+          norm.includes('puesto') ||
+          norm.includes('prioridad')
+        ) {
+          score++;
+        }
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        headerRowIndex = r;
+      }
+    }
+
+    // Map column indices
+    let titleCol = -1;
+    let statusCol = -1;
+    let startDateCol = -1;
+    let dueDateCol = -1;
+    let areaCol = -1;
+    let assigneeCol = -1;
+    let priorityCol = -1;
+    let natureCol = -1;
+    let objectiveCol = -1;
+    const noteCols: number[] = [];
+
+    if (headerRowIndex >= 0 && bestScore >= 1) {
+      const headerRow = matrix[headerRowIndex] || [];
+      headerRow.forEach((cell, cIdx) => {
+        const norm = normalizeText(cell);
+        if (!norm) return; // Blank header cell (like Column 0 in user's file)
+
+        if (
+          titleCol === -1 &&
+          (norm.includes('titulo') ||
+            norm.includes('tarea') ||
+            norm.includes('procedimiento') ||
+            norm.includes('descripcion') ||
+            norm.includes('actividad') ||
+            norm === 'nombre' ||
+            norm === 'asunto' ||
+            norm === 'item')
+        ) {
+          titleCol = cIdx;
+        } else if (statusCol === -1 && (norm === 'estado' || norm === 'status' || norm.includes('situacion'))) {
+          statusCol = cIdx;
+        } else if (
+          startDateCol === -1 &&
+          (norm.includes('fecha de inicio') || norm.includes('fecha inicio') || norm === 'inicio' || norm === 'desde')
+        ) {
+          startDateCol = cIdx;
+        } else if (
+          dueDateCol === -1 &&
+          (norm.includes('fecha de entrega') ||
+            norm.includes('fecha limite') ||
+            norm.includes('vencimiento') ||
+            norm.includes('entrega') ||
+            norm.includes('plazo') ||
+            norm.includes('limite') ||
+            norm === 'fecha')
+        ) {
+          dueDateCol = cIdx;
+        } else if (
+          areaCol === -1 &&
+          (norm.includes('puesto') || norm === 'area' || norm.includes('sector') || norm.includes('departamento') || norm === 'rol')
+        ) {
+          areaCol = cIdx;
+        } else if (
+          assigneeCol === -1 &&
+          (norm.includes('responsable') || norm.includes('asignado') || norm.includes('encargado') || norm.includes('colaborador') || norm === 'persona')
+        ) {
+          assigneeCol = cIdx;
+        } else if (priorityCol === -1 && (norm.includes('prioridad') || norm.includes('gravedad') || norm.includes('urgencia'))) {
+          priorityCol = cIdx;
+        } else if (natureCol === -1 && (norm.includes('naturaleza') || norm.includes('frecuencia') || norm === 'tipo')) {
+          natureCol = cIdx;
+        } else if (
+          objectiveCol === -1 &&
+          (norm.includes('objetivo') || norm.includes('ubicacion') || norm.includes('cliente') || norm.includes('lugar'))
+        ) {
+          objectiveCol = cIdx;
+        } else if (
+          norm.includes('nota') ||
+          norm.includes('observacion') ||
+          norm.includes('comentario') ||
+          norm.includes('detalle') ||
+          norm.includes('columna')
+        ) {
+          noteCols.push(cIdx);
+        }
+      });
+
+      // Crucial fix: If the title column had a blank header (e.g. `,Estado,Fecha de inicio,Fecha de entrega,Notas`),
+      // assign titleCol to the first unassigned column (typically Column 0)!
+      const assignedCols = new Set(
+        [statusCol, startDateCol, dueDateCol, areaCol, assigneeCol, priorityCol, natureCol, objectiveCol, ...noteCols].filter(
+          c => c >= 0
+        )
+      );
+      if (titleCol === -1) {
+        const maxCols = Math.max(headerRow.length, ...(matrix.slice(0, 20).map(r => (r ? r.length : 0))));
+        for (let c = 0; c < maxCols; c++) {
+          if (!assignedCols.has(c)) {
+            titleCol = c;
+            assignedCols.add(c);
+            break;
+          }
+        }
+      }
+      // Any remaining unassigned columns are appended to noteCols so 100% of information is captured
+      const maxColsAll = Math.max(headerRow.length, ...(matrix.slice(0, 30).map(r => (r ? r.length : 0))));
+      for (let c = 0; c < maxColsAll; c++) {
+        if (c !== titleCol && !assignedCols.has(c)) {
+          noteCols.push(c);
+        }
+      }
+    } else {
+      // No explicit header row found: use positional heuristic (Col 0 = Title, detect Status/Date columns from data)
+      titleCol = 0;
+      statusCol = 1;
+      startDateCol = 2;
+      dueDateCol = 3;
+      noteCols.push(4, 5, 6);
+    }
+
+    if (titleCol === -1) titleCol = 0;
+
+    let currentCategory = 'Administrativo';
+    let currentSectionNature: TaskNature = 'Fija Mensual';
+    const results: ParsedTaskRow[] = [];
+
+    const startRow = headerRowIndex >= 0 ? headerRowIndex + 1 : 0;
+
+    for (let rIdx = startRow; rIdx < matrix.length; rIdx++) {
+      const row = matrix[rIdx];
+      if (!row || !Array.isArray(row)) continue;
+
+      // Check if entire row is empty
+      const nonEmptyCells = row.filter(c => String(c ?? '').trim() !== '');
+      if (nonEmptyCells.length === 0) continue;
+
+      const rawTitleCell = String(row[titleCol] ?? '').trim();
+      const otherCellsNonEmpty = row.some((c, i) => i !== titleCol && String(c ?? '').trim() !== '');
+
+      // Check if this row is a Section Divider (e.g., "Tareas Mensual", "Tareas Semanal", "Tareas Diarias", "Gestion de Licencias...", etc.)
+      if (rawTitleCell && !otherCellsNonEmpty) {
+        const secCheck = isSectionHeaderText(rawTitleCell);
+        if (secCheck.isSection) {
+          currentCategory = secCheck.cleanCategory;
+          if (secCheck.nature) {
+            currentSectionNature = secCheck.nature;
+          }
+          continue;
+        }
+      }
+
+      // If titleCol is empty on this row, fallback to the first non-empty text cell in the row
+      let effectiveRawTitle = rawTitleCell;
+      if (!effectiveRawTitle) {
+        const fallbackCell = row.find((c, i) => i !== statusCol && i !== startDateCol && i !== dueDateCol && String(c ?? '').trim() !== '');
+        if (fallbackCell) effectiveRawTitle = String(fallbackCell).trim();
+      }
+      if (!effectiveRawTitle) continue;
+
+      const finalTitle = enrichTitleWithSection(effectiveRawTitle, currentCategory);
+
+      const rawStatus = statusCol >= 0 ? String(row[statusCol] ?? '').trim() : '';
+      const rawStartVal = startDateCol >= 0 ? row[startDateCol] : '';
+      const rawDueVal = dueDateCol >= 0 ? row[dueDateCol] : '';
+      const rawAreaVal = areaCol >= 0 ? String(row[areaCol] ?? '').trim() : '';
+      const rawAssigneeVal = assigneeCol >= 0 ? String(row[assigneeCol] ?? '').trim() : '';
+      const rawPriorityVal = priorityCol >= 0 ? String(row[priorityCol] ?? '').trim() : '';
+      const rawNatureVal = natureCol >= 0 ? String(row[natureCol] ?? '').trim() : '';
+      const rawObjectiveVal = objectiveCol >= 0 ? String(row[objectiveCol] ?? '').trim() : '';
+
+      const parsedStartDate = parseDateString(rawStartVal);
+      const parsedDueDate = parseDateString(rawDueVal);
+
+      // Collect all notes from noteCols + any non-date text written in start/due date columns (e.g. "lo realizo gerencia")
+      const collectedNotes: string[] = [];
+      if (rawStartVal && !parsedStartDate && String(rawStartVal).trim()) {
+        collectedNotes.push(String(rawStartVal).trim());
+      }
+      if (rawDueVal && !parsedDueDate && String(rawDueVal).trim()) {
+        collectedNotes.push(String(rawDueVal).trim());
+      }
+      for (const nCol of noteCols) {
+        const val = row[nCol];
+        if (val !== undefined && val !== null && String(val).trim() !== '') {
+          collectedNotes.push(String(val).trim());
+        }
+      }
+      const finalNotes = collectedNotes.join(' | ');
+
+      // Complete 100% of required fields automatically
+      const resolvedArea: AreaType = matchArea(rawAreaVal) || targetDefaultArea || 'OPERACIONES';
+      let resolvedAssignee = rawAssigneeVal;
+      if (!resolvedAssignee) {
+        resolvedAssignee = getAssigneeForArea(resolvedArea);
+      }
+
+      const resolvedDueDate =
+        parsedDueDate ||
+        parsedStartDate ||
+        inferDueDateFromTitle(finalTitle, currentPeriod);
+
+      const resolvedStatus = matchStatus(rawStatus, effectiveRawTitle);
+      const resolvedNature = matchNature(rawNatureVal, currentSectionNature, effectiveRawTitle);
+      const resolvedPriority = matchPriority(rawPriorityVal, finalTitle, finalNotes);
+      const resolvedObjective = inferObjectiveLocation(rawObjectiveVal, finalTitle, finalNotes);
+
+      const baseRow: Omit<ParsedTaskRow, 'missingFields'> = {
+        tempId: `import-${Date.now()}-${sheetIdx}-${rIdx}-${Math.random().toString(36).substring(2, 6)}`,
+        selected: true,
+        area: resolvedArea,
+        title: finalTitle,
+        assignee: resolvedAssignee,
+        startDate: parsedStartDate || undefined,
+        dueDate: resolvedDueDate,
+        priority: resolvedPriority,
+        status: resolvedStatus,
+        nature: resolvedNature,
+        category: currentCategory,
+        notes: finalNotes,
+        objectiveLocation: resolvedObjective,
+      };
+
+      results.push({
+        ...baseRow,
+        missingFields: validateRow(baseRow),
+      });
+    }
+
+    return results;
+  };
+
   const handleProcessFile = async (selectedFile: File) => {
     setIsProcessing(true);
     setFile(selectedFile);
     try {
       const buffer = await selectedFile.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: 'array' });
-      const firstSheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[firstSheetName];
-      const rawRows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+      let workbook: XLSX.WorkBook;
 
-      if (!rawRows || rawRows.length === 0) {
-        if (onNotify) onNotify('El archivo no contiene filas o está vacío.');
+      if (selectedFile.name.toLowerCase().endsWith('.csv')) {
+        let csvText = new TextDecoder('utf-8').decode(buffer);
+        if (csvText.includes('\uFFFD')) {
+          csvText = new TextDecoder('windows-1252').decode(buffer);
+        }
+        workbook = XLSX.read(csvText, { type: 'string', raw: false });
+      } else {
+        workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+      }
+
+      let allParsedRows: ParsedTaskRow[] = [];
+      workbook.SheetNames.forEach((sheetName, sIdx) => {
+        const sheet = workbook.Sheets[sheetName];
+        if (!sheet) return;
+        const matrix: any[][] = XLSX.utils.sheet_to_json(sheet, {
+          header: 1,
+          defval: '',
+          raw: false,
+        });
+        const sheetRows = parseSheetMatrixToTasks(matrix, bulkArea, sIdx);
+        allParsedRows = [...allParsedRows, ...sheetRows];
+      });
+
+      if (allParsedRows.length === 0) {
+        if (onNotify) onNotify('El archivo no contiene filas de tareas válidas o está vacío.');
         setIsProcessing(false);
         return;
       }
 
-      const parsed: ParsedTaskRow[] = rawRows.map((row, idx) => {
-        const getFieldVal = (...keys: string[]): any => {
-          for (const k of keys) {
-            for (const rowKey of Object.keys(row)) {
-              if (rowKey.toLowerCase().trim() === k.toLowerCase().trim()) {
-                return row[rowKey];
-              }
-            }
-          }
-          // Also try partial includes
-          for (const k of keys) {
-            for (const rowKey of Object.keys(row)) {
-              if (rowKey.toLowerCase().trim().includes(k.toLowerCase().trim())) {
-                return row[rowKey];
-              }
-            }
-          }
-          return '';
-        };
-
-        const rawTitle = getFieldVal('titulo', 'título', 'tarea', 'procedimiento', 'descripcion', 'descripción', 'nombre', 'task', 'name') || '';
-        const rawArea = getFieldVal('puesto', 'area', 'área', 'sector', 'departamento', 'sección', 'rol') || '';
-        const rawAssignee = getFieldVal('responsable', 'asignado', 'persona', 'encargado', 'colaborador', 'asignada a', 'assignee') || '';
-        const rawDueDate = getFieldVal('fecha limite', 'fecha límite', 'fecha', 'vencimiento', 'plazo', 'limite', 'límite', 'due date', 'deadline') || '';
-        const rawPriority = getFieldVal('prioridad', 'priority', 'gravedad') || '';
-        const rawStatus = getFieldVal('estado', 'status', 'situacion', 'situación') || '';
-        const rawNature = getFieldVal('naturaleza', 'tipo', 'frecuencia', 'repetición', 'nature') || '';
-        const rawNotes = getFieldVal('observaciones', 'notas', 'nota', 'comentario', 'detalle', 'notes') || '';
-        const rawLocation = getFieldVal('objetivo', 'ubicacion', 'ubicación', 'destino', 'cliente', 'lugar') || '';
-
-        const area = matchArea(String(rawArea)) || (defaultArea !== 'TODOS' ? defaultArea : '');
-        let assignee = String(rawAssignee).trim();
-        if (!assignee && area) {
-          const matchPersona = allPersonas.find(p => p.department === area);
-          if (matchPersona) assignee = matchPersona.name;
-        }
-
-        const dueDate = parseDateString(rawDueDate) || (currentPeriod ? `${currentPeriod}-15` : getTodayDateString());
-        const title = String(rawTitle).trim();
-
-        const baseRow = {
-          tempId: `import-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-          selected: true,
-          area,
-          title,
-          assignee,
-          dueDate,
-          priority: matchPriority(String(rawPriority)),
-          status: matchStatus(String(rawStatus)),
-          nature: matchNature(String(rawNature)),
-          notes: String(rawNotes).trim(),
-          objectiveLocation: String(rawLocation).trim(),
-        };
-
-        return {
-          ...baseRow,
-          missingFields: validateRow(baseRow),
-        };
-      });
-
-      setRows(parsed);
-      const withMissing = parsed.filter(r => r.missingFields.length > 0).length;
+      setRows(allParsedRows);
+      const withMissing = allParsedRows.filter(r => r.missingFields.length > 0).length;
       if (onNotify) {
         onNotify(
-          `¡Archivo cargado! Se detectaron ${parsed.length} tareas. (${withMissing > 0 ? `${withMissing} requieren completar campos faltantes` : 'Todas listas para importar'})`
+          `¡Archivo procesado al 100%! Se leyeron ${allParsedRows.length} tareas completas (${withMissing === 0 ? 'todas con 100% de sus datos listos para importar' : `${withMissing} por revisar`}).`
         );
       }
     } catch (err: any) {
-      if (onNotify) onNotify(`Error al leer archivo Excel: ${err.message || 'Formato no soportado'}`);
+      if (onNotify) onNotify(`Error al leer archivo Excel/CSV: ${err.message || 'Formato no soportado'}`);
     } finally {
       setIsProcessing(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -400,17 +856,19 @@ export const TaskExcelImportModal: React.FC<TaskExcelImportModalProps> = ({
     }
 
     const tasksToImport: Omit<Task, 'id'>[] = selectedRows.map(r => ({
-      area: (r.area || defaultArea || 'OPERACIONES') as AreaType,
+      area: (r.area || bulkArea || 'OPERACIONES') as AreaType,
       title: r.title.trim(),
-      assignee: r.assignee.trim() || 'Marianela Sosa',
+      assignee: r.assignee.trim() || getAssigneeForArea((r.area || bulkArea || 'OPERACIONES') as AreaType),
+      startDate: r.startDate,
       dueDate: r.dueDate,
       priority: r.priority,
       status: r.status,
       nature: r.nature,
+      category: r.category || 'Administrativo',
       notes: r.notes || '',
       objectiveLocation: r.objectiveLocation || '',
       monthPeriod: currentPeriod || r.dueDate.substring(0, 7),
-      completedDate: r.status === 'Completada' ? getTodayDateString() : undefined,
+      completedDate: r.status === 'Completada' ? (r.dueDate || getTodayDateString()) : undefined,
     }));
 
     onImportTasks(tasksToImport);
@@ -455,7 +913,7 @@ export const TaskExcelImportModal: React.FC<TaskExcelImportModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Carga tareas históricas o múltiples de cualquier sector. El sistema interpreta cada fila por separado y te permite revisar o completar campos antes de confirmar.
+                Lector universal inteligente: detecta automáticamente nombres de tareas (incluso en columnas sin encabezado), estados, fechas de inicio/entrega, objetivos y notas.
               </p>
             </div>
           </div>
@@ -475,6 +933,27 @@ export const TaskExcelImportModal: React.FC<TaskExcelImportModalProps> = ({
             >
               <X className="w-5 h-5" />
             </button>
+          </div>
+        </div>
+
+        {/* Selector de Puesto predeterminado para archivos sin columna de puesto */}
+        <div className="px-6 py-2.5 bg-[#121928] border-b border-[#1f293d] flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs text-slate-300">
+            <Layers className="w-4 h-4 text-cyan-400 shrink-0" />
+            <span>Puesto / Responsable asignado por defecto al archivo:</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={bulkArea}
+              onChange={(e) => handleBulkAreaChange(e.target.value as AreaType)}
+              className="px-3 py-1.5 rounded-lg bg-[#182236] border border-cyan-500/40 text-xs font-semibold text-white focus:outline-none focus:border-cyan-400"
+            >
+              {VALID_AREAS.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.label} ({getAssigneeForArea(a.id)})
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
