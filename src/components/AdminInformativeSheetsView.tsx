@@ -35,17 +35,11 @@ import {
 } from 'lucide-react';
 import { broadcastCloudChange, subscribeToCloudSync } from '../utils/cloudSyncService';
 import { FixedTermContractsSheet } from './FixedTermContractsSheet';
-import { RelevamientosSheet } from './RelevamientosSheet';
 import {
   canEditFixedTermContracts,
   getFixedTermContracts,
   FIXED_TERM_CONTRACTS_EVENT,
 } from '../data/fixedTermContractsData';
-import {
-  getRelevamientos,
-  RELEVAMIENTOS_EVENT,
-  canEditRelevamientos,
-} from '../data/relevamientosData';
 import {
   formatPeriodName,
   getAdjacentPeriod,
@@ -247,27 +241,19 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
   currentPeriod,
   onPeriodChange,
 }) => {
-  const [activeSheet, setActiveSheet] = useState<'sin_disep' | 'debe_uniforme' | 'informes_clientes' | 'contratos' | 'relevamientos'>('informes_clientes');
+  const [activeSheet, setActiveSheet] = useState<'sin_disep' | 'debe_uniforme' | 'informes_clientes' | 'contratos'>('informes_clientes');
   const [contractsCount, setContractsCount] = useState(() => getFixedTermContracts().length);
-  const [relevamientosCount, setRelevamientosCount] = useState(() => getRelevamientos().length);
 
   useEffect(() => {
     const refreshContracts = () => setContractsCount(getFixedTermContracts().length);
-    const refreshRelevamientos = () => setRelevamientosCount(getRelevamientos().length);
 
     window.addEventListener(FIXED_TERM_CONTRACTS_EVENT, refreshContracts);
-    window.addEventListener(RELEVAMIENTOS_EVENT, refreshRelevamientos);
-    window.addEventListener('storage', () => {
-      refreshContracts();
-      refreshRelevamientos();
-    });
+    window.addEventListener('storage', refreshContracts);
     const unsub = subscribeToCloudSync(() => {
       refreshContracts();
-      refreshRelevamientos();
     });
     return () => {
       window.removeEventListener(FIXED_TERM_CONTRACTS_EVENT, refreshContracts);
-      window.removeEventListener(RELEVAMIENTOS_EVENT, refreshRelevamientos);
       window.removeEventListener('storage', refreshContracts);
       unsub();
     };
@@ -335,13 +321,9 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
         currentPersona.profileType === 'GERENTE')
   );
 
-  const canEditRelevamientosSheet = canEditRelevamientos(currentPersona);
-
   const canEditCurrentSheet =
     activeSheet === 'informes_clientes'
       ? canEditInformes
-      : activeSheet === 'relevamientos'
-      ? canEditRelevamientosSheet
       : activeSheet === 'contratos'
       ? canEditFixedTermContracts(currentPersona)
       : canEditAdmin;
@@ -923,18 +905,6 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                   Modo Solo Lectura (Solo Recursos Humanos y Gerencia pueden editar)
                 </span>
               )
-            ) : activeSheet === 'relevamientos' ? (
-              canEditRelevamientosSheet ? (
-                <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 rounded-full flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                  Modo Edición Habilitado (Operaciones - Marianela Sosa)
-                </span>
-              ) : (
-                <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase bg-amber-950/80 text-amber-300 border border-amber-700/60 rounded-full flex items-center gap-1">
-                  <Lock className="w-3 h-3 text-amber-400" />
-                  Modo Consulta (Comentarios y Conversación Habilitados)
-                </span>
-              )
             ) : activeSheet === 'informes_clientes' ? (
               canEditInformes ? (
                 <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 rounded-full flex items-center gap-1">
@@ -966,18 +936,14 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
           </div>
 
           <h2 className="text-xl font-black text-white tracking-tight">
-            {activeSheet === 'relevamientos'
-              ? 'Planillas Informativas: Relevamientos Operativos'
-              : activeSheet === 'contratos'
+            {activeSheet === 'contratos'
               ? 'Planillas Informativas: Contratos a Plazo Fijo'
               : activeSheet === 'informes_clientes'
               ? 'Planillas Informativas: Informes Enviados a Clientes'
               : 'Control Informativo: Personal Sin DISEP & Devolución de Uniformes'}
           </h2>
           <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-            {activeSheet === 'relevamientos'
-              ? 'Registro de relevamientos por cliente y categoría (edificios, barrios, obras, medicina, supermercados, empresas) con control de inspección técnica con Lic. en Higiene y Seguridad e hilo de conversación colaborativo en tiempo real.'
-              : activeSheet === 'contratos'
+            {activeSheet === 'contratos'
               ? 'Registro numerado de contratos a plazo fijo: colaborador, objetivo asignado, inicio y fin de contrato. La fecha de fin se refleja en el calendario y Recursos Humanos recibe una alerta una semana antes del vencimiento.'
               : activeSheet === 'informes_clientes'
               ? 'Registro correlativo mensual de informes de seguridad y novedades remitidos a clientes. Control de número de caso, fecha de despacho, medidas adoptadas y resolución de incidentes.'
@@ -985,7 +951,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
           </p>
         </div>
 
-        <div className={(activeSheet === 'contratos' || activeSheet === 'relevamientos') ? 'hidden' : 'flex flex-wrap items-center gap-2 shrink-0'}>
+        <div className={activeSheet === 'contratos' ? 'hidden' : 'flex flex-wrap items-center gap-2 shrink-0'}>
           <button
             onClick={handleExportCSV}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-slate-200 font-bold text-xs border border-[#2e3b54] shadow transition-all cursor-pointer active:scale-95"
@@ -1094,22 +1060,6 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
               {contractsCount}
             </span>
           </button>
-
-          {/* TAB 5: RELEVAMIENTOS (Operaciones - Marianela Sosa) */}
-          <button
-            onClick={() => setActiveSheet('relevamientos')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer border ${
-              activeSheet === 'relevamientos'
-                ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-950/40'
-                : 'bg-[#121620] text-slate-300 border-[#22293b] hover:bg-[#192030]'
-            }`}
-          >
-            <ClipboardCheck className="w-4 h-4" />
-            <span>5. RELEVAMIENTOS</span>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-black/30 text-white">
-              {relevamientosCount}
-            </span>
-          </button>
         </div>
 
         {/* Search & Month Controls */}
@@ -1161,13 +1111,6 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       {/* ========================================================================= */}
       {activeSheet === 'contratos' && (
         <FixedTermContractsSheet currentPersona={currentPersona} onNotify={onNotify} searchTerm={searchTerm} />
-      )}
-
-      {/* ========================================================================= */}
-      {/* PLANILLA 5: RELEVAMIENTOS OPERATIVOS (EDITA OPERACIONES - MARIANELA SOSA) */}
-      {/* ========================================================================= */}
-      {activeSheet === 'relevamientos' && (
-        <RelevamientosSheet currentPersona={currentPersona} onNotify={onNotify} searchTerm={searchTerm} />
       )}
 
       {/* ========================================================================= */}
