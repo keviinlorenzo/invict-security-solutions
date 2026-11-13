@@ -212,6 +212,15 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
       badgeClass: 'text-rose-400 bg-rose-950/60 border-rose-800/60',
     },
     {
+      id: 'SUPERVISIÓN',
+      label: 'Supervisión Operativa en Terreno',
+      shortLabel: 'SUPERVISIÓN',
+      officer: getOfficersForArea('SUPERVISIÓN', 'Bilbao / Tejera'),
+      icon: <MapPin className="w-4 h-4" />,
+      description: 'Recorridas de objetivos, control de puestos en terreno, inspección vehicular, guardias y relevos.',
+      badgeClass: 'text-cyan-400 bg-cyan-950/60 border-cyan-800/60',
+    },
+    {
       id: 'RRHH',
       label: 'Recursos Humanos',
       shortLabel: 'RR.HH.',
@@ -561,8 +570,8 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
           )}
         </div>
 
-        {/* Scrollable Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        {/* Post Navigation Tabs */}
+        <div className="flex flex-wrap items-center gap-1.5 pb-1">
           {postTabs.map((tab) => {
             const isActive = activeTabId === tab.id;
             const stats = getTabStats(tab.id);
