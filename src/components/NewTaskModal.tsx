@@ -84,16 +84,20 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
   const [executionDate, setExecutionDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Sincronizar automáticamente área y responsable predeterminado al abrir el modal o cambiar defaultArea
+  // Sincronizar automáticamente área, responsable y fecha predeterminada al abrir el modal o cambiar currentPeriod
   useEffect(() => {
     if (isOpen) {
       const initArea = determineInitialArea();
       setArea(initArea);
       const defAssignee = getDefaultAssigneeForArea(initArea, personas);
       setAssignee(defAssignee);
+      const todayStr = getTodayDateString();
+      const defaultDateForPeriod = todayStr.startsWith(currentPeriod) ? todayStr : `${currentPeriod}-15`;
+      setDueDate(defaultDateForPeriod);
+      setExecutionDate(todayStr);
       setValidationError(null);
     }
-  }, [isOpen, defaultArea, isGerencia, personas]);
+  }, [isOpen, defaultArea, currentPeriod, isGerencia, personas]);
 
   if (!isOpen) return null;
 

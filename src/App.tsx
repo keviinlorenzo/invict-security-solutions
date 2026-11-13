@@ -99,7 +99,9 @@ import {
   getDeletedPostIds,
   saveNewCustomPost,
   deleteWorkplacePost,
-  updateWorkplacePost
+  updateWorkplacePost,
+  mergeTaskLists,
+  markTaskIdsDeleted
 } from './utils/cloudSyncService';
 import { User } from 'firebase/auth';
 
@@ -108,16 +110,13 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>(() => {
     const saved = localStorage.getItem('invict_tasks');
     const base: Task[] = saved ? JSON.parse(saved) : INITIAL_TASKS;
-    // Sincronizar automáticamente el monthPeriod con la fecha límite (dueDate) real de cada tarea
+    // Normalizar responsables y asignar monthPeriod únicamente si no fue definido explícitamente
     const normalized = base.map((t) => {
       let updated = { ...t };
       if (updated.assignee === 'Yamila') updated.assignee = 'Yamila González';
       if (updated.assignee === 'Laura') updated.assignee = 'Laura González';
-      if (updated.dueDate && updated.dueDate.length >= 7 && updated.dueDate.includes('-')) {
-        const dueP = updated.dueDate.slice(0, 7);
-        if (dueP !== updated.monthPeriod) {
-          updated.monthPeriod = dueP;
-        }
+      if (!updated.monthPeriod && updated.dueDate && updated.dueDate.length >= 7 && updated.dueDate.includes('-')) {
+        updated.monthPeriod = updated.dueDate.slice(0, 7);
       }
       return updated;
     });
@@ -167,7 +166,12 @@ export default function App() {
   });
 
   const [currentPeriod, setCurrentPeriod] = useState<string>(() => {
-    // Siempre abrir en el mes real actual (no en el último mes guardado)
+    try {
+      const sessionPeriod = sessionStorage.getItem('invict_session_period');
+      if (sessionPeriod && /^\d{4}-\d{2}$/.test(sessionPeriod)) return sessionPeriod;
+    } catch {
+      // ignore
+    }
     return DEFAULT_PERIOD;
   });
 
@@ -186,6 +190,22 @@ export default function App() {
     const savedId = localStorage.getItem('invict_active_persona_id');
     const list = localStorage.getItem('invict_personas') ? JSON.parse(localStorage.getItem('invict_personas')!) : USER_PERSONAS;
     const active = list.find((p: UserPersona) => p.id === savedId) || list[0];
+    const isGerencia = active && (active.department === 'GERENCIA' || active.profileType === 'GERENTE');
+    const isSubGerencia = active && (active.department === 'SUB_GERENCIA' || active.profileType === 'SUB_GERENTE');
+
+    try {
+      const savedArea = localStorage.getItem('invict_selected_area') as AreaType | null;
+      if (savedArea) {
+        if (!isGerencia && savedArea === 'GERENCIA') {
+          return isSubGerencia ? 'TODOS' : ((active?.department as AreaType) || 'TODOS');
+        }
+        return savedArea;
+      }
+    } catch {
+      // ignore
+    }
+
+    if (isGerencia || isSubGerencia) return 'TODOS';
     return (active?.department as AreaType) || 'TODOS';
   });
   const [searchTerm, setSearchTerm] = useState('');
@@ -280,7 +300,16 @@ export default function App() {
       }
       if (payload.stateSnapshot) {
         if (Array.isArray(payload.stateSnapshot.invict_tasks)) {
-          setTasks(payload.stateSnapshot.invict_tasks);
+          const incomingTasks = payload.stateSnapshot.invict_tasks;
+          setTasks(prev => {
+            const merged = mergeTaskLists(prev, incomingTasks);
+            try {
+              localStorage.setItem('invict_tasks', JSON.stringify(merged));
+            } catch {
+              // ignore
+            }
+            return merged;
+          });
         }
         if (Array.isArray(payload.stateSnapshot.invict_expenses)) {
           setExpenses(payload.stateSnapshot.invict_expenses);
@@ -295,8 +324,17 @@ export default function App() {
           setCloudModifications(payload.stateSnapshot.invict_cloud_modifications);
         }
       }
-      if (payload.type === 'TASK_MUTATION' && payload.data) {
-        setTasks(payload.data);
+      if (payload.type === 'TASK_MUTATION' && Array.isArray(payload.data)) {
+        const incomingTasks = payload.data;
+        setTasks(prev => {
+          const merged = mergeTaskLists(prev, incomingTasks);
+          try {
+            localStorage.setItem('invict_tasks', JSON.stringify(merged));
+          } catch {
+            // ignore
+          }
+          return merged;
+        });
       } else if (payload.type === 'EXPENSE_MUTATION' && payload.data) {
         setExpenses(payload.data);
       } else if (payload.type === 'MESSAGE_MUTATION' && payload.data) {
@@ -335,7 +373,15 @@ export default function App() {
       actionDescription: taskTitle ? `${actionDescription}: "${taskTitle}"` : actionDescription,
       details,
     };
-    setCloudModifications(prev => [mod, ...prev]);
+    setCloudModifications(prev => {
+      const next = [mod, ...prev].slice(0, 40);
+      try {
+        localStorage.setItem('invict_cloud_modifications', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
     return mod;
   };
 
@@ -348,8 +394,17 @@ export default function App() {
     storeSession(session);
     setAuthSession(session);
     setCurrentPersona(user);
-    setSelectedArea((user.department as AreaType) || 'TODOS');
     const isUserGerencia = user.department === 'GERENCIA' || user.profileType === 'GERENTE';
+    const isUserSubGerencia = user.department === 'SUB_GERENCIA' || user.profileType === 'SUB_GERENTE';
+    const nextArea: AreaType = (isUserGerencia || isUserSubGerencia)
+      ? 'TODOS'
+      : ((user.department as AreaType) || 'TODOS');
+    setSelectedArea(nextArea);
+    try {
+      localStorage.setItem('invict_selected_area', nextArea);
+    } catch {
+      // ignore
+    }
     if (!isUserGerencia && activeTab === 'dashboard') {
       setActiveTab('tasks');
     }
@@ -393,7 +448,20 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('invict_current_period', currentPeriod);
+    try {
+      sessionStorage.setItem('invict_session_period', currentPeriod);
+    } catch {
+      // ignore
+    }
   }, [currentPeriod]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('invict_selected_area', selectedArea);
+    } catch {
+      // ignore
+    }
+  }, [selectedArea]);
 
   // Service Worker and Deadline Notification checks on mount
   useEffect(() => {
@@ -769,7 +837,15 @@ export default function App() {
       );
 
       const updatedTasks = [...weeklyInstances, ...tasks];
+      try {
+        localStorage.setItem('invict_tasks', JSON.stringify(updatedTasks));
+      } catch {
+        // ignore
+      }
       setTasks(updatedTasks);
+      if (selectedArea !== 'TODOS' && selectedArea !== newTaskData.area) {
+        setSelectedArea(newTaskData.area);
+      }
       broadcastCloudChange(
         'TASK_MUTATION',
         `${currentPersona.name} (${userProf}) registró la tarea Fija Semanal "${newTaskData.title}" (${weeklyInstances.length} semanas)`,
@@ -785,7 +861,8 @@ export default function App() {
     const mod = logCloudModification('Creó nueva tarea en la nube', undefined, newTaskData.title);
     const newTask: Task = {
       ...newTaskData,
-      id: `task-${Date.now()}`,
+      id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      monthPeriod: newTaskData.monthPeriod || currentPeriod,
       lastModifiedBy: {
         name: currentPersona.name,
         email: currentPersona.email,
@@ -796,7 +873,18 @@ export default function App() {
       history: [mod],
     };
     const updatedTasks = [newTask, ...tasks];
+    try {
+      localStorage.setItem('invict_tasks', JSON.stringify(updatedTasks));
+    } catch {
+      // ignore
+    }
     setTasks(updatedTasks);
+    if (selectedArea !== 'TODOS' && selectedArea !== newTask.area) {
+      setSelectedArea(newTask.area);
+    }
+    if (newTask.monthPeriod && newTask.monthPeriod !== currentPeriod) {
+      setCurrentPeriod(newTask.monthPeriod);
+    }
     broadcastCloudChange(
       'TASK_MUTATION',
       `${currentPersona.name} (${userProf}) creó la tarea "${newTask.title}"`,
@@ -819,6 +907,7 @@ export default function App() {
     const createdTasks: Task[] = tasksList.map((t, idx) => ({
       ...t,
       id: `task-imp-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+      monthPeriod: t.monthPeriod || currentPeriod,
       lastModifiedBy: {
         name: currentPersona.name,
         email: currentPersona.email,
@@ -830,7 +919,18 @@ export default function App() {
     }));
 
     const updatedTasks = [...createdTasks, ...tasks];
+    try {
+      localStorage.setItem('invict_tasks', JSON.stringify(updatedTasks));
+    } catch {
+      // ignore
+    }
     setTasks(updatedTasks);
+    const distinctAreas = new Set(createdTasks.map(ct => ct.area));
+    if (distinctAreas.size > 1) {
+      setSelectedArea('TODOS');
+    } else if (createdTasks[0]?.area && selectedArea !== 'TODOS' && selectedArea !== createdTasks[0].area) {
+      setSelectedArea(createdTasks[0].area);
+    }
     broadcastCloudChange(
       'TASK_MUTATION',
       `${currentPersona.name} (${userProf}) importó masivamente ${createdTasks.length} tareas desde Excel`,
@@ -1139,6 +1239,7 @@ export default function App() {
       setMonthlyTaskStopped(task.area, task.title, task.monthPeriod || currentPeriod);
     }
     logCloudModification('Retiró tarea de la planilla', undefined, task?.title || taskId);
+    const deletedIds: string[] = [taskId];
     const updatedTasks = tasks.filter(t => {
       if (t.id === taskId) return false;
       if (
@@ -1149,10 +1250,17 @@ export default function App() {
         (t.monthPeriod || '2026-10') > (task.monthPeriod || currentPeriod) &&
         t.status !== 'Completada'
       ) {
+        deletedIds.push(t.id);
         return false;
       }
       return true;
     });
+    markTaskIdsDeleted(deletedIds);
+    try {
+      localStorage.setItem('invict_tasks', JSON.stringify(updatedTasks));
+    } catch {
+      // ignore
+    }
     setTasks(updatedTasks);
     if (selectedTaskForDetail && selectedTaskForDetail.id === taskId) {
       setSelectedTaskForDetail(null);
