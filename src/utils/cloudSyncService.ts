@@ -1,5 +1,6 @@
 import { UserPersona, UserProfileType } from '../types';
 import { supabase } from './supabaseClient';
+import { mergeManagerialMonthData } from '../data/managerialSheetsData';
 
 // Corporate Default Passwords per Profile
 export const DEFAULT_PROFILE_PASSWORDS: Record<UserProfileType, string> = {
@@ -285,6 +286,23 @@ export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>):
     }
   }
 
+  // 3. Smart merge all managerial sheets so paid salaries or recent edits are never overwritten by stale snapshots
+  for (const key of Object.keys(snapshot)) {
+    if (key.startsWith('invict_managerial_sheets_') && snapshot[key] && typeof snapshot[key] === 'object') {
+      try {
+        const localRaw = localStorage.getItem(key);
+        if (localRaw) {
+          const localSheet = JSON.parse(localRaw);
+          if (localSheet && typeof localSheet === 'object') {
+            snapshot[key] = mergeManagerialMonthData(localSheet, snapshot[key]);
+          }
+        }
+      } catch {
+        // fallback to snapshot[key]
+      }
+    }
+  }
+
   for (const [key, value] of Object.entries(snapshot)) {
     if (value !== undefined) {
       try {
@@ -315,8 +333,9 @@ function handleRemoteRow(row: any, isInitialFetch: boolean) {
 
   const stateObj = row.state || {};
   if (Object.keys(stateObj).length > 0) {
-    // Check before merging whether local storage has unpushed tasks or newer task modifications
+    // Check before merging whether local storage has unpushed tasks or newer task/sheet modifications
     let needsRepushToCloud = false;
+    let needsSheetRepush = false;
     if (typeof window !== 'undefined' && Array.isArray(stateObj.invict_tasks)) {
       try {
         const localRaw = localStorage.getItem('invict_tasks');
@@ -344,6 +363,32 @@ function handleRemoteRow(row: any, isInitialFetch: boolean) {
       }
     }
 
+    if (typeof window !== 'undefined') {
+      try {
+        for (const k of Object.keys(stateObj)) {
+          if (k.startsWith('invict_managerial_sheets_') && stateObj[k] && typeof stateObj[k] === 'object') {
+            const localRaw = localStorage.getItem(k);
+            if (!localRaw) continue;
+            const localSheet = JSON.parse(localRaw);
+            const remoteSheet = stateObj[k];
+            const mergedSheet = mergeManagerialMonthData(localSheet, remoteSheet);
+            const countPaid = (arr: any[]) =>
+              Array.isArray(arr) ? arr.filter((x) => x?.status === 'PAGO').length : 0;
+            if (
+              countPaid(mergedSheet.salaries) > countPaid(remoteSheet.salaries) ||
+              countPaid(mergedSheet.fixedExpenses) > countPaid(remoteSheet.fixedExpenses) ||
+              countPaid(mergedSheet.clientBilling) > countPaid(remoteSheet.clientBilling) ||
+              Number(localSheet?.updatedAt || 0) > Number(remoteSheet?.updatedAt || 0)
+            ) {
+              needsSheetRepush = true;
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const baseEvent = row.last_event || {
       type: 'FULL_STATE_SYNC',
       timestamp: row.updated_at || new Date().toISOString(),
@@ -363,8 +408,21 @@ function handleRemoteRow(row: any, isInitialFetch: boolean) {
 
     notifySubscribers(eventPayload);
 
-    // If local browser had newly saved or modified tasks that were not yet in the remote row, push merged state immediately
-    if (needsRepushToCloud) {
+    // If local browser had newly saved or modified sheets/tasks that were not yet in the remote row, push merged state immediately
+    if (needsSheetRepush) {
+      void executePushToRemote(
+        {
+          id: `evt-reconcile-${Date.now()}`,
+          type: 'SHEET_MUTATION',
+          timestamp: new Date().toISOString(),
+          authorName: 'Gerencia General',
+          authorProfile: 'GERENTE',
+          authorEmail: '__reconcile__',
+          summary: 'Reconciliación automática de planilla gerencial',
+        },
+        collectLocalSharedState()
+      );
+    } else if (needsRepushToCloud) {
       void executePushToRemote(undefined, collectLocalSharedState());
     }
   } else if (isInitialFetch) {
@@ -424,8 +482,24 @@ function initRemoteSync() {
   if (remoteSyncInitialized || typeof window === 'undefined') return;
   remoteSyncInitialized = true;
 
-  // 1. Initial fetch of full database state
-  fetchFullRemoteState(true);
+  // 1. Purge any legacy Service Worker caches BEFORE initial fetch so stale cached API responses are never read
+  const startInitialFetch = () => {
+    void fetchFullRemoteState(true);
+  };
+
+  if ('caches' in window) {
+    window.caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys.map((k) => (k !== 'invict-cache-v8' ? window.caches.delete(k) : Promise.resolve(false)))
+        )
+      )
+      .then(startInitialFetch)
+      .catch(startInitialFetch);
+  } else {
+    startInitialFetch();
+  }
 
   // 2. Supabase Realtime WebSocket subscription (instant push on any DB change + broadcast)
   try {
@@ -504,7 +578,7 @@ async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Rec
     }
     snapshot[STORAGE_KEY_DELETED_TASKS] = getDeletedTaskIds();
 
-    // Before pushing, check if remote version is ahead of lastServerVersion so we never overwrite another colleague's tasks
+    // Before pushing, check if remote version is ahead of lastServerVersion so we never overwrite another colleague's tasks or managerial sheets
     try {
       const { data: headRow } = await supabase
         .from('invict_cloud_state')
@@ -513,7 +587,7 @@ async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Rec
         .maybeSingle();
 
       const remoteVer = Number(headRow?.version || 0);
-      if (remoteVer > lastServerVersion) {
+      if (remoteVer > lastServerVersion || event?.type === 'SHEET_MUTATION') {
         const { data: fullRow } = await supabase
           .from('invict_cloud_state')
           .select('version, state')
@@ -542,10 +616,42 @@ async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Rec
               // ignore
             }
           }
+
+          // Merge managerial sheets with remote state so concurrent Gerencia edits never clobber paid salaries
+          for (const k of Object.keys(fullRow.state)) {
+            if (k.startsWith('invict_managerial_sheets_') && fullRow.state[k]) {
+              if (event?.type === 'SHEET_MUTATION' && snapshot[k]) {
+                const mergedSheet = mergeManagerialMonthData(snapshot[k], fullRow.state[k]);
+                snapshot[k] = mergedSheet;
+                try {
+                  localStorage.setItem(k, JSON.stringify(mergedSheet));
+                } catch {
+                  // ignore
+                }
+              } else {
+                // Non-sheet mutations must never overwrite remote managerial sheets with local storage
+                delete snapshot[k];
+              }
+            }
+          }
+        }
+      } else if (event?.type !== 'SHEET_MUTATION') {
+        // When pushing a non-sheet mutation (tasks, messages, expenses, background sync), do NOT send local managerial sheets
+        for (const k of Object.keys(snapshot)) {
+          if (k.startsWith('invict_managerial_sheets_')) {
+            delete snapshot[k];
+          }
         }
       }
     } catch {
       // ignore pre-check network error and proceed with upsert
+      if (event?.type !== 'SHEET_MUTATION') {
+        for (const k of Object.keys(snapshot)) {
+          if (k.startsWith('invict_managerial_sheets_')) {
+            delete snapshot[k];
+          }
+        }
+      }
     }
 
     // Strip huge duplicate objects from event to keep egress and database row tiny
@@ -627,8 +733,8 @@ export function pushStateToRemote(event?: CloudSyncPayload, stateSnapshot?: Reco
     pushDebounceTimer = null;
   }
 
-  // Task mutations push immediately (0ms delay) so refreshing or closing right after saving never loses tasks
-  if (event?.type === 'TASK_MUTATION') {
+  // Task and Sheet mutations push immediately (0ms delay) so refreshing or closing right after saving never loses changes
+  if (event?.type === 'TASK_MUTATION' || event?.type === 'SHEET_MUTATION') {
     const evt = pendingRemoteEvent;
     const snap = pendingSnapshot;
     pendingRemoteEvent = undefined;

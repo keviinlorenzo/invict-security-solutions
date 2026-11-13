@@ -15,6 +15,7 @@ export interface FixedExpenseItem {
   withholdings?: number;
   status: 'PAGO' | 'IMPAGO';
   comment: string;
+  updatedAt?: number;
 }
 
 export interface BankExpenseItem {
@@ -26,6 +27,7 @@ export interface BankExpenseItem {
   reference?: string;
   status: 'PAGO' | 'IMPAGO';
   comment?: string;
+  updatedAt?: number;
 }
 
 export interface EmployeeSalaryItem {
@@ -41,6 +43,7 @@ export interface EmployeeSalaryItem {
   advance: number;
   receipt?: string;
   status: 'PAGO' | 'PENDIENTE';
+  updatedAt?: number;
 }
 
 /**
@@ -66,6 +69,7 @@ export interface ClientBillingItem {
   status: 'PAGO' | 'IMPAGO';
   dueDate?: string;
   invoiceNumber?: string;
+  updatedAt?: number;
 }
 
 // Parsea horas en formato reloj (ej: "271:38", "271:38hs", "271h 38m") o número a horas decimales exactas
@@ -165,6 +169,9 @@ export interface ManagerialMonthData {
   bankExpenses: BankExpenseItem[];
   salaries: EmployeeSalaryItem[];
   clientBilling: ClientBillingItem[];
+  updatedAt?: number;
+  resetAt?: number;
+  deletedItemIds?: string[];
 }
 
 const STORAGE_PREFIX = 'invict_managerial_sheets_';
@@ -512,18 +519,124 @@ export function getManagerialMonthData(period: string = getCurrentPeriodString()
   };
 }
 
+export function mergeManagerialMonthData(
+  localData: ManagerialMonthData | undefined | null,
+  remoteData: ManagerialMonthData | undefined | null
+): ManagerialMonthData {
+  if (!localData && !remoteData) {
+    return getManagerialMonthData();
+  }
+  if (!localData) return remoteData as ManagerialMonthData;
+  if (!remoteData) return localData;
+
+  const localReset = Number(localData.resetAt || 0);
+  const remoteReset = Number(remoteData.resetAt || 0);
+  if (localReset > remoteReset && (localData.updatedAt || 0) >= (remoteData.updatedAt || 0)) {
+    return localData;
+  }
+  if (remoteReset > localReset && (remoteData.updatedAt || 0) >= (localData.updatedAt || 0)) {
+    return remoteData;
+  }
+
+  const deletedSet = new Set<string>([
+    ...(Array.isArray(localData.deletedItemIds) ? localData.deletedItemIds : []),
+    ...(Array.isArray(remoteData.deletedItemIds) ? remoteData.deletedItemIds : []),
+  ]);
+
+  const mergeList = <T extends { id: string; status?: string; updatedAt?: number; advance?: number }>(
+    localList: T[] = [],
+    remoteList: T[] = []
+  ): T[] => {
+    const safeLocal = Array.isArray(localList) ? localList : [];
+    const safeRemote = Array.isArray(remoteList) ? remoteList : [];
+    const map = new Map<string, T>();
+    const order: string[] = [];
+
+    for (const r of safeRemote) {
+      if (!r || !r.id || deletedSet.has(r.id)) continue;
+      map.set(r.id, r);
+      order.push(r.id);
+    }
+
+    for (const l of safeLocal) {
+      if (!l || !l.id || deletedSet.has(l.id)) continue;
+      const r = map.get(l.id);
+      if (!r) {
+        map.set(l.id, l);
+        order.push(l.id);
+      } else {
+        const lTs = Number(l.updatedAt || 0);
+        const rTs = Number(r.updatedAt || 0);
+        if (lTs > 0 || rTs > 0) {
+          if (lTs > rTs) {
+            map.set(l.id, l);
+          } else if (rTs > lTs) {
+            map.set(l.id, r);
+          } else {
+            // Mismo timestamp: preservar PAGO si alguno está en PAGO
+            const chosen = (localData.updatedAt || 0) >= (remoteData.updatedAt || 0) ? { ...l } : { ...r };
+            if (l.status === 'PAGO' || r.status === 'PAGO') {
+              (chosen as any).status = 'PAGO';
+            }
+            map.set(l.id, chosen);
+          }
+        } else {
+          // Ninguna fila tenía updatedAt individual: proteger PAGO y anticipos mayores frente a pestañas viejas en caché
+          const base = (localData.updatedAt || 0) > (remoteData.updatedAt || 0) ? { ...l } : { ...r };
+          if (l.status === 'PAGO' || r.status === 'PAGO') {
+            (base as any).status = 'PAGO';
+          }
+          if (typeof l.advance === 'number' && typeof r.advance === 'number') {
+            (base as any).advance = Math.max(l.advance, r.advance);
+          }
+          map.set(l.id, base);
+        }
+      }
+    }
+
+    return order.map(id => map.get(id)!).filter(Boolean);
+  };
+
+  const mergedSalaries = sortSalariesAlphabetically(
+    mergeList(localData.salaries, remoteData.salaries)
+  );
+  const mergedFixed = mergeList(localData.fixedExpenses, remoteData.fixedExpenses);
+  const mergedBank = mergeList(localData.bankExpenses, remoteData.bankExpenses);
+  const mergedClients = mergeList(localData.clientBilling, remoteData.clientBilling);
+
+  const newerBase =
+    (localData.updatedAt || 0) >= (remoteData.updatedAt || 0) ? localData : remoteData;
+
+  return {
+    ...newerBase,
+    period: remoteData.period || localData.period,
+    isClosed: Boolean(localData.isClosed || remoteData.isClosed),
+    salaries: mergedSalaries,
+    fixedExpenses: mergedFixed,
+    bankExpenses: mergedBank,
+    clientBilling: mergedClients,
+    updatedAt: Math.max(Number(localData.updatedAt || 0), Number(remoteData.updatedAt || 0), Date.now()),
+    resetAt: Math.max(localReset, remoteReset) || undefined,
+    deletedItemIds: Array.from(deletedSet),
+  };
+}
+
 export function saveManagerialMonthData(period: string, data: ManagerialMonthData): void {
   try {
-    localStorage.setItem(`${STORAGE_PREFIX}${period}`, JSON.stringify(data));
+    const stampedData: ManagerialMonthData = {
+      ...data,
+      updatedAt: Date.now(),
+    };
+    localStorage.setItem(`${STORAGE_PREFIX}${period}`, JSON.stringify(stampedData));
     broadcastCloudChange(
       'SHEET_MUTATION',
       `Actualización en planilla gerencial (${period})`,
       { name: 'Gerencia General', profile: 'GERENTE', email: 'consultasinvictsolutionss.a@gmail.com' },
-      { period, data }
+      { period, data: stampedData }
     );
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
-        new CustomEvent('invict_managerial_sheets_mutation', { detail: { period, data } })
+        new CustomEvent('invict_managerial_sheets_mutation', { detail: { period, data: stampedData } })
       );
     }
   } catch (err) {
@@ -560,6 +673,7 @@ export function updateSalaryAdvance(
     ...current,
     advance: updatedAdvance,
     status: current.netSalary <= updatedAdvance ? 'PAGO' : current.status,
+    updatedAt: Date.now(),
   };
 
   data.salaries[foundIndex] = updatedEmployee;
@@ -578,18 +692,22 @@ export function startNewMonth(fromPeriod: string, newPeriod: string): Managerial
   oldData.isClosed = true;
   saveManagerialMonthData(fromPeriod, oldData);
 
+  const now = Date.now();
   const newData: ManagerialMonthData = {
     period: newPeriod,
     isClosed: false,
+    updatedAt: now,
     fixedExpenses: oldData.fixedExpenses.map((f, i) => ({
       ...f,
       id: `fx-${newPeriod}-${i + 1}`,
       status: 'IMPAGO',
+      updatedAt: now,
     })),
     bankExpenses: oldData.bankExpenses.map((b, i) => ({
       ...b,
       id: `bnk-${newPeriod}-${i + 1}`,
       status: 'IMPAGO',
+      updatedAt: now,
     })),
     salaries: oldData.salaries.map((s, i) => ({
       ...s,
@@ -597,12 +715,14 @@ export function startNewMonth(fromPeriod: string, newPeriod: string): Managerial
       advance: 0,
       status: 'PENDIENTE',
       receipt: `REC-${newPeriod.replace('-', '')}-${1000 + i + 1}`,
+      updatedAt: now,
     })),
     clientBilling: oldData.clientBilling.map((c, i) => ({
       ...c,
       id: `cl-${newPeriod}-${i + 1}`,
       status: 'IMPAGO',
       invoiceNumber: `FAC-0001-${newPeriod.replace('-', '')}${10 + i}`,
+      updatedAt: now,
     })),
   };
 
@@ -613,9 +733,12 @@ export function startNewMonth(fromPeriod: string, newPeriod: string): Managerial
 // Reset all values in the active period to 0 to start sheets fresh from zero
 export function resetMonthDataToZero(period: string = getCurrentPeriodString()): ManagerialMonthData {
   const current = getManagerialMonthData(period);
+  const now = Date.now();
   const zeroedData: ManagerialMonthData = {
     period,
     isClosed: false,
+    updatedAt: now,
+    resetAt: now,
     fixedExpenses: current.fixedExpenses.map(f => ({
       ...f,
       amount: 0,
@@ -623,11 +746,13 @@ export function resetMonthDataToZero(period: string = getCurrentPeriodString()):
       vatAmount: 0,
       withholdings: 0,
       status: 'IMPAGO',
+      updatedAt: now,
     })),
     bankExpenses: (current.bankExpenses || []).map(b => ({
       ...b,
       amount: 0,
       status: 'IMPAGO',
+      updatedAt: now,
     })),
     salaries: current.salaries.map(s => ({
       ...s,
@@ -636,6 +761,7 @@ export function resetMonthDataToZero(period: string = getCurrentPeriodString()):
       netSalary: 0,
       advance: 0,
       status: 'PENDIENTE',
+      updatedAt: now,
     })),
     clientBilling: current.clientBilling.map(c => ({
       ...c,
@@ -646,6 +772,7 @@ export function resetMonthDataToZero(period: string = getCurrentPeriodString()):
       withholdings: 0,
       totalNet: 0,
       status: 'IMPAGO',
+      updatedAt: now,
     })),
   };
 

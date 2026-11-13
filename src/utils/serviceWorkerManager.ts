@@ -53,9 +53,28 @@ export function registerServiceWorker(): Promise<ServiceWorkerRegistration | nul
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
     return Promise.resolve(null);
   }
+  // Purge legacy service worker caches that previously cached Supabase GET responses
+  try {
+    if ('caches' in window) {
+      window.caches.keys().then((keys) => {
+        keys.forEach((k) => {
+          if (k !== 'invict-cache-v8') {
+            void window.caches.delete(k);
+          }
+        });
+      });
+    }
+  } catch {
+    // ignore
+  }
   return navigator.serviceWorker
     .register('/sw.js')
     .then((registration) => {
+      try {
+        void registration.update();
+      } catch {
+        // ignore
+      }
       return registration;
     })
     .catch((err) => {

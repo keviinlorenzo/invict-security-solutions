@@ -346,13 +346,15 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
       item.dueDate = String(value);
     }
 
+    item.updatedAt = Date.now();
     updatedBilling[index] = item;
     updateAndSaveData({ ...sheetsData, clientBilling: updatedBilling });
   };
 
   const handleAddClientRow = () => {
+    const now = Date.now();
     const newRow: ClientBillingItem = {
-      id: `cl-${Date.now()}`,
+      id: `cl-${now}`,
       clientName: 'Nuevo Cliente S.A.',
       hourlyRate: 5000,
       totalHours: 720,
@@ -363,6 +365,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
       status: 'IMPAGO',
       invoiceNumber: `FAC-0001-${Math.floor(1000 + Math.random() * 9000)}`,
       dueDate: `${currentPeriod}-20`,
+      updatedAt: now,
     };
     const updated = [...sheetsData.clientBilling, newRow];
     updateAndSaveData({ ...sheetsData, clientBilling: updated });
@@ -370,9 +373,11 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
   };
 
   const handleDeleteClientRow = (index: number) => {
-    const name = sheetsData.clientBilling[index]?.clientName;
+    const removed = sheetsData.clientBilling[index];
+    const name = removed?.clientName;
     const updated = sheetsData.clientBilling.filter((_, i) => i !== index);
-    updateAndSaveData({ ...sheetsData, clientBilling: updated });
+    const deletedItemIds = Array.from(new Set([...(sheetsData.deletedItemIds || []), ...(removed?.id ? [removed.id] : [])]));
+    updateAndSaveData({ ...sheetsData, clientBilling: updated, deletedItemIds });
     if (onNotify) onNotify(`Cliente "${name}" retirado de la planilla.`);
   };
 
@@ -455,6 +460,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
       item.status = value as 'PAGO' | 'PENDIENTE';
     }
 
+    item.updatedAt = Date.now();
     updatedSalaries[index] = item;
     updateAndSaveData({ ...sheetsData, salaries: updatedSalaries });
     if (field === 'status' && onNotify) {
@@ -491,9 +497,10 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
     const ext = Math.max(0, parseFloat(newCollabExtra) || 0);
     const chosenClient = sheetsData.clientBilling.find(c => c.id === newCollabClientId);
     const clientName = chosenClient ? chosenClient.clientName : (newCollabClientId === 'general' ? 'Supervisión / Base General' : '');
+    const now = Date.now();
 
     const newRow: EmployeeSalaryItem = {
-      id: `sal-${Date.now()}`,
+      id: `sal-${now}`,
       index: sheetsData.salaries.length + 1,
       fullName: cleanName,
       objectiveOrRole: newCollabRole.trim() || 'Vigilador General',
@@ -504,6 +511,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
       netSalary: rec + ext,
       advance: 0,
       status: newCollabStatus,
+      updatedAt: now,
     };
 
     // Al agregar nuevo colaborador, ordenarlo sistemáticamente por abecedario A-Z dentro de la lista existente
@@ -520,11 +528,13 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
   };
 
   const handleDeleteSalaryRow = (index: number) => {
-    const name = sheetsData.salaries[index]?.fullName;
+    const removed = sheetsData.salaries[index];
+    const name = removed?.fullName;
     const updated = sheetsData.salaries
       .filter((_, i) => i !== index)
       .map((s, i) => ({ ...s, index: i + 1 }));
-    updateAndSaveData({ ...sheetsData, salaries: updated });
+    const deletedItemIds = Array.from(new Set([...(sheetsData.deletedItemIds || []), ...(removed?.id ? [removed.id] : [])]));
+    updateAndSaveData({ ...sheetsData, salaries: updated, deletedItemIds });
     if (onNotify) onNotify(`Colaborador "${name}" retirado de la planilla.`);
   };
 
@@ -589,18 +599,21 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
       item.comment = String(value);
     }
 
+    item.updatedAt = Date.now();
     updatedFixed[index] = item;
     updateAndSaveData({ ...sheetsData, fixedExpenses: updatedFixed });
   };
 
   const handleAddFixedExpenseRow = () => {
+    const now = Date.now();
     const newRow: FixedExpenseItem = {
-      id: `fx-${Date.now()}`,
+      id: `fx-${now}`,
       category: 'Operativo',
       concept: 'Nuevo Gasto Fijo / Servicio',
       amount: 50000,
       status: 'PAGO',
       comment: 'Comprobante mensual recurrente',
+      updatedAt: now,
     };
     const updated = [...sheetsData.fixedExpenses, newRow];
     updateAndSaveData({ ...sheetsData, fixedExpenses: updated });
@@ -608,9 +621,11 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
   };
 
   const handleDeleteFixedExpenseRow = (index: number) => {
-    const concept = sheetsData.fixedExpenses[index]?.concept;
+    const removed = sheetsData.fixedExpenses[index];
+    const concept = removed?.concept;
     const updated = sheetsData.fixedExpenses.filter((_, i) => i !== index);
-    updateAndSaveData({ ...sheetsData, fixedExpenses: updated });
+    const deletedItemIds = Array.from(new Set([...(sheetsData.deletedItemIds || []), ...(removed?.id ? [removed.id] : [])]));
+    updateAndSaveData({ ...sheetsData, fixedExpenses: updated, deletedItemIds });
     if (onNotify) onNotify(`Gasto "${concept}" retirado de la planilla.`);
   };
 
@@ -679,13 +694,15 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
       item.comment = String(value);
     }
 
+    item.updatedAt = Date.now();
     updatedBank[index] = item;
     updateAndSaveData({ ...sheetsData, bankExpenses: updatedBank });
   };
 
   const handleAddBankExpenseRow = () => {
+    const now = Date.now();
     const newRow: BankExpenseItem = {
-      id: `bnk-${Date.now()}`,
+      id: `bnk-${now}`,
       bank: 'Banco Galicia',
       concept: 'Comisión Mantenimiento de Cuenta / Débito',
       amount: 25000,
@@ -693,6 +710,7 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
       reference: `REF-${Math.floor(10000 + Math.random() * 90000)}`,
       status: 'PAGO',
       comment: 'Extracto mensual',
+      updatedAt: now,
     };
     const updated = [...sheetsData.bankExpenses, newRow];
     updateAndSaveData({ ...sheetsData, bankExpenses: updated });
@@ -700,9 +718,11 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
   };
 
   const handleDeleteBankExpenseRow = (index: number) => {
-    const concept = sheetsData.bankExpenses[index]?.concept;
+    const removed = sheetsData.bankExpenses[index];
+    const concept = removed?.concept;
     const updated = sheetsData.bankExpenses.filter((_, i) => i !== index);
-    updateAndSaveData({ ...sheetsData, bankExpenses: updated });
+    const deletedItemIds = Array.from(new Set([...(sheetsData.deletedItemIds || []), ...(removed?.id ? [removed.id] : [])]));
+    updateAndSaveData({ ...sheetsData, bankExpenses: updated, deletedItemIds });
     if (onNotify) onNotify(`Débito bancario "${concept}" retirado de la planilla.`);
   };
 

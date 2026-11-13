@@ -4,7 +4,7 @@
  * across static assets and APIs, and background push alerts for office workstations.
  */
 
-const CACHE_NAME = 'invict-cache-v6';
+const CACHE_NAME = 'invict-cache-v8';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -39,7 +39,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Stale-While-Revalidate Strategy for all static assets and APIs
+// Network-only for all API/Supabase traffic; Network-first for HTML & app bundles
 self.addEventListener('fetch', (event) => {
   // Only handle GET requests
   if (event.request.method !== 'GET') return;
@@ -51,8 +51,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Chequeo de versión: siempre directo a la red, sin caché
-  if (url.searchParams.has('__version_check')) return;
+  // NEVER cache cross-origin requests (e.g., Supabase REST/Realtime/Auth) or API endpoints
+  if (
+    url.origin !== self.location.origin ||
+    url.hostname.includes('supabase.co') ||
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/rest/') ||
+    url.pathname.startsWith('/realtime/') ||
+    url.searchParams.has('__version_check')
+  ) {
+    return;
+  }
 
   // Network-first para páginas HTML: así cada equipo recibe la última versión publicada
   if (event.request.mode === 'navigate') {
