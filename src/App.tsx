@@ -300,16 +300,7 @@ export default function App() {
       }
       if (payload.stateSnapshot) {
         if (Array.isArray(payload.stateSnapshot.invict_tasks)) {
-          const incomingTasks = payload.stateSnapshot.invict_tasks;
-          setTasks(prev => {
-            const merged = mergeTaskLists(prev, incomingTasks);
-            try {
-              localStorage.setItem('invict_tasks', JSON.stringify(merged));
-            } catch {
-              // ignore
-            }
-            return merged;
-          });
+          setTasks(payload.stateSnapshot.invict_tasks);
         }
         if (Array.isArray(payload.stateSnapshot.invict_expenses)) {
           setExpenses(payload.stateSnapshot.invict_expenses);
@@ -325,16 +316,7 @@ export default function App() {
         }
       }
       if (payload.type === 'TASK_MUTATION' && Array.isArray(payload.data)) {
-        const incomingTasks = payload.data;
-        setTasks(prev => {
-          const merged = mergeTaskLists(prev, incomingTasks);
-          try {
-            localStorage.setItem('invict_tasks', JSON.stringify(merged));
-          } catch {
-            // ignore
-          }
-          return merged;
-        });
+        setTasks(payload.data);
       } else if (payload.type === 'EXPENSE_MUTATION' && payload.data) {
         setExpenses(payload.data);
       } else if (payload.type === 'MESSAGE_MUTATION' && payload.data) {
