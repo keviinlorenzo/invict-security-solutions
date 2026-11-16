@@ -18,6 +18,7 @@ const STORAGE_KEY_PASSWORDS = 'invict_corporate_passwords';
 const STORAGE_KEY_CUSTOM_POSTS = 'invict_custom_posts';
 const STORAGE_KEY_DELETED_POSTS = 'invict_deleted_post_ids';
 const STORAGE_KEY_DELETED_TASKS = 'invict_deleted_task_ids';
+const STORAGE_KEY_DELETED_RECORDS = 'invict_deleted_record_ids';
 
 export function getDeletedTaskIds(): string[] {
   if (typeof window === 'undefined') return [];
@@ -39,6 +40,115 @@ export function markTaskIdsDeleted(taskIds: string[]): void {
   } catch {
     // ignore storage errors
   }
+}
+
+export function getDeletedRecordIds(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_DELETED_RECORDS);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function markRecordIdsDeleted(recordIds: string[]): void {
+  if (typeof window === 'undefined' || !recordIds || recordIds.length === 0) return;
+  try {
+    const current = getDeletedRecordIds();
+    const merged = Array.from(new Set([...recordIds, ...current])).slice(0, 1000);
+    localStorage.setItem(STORAGE_KEY_DELETED_RECORDS, JSON.stringify(merged));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function getRecordUpdatedMs(item: any): number {
+  if (!item || typeof item !== 'object') return 0;
+  let maxTs = 0;
+  if (typeof item.updatedAtMs === 'number' && item.updatedAtMs > maxTs) {
+    maxTs = item.updatedAtMs;
+  }
+  if (typeof item.updatedAt === 'number' && item.updatedAt > maxTs) {
+    maxTs = item.updatedAt;
+  }
+  if (typeof item.id === 'string') {
+    const match = item.id.match(/(\d{13})/);
+    if (match) {
+      const idTs = Number(match[1]);
+      if (!isNaN(idTs) && idTs > maxTs) maxTs = idTs;
+    }
+  }
+  return maxTs;
+}
+
+export function mergeRecordsById(
+  localArr: any[],
+  remoteArr: any[],
+  extraDeletedIds?: string[]
+): any[] {
+  const safeLocal = Array.isArray(localArr) ? localArr : [];
+  const safeRemote = Array.isArray(remoteArr) ? remoteArr : [];
+  const deletedSet = new Set<string>([
+    ...getDeletedRecordIds(),
+    ...(Array.isArray(extraDeletedIds) ? extraDeletedIds : []),
+  ]);
+
+  const remoteMap = new Map<string, any>();
+  for (const r of safeRemote) {
+    if (r && typeof r.id === 'string' && !deletedSet.has(r.id)) {
+      remoteMap.set(r.id, r);
+    }
+  }
+
+  const localOnly: any[] = [];
+  for (const l of safeLocal) {
+    if (!l || typeof l.id !== 'string' || deletedSet.has(l.id)) continue;
+    const r = remoteMap.get(l.id);
+    if (!r) {
+      localOnly.push(l);
+      remoteMap.set(l.id, l);
+    } else {
+      const lTs = getRecordUpdatedMs(l);
+      const rTs = getRecordUpdatedMs(r);
+      if (lTs >= rTs && lTs > 0) {
+        remoteMap.set(l.id, l);
+      }
+    }
+  }
+
+  const seen = new Set<string>();
+  const merged: any[] = [];
+  for (const l of localOnly) {
+    if (!seen.has(l.id)) {
+      seen.add(l.id);
+      merged.push(remoteMap.get(l.id) || l);
+    }
+  }
+  for (const r of safeRemote) {
+    if (r && typeof r.id === 'string' && !deletedSet.has(r.id) && !seen.has(r.id)) {
+      seen.add(r.id);
+      merged.push(remoteMap.get(r.id) || r);
+    }
+  }
+  return merged;
+}
+
+export function mergeAdminInformativeSheets(
+  localSheets: any,
+  remoteSheets: any,
+  extraDeletedIds?: string[]
+): any {
+  if (!localSheets || typeof localSheets !== 'object') return remoteSheets;
+  if (!remoteSheets || typeof remoteSheets !== 'object') return localSheets;
+  return {
+    ...remoteSheets,
+    ...localSheets,
+    sinDisep: mergeRecordsById(localSheets.sinDisep, remoteSheets.sinDisep, extraDeletedIds),
+    debeUniforme: mergeRecordsById(localSheets.debeUniforme, remoteSheets.debeUniforme, extraDeletedIds),
+    informesClientes: mergeRecordsById(localSheets.informesClientes, remoteSheets.informesClientes, extraDeletedIds),
+  };
 }
 
 function getTaskLastUpdatedMs(task: any): number {
@@ -223,6 +333,7 @@ export function collectLocalSharedState(): Record<string, any> {
     STORAGE_KEY_CUSTOM_POSTS,
     STORAGE_KEY_DELETED_POSTS,
     STORAGE_KEY_DELETED_TASKS,
+    STORAGE_KEY_DELETED_RECORDS,
   ];
   for (const key of sharedKeys) {
     const raw = localStorage.getItem(key);
@@ -264,10 +375,14 @@ export function collectLocalSharedState(): Record<string, any> {
 export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>): void {
   if (typeof window === 'undefined' || !snapshot) return;
 
-  // 1. Merge deleted task IDs first so deleted tasks are never resurrected
+  // 1. Merge deleted task and record IDs first so deleted items are never resurrected
   if (Array.isArray(snapshot[STORAGE_KEY_DELETED_TASKS])) {
     markTaskIdsDeleted(snapshot[STORAGE_KEY_DELETED_TASKS]);
     snapshot[STORAGE_KEY_DELETED_TASKS] = getDeletedTaskIds();
+  }
+  if (Array.isArray(snapshot[STORAGE_KEY_DELETED_RECORDS])) {
+    markRecordIdsDeleted(snapshot[STORAGE_KEY_DELETED_RECORDS]);
+    snapshot[STORAGE_KEY_DELETED_RECORDS] = getDeletedRecordIds();
   }
 
   // 2. Smart merge invict_tasks by task ID and modification timestamp
@@ -283,6 +398,43 @@ export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>):
       snapshot.invict_tasks = mergedTasks;
     } catch {
       // fallback to snapshot.invict_tasks
+    }
+  }
+
+  // 2b. Smart merge Planillas Informativas, Contratos a Plazo Fijo, Gastos y Mensajes
+  if (snapshot.invict_admin_informative_sheets && typeof snapshot.invict_admin_informative_sheets === 'object') {
+    try {
+      const localRaw = localStorage.getItem('invict_admin_informative_sheets');
+      if (localRaw) {
+        const localObj = JSON.parse(localRaw);
+        snapshot.invict_admin_informative_sheets = mergeAdminInformativeSheets(
+          localObj,
+          snapshot.invict_admin_informative_sheets,
+          snapshot[STORAGE_KEY_DELETED_RECORDS]
+        );
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  for (const arrKey of ['invict_fixed_term_contracts', 'invict_expenses', 'invict_messages'] as const) {
+    if (Array.isArray(snapshot[arrKey])) {
+      try {
+        const localRaw = localStorage.getItem(arrKey);
+        if (localRaw) {
+          const localArr = JSON.parse(localRaw);
+          if (Array.isArray(localArr)) {
+            snapshot[arrKey] = mergeRecordsById(
+              localArr,
+              snapshot[arrKey],
+              snapshot[STORAGE_KEY_DELETED_RECORDS]
+            );
+          }
+        }
+      } catch {
+        // fallback
+      }
     }
   }
 
@@ -492,7 +644,7 @@ function initRemoteSync() {
       .keys()
       .then((keys) =>
         Promise.all(
-          keys.map((k) => (k !== 'invict-cache-v8' ? window.caches.delete(k) : Promise.resolve(false)))
+          keys.map((k) => (k !== 'invict-cache-v9' ? window.caches.delete(k) : Promise.resolve(false)))
         )
       )
       .then(startInitialFetch)
@@ -567,7 +719,7 @@ async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Rec
   try {
     const snapshot = stateSnapshot || collectLocalSharedState();
 
-    // Always ensure snapshot has the freshest invict_tasks and deleted task IDs from localStorage
+    // Always ensure snapshot has the freshest invict_tasks and deleted IDs from localStorage
     const freshLocal = collectLocalSharedState();
     if (Array.isArray(freshLocal.invict_tasks)) {
       snapshot.invict_tasks = mergeTaskLists(
@@ -577,8 +729,9 @@ async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Rec
       );
     }
     snapshot[STORAGE_KEY_DELETED_TASKS] = getDeletedTaskIds();
+    snapshot[STORAGE_KEY_DELETED_RECORDS] = getDeletedRecordIds();
 
-    // Before pushing, check if remote version is ahead of lastServerVersion so we never overwrite another colleague's tasks or managerial sheets
+    // Before pushing, check if remote version is ahead of lastServerVersion so we never overwrite another colleague's tasks, sheets, contracts, expenses or messages
     try {
       const { data: headRow } = await supabase
         .from('invict_cloud_state')
@@ -595,13 +748,21 @@ async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Rec
           .maybeSingle();
 
         if (fullRow?.state) {
-          const remoteDeleted = Array.isArray(fullRow.state[STORAGE_KEY_DELETED_TASKS])
+          const remoteDeletedTasks = Array.isArray(fullRow.state[STORAGE_KEY_DELETED_TASKS])
             ? fullRow.state[STORAGE_KEY_DELETED_TASKS]
             : [];
-          if (remoteDeleted.length > 0) {
-            markTaskIdsDeleted(remoteDeleted);
+          if (remoteDeletedTasks.length > 0) {
+            markTaskIdsDeleted(remoteDeletedTasks);
           }
           snapshot[STORAGE_KEY_DELETED_TASKS] = getDeletedTaskIds();
+
+          const remoteDeletedRecords = Array.isArray(fullRow.state[STORAGE_KEY_DELETED_RECORDS])
+            ? fullRow.state[STORAGE_KEY_DELETED_RECORDS]
+            : [];
+          if (remoteDeletedRecords.length > 0) {
+            markRecordIdsDeleted(remoteDeletedRecords);
+          }
+          snapshot[STORAGE_KEY_DELETED_RECORDS] = getDeletedRecordIds();
 
           if (Array.isArray(fullRow.state.invict_tasks)) {
             const mergedTasks = mergeTaskLists(
@@ -617,6 +778,36 @@ async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Rec
             }
           }
 
+          if (fullRow.state.invict_admin_informative_sheets && snapshot.invict_admin_informative_sheets) {
+            const mergedAdmin = mergeAdminInformativeSheets(
+              snapshot.invict_admin_informative_sheets,
+              fullRow.state.invict_admin_informative_sheets,
+              snapshot[STORAGE_KEY_DELETED_RECORDS]
+            );
+            snapshot.invict_admin_informative_sheets = mergedAdmin;
+            try {
+              localStorage.setItem('invict_admin_informative_sheets', JSON.stringify(mergedAdmin));
+            } catch {
+              // ignore
+            }
+          }
+
+          for (const arrKey of ['invict_fixed_term_contracts', 'invict_expenses', 'invict_messages'] as const) {
+            if (Array.isArray(fullRow.state[arrKey]) && Array.isArray(snapshot[arrKey])) {
+              const mergedArr = mergeRecordsById(
+                snapshot[arrKey],
+                fullRow.state[arrKey],
+                snapshot[STORAGE_KEY_DELETED_RECORDS]
+              );
+              snapshot[arrKey] = mergedArr;
+              try {
+                localStorage.setItem(arrKey, JSON.stringify(mergedArr));
+              } catch {
+                // ignore
+              }
+            }
+          }
+
           // Merge managerial sheets with remote state so concurrent Gerencia edits never clobber paid salaries
           for (const k of Object.keys(fullRow.state)) {
             if (k.startsWith('invict_managerial_sheets_') && fullRow.state[k]) {
@@ -629,27 +820,57 @@ async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Rec
                   // ignore
                 }
               } else {
-                // Non-sheet mutations must never overwrite remote managerial sheets with local storage
                 delete snapshot[k];
               }
             }
           }
         }
-      } else if (event?.type !== 'SHEET_MUTATION') {
-        // When pushing a non-sheet mutation (tasks, messages, expenses, background sync), do NOT send local managerial sheets
-        for (const k of Object.keys(snapshot)) {
-          if (k.startsWith('invict_managerial_sheets_')) {
+      }
+    } catch {
+      // ignore pre-check network error and proceed with upsert
+    }
+
+    // Domain isolation: strip unrelated keys from snapshot when event.type is specific to one module
+    // so no profile's action can ever overwrite another profile's module with stale localStorage data
+    const evtType = event?.type;
+    if (evtType && evtType !== 'FULL_STATE_SYNC' && evtType !== 'GENERIC_SYNC') {
+      for (const k of Object.keys(snapshot)) {
+        if (k === 'invict_cloud_modifications' || k === STORAGE_KEY_DELETED_TASKS || k === STORAGE_KEY_DELETED_RECORDS) {
+          continue;
+        }
+        if (evtType === 'TASK_MUTATION') {
+          if (k !== 'invict_tasks' && k !== 'invict_stopped_monthly_tasks') delete snapshot[k];
+        } else if (evtType === 'SHEET_MUTATION') {
+          if (
+            !k.startsWith('invict_managerial_sheets_') &&
+            k !== 'invict_admin_informative_sheets' &&
+            k !== 'invict_fixed_term_contracts'
+          ) {
+            delete snapshot[k];
+          }
+        } else if (evtType === 'EXPENSE_MUTATION') {
+          if (k !== 'invict_expenses') delete snapshot[k];
+        } else if (evtType === 'MESSAGE_MUTATION') {
+          if (k !== 'invict_messages') delete snapshot[k];
+        } else if (evtType === 'POST_ADDED' || evtType === 'POST_DELETED' || evtType === 'POST_UPDATED') {
+          if (
+            k !== 'invict_personas' &&
+            k !== STORAGE_KEY_CUSTOM_POSTS &&
+            k !== STORAGE_KEY_DELETED_POSTS
+          ) {
+            delete snapshot[k];
+          }
+        } else if (evtType === 'PASSWORD_UPDATED') {
+          if (k !== STORAGE_KEY_PASSWORDS && k !== 'invict_user_credentials') {
             delete snapshot[k];
           }
         }
       }
-    } catch {
-      // ignore pre-check network error and proceed with upsert
-      if (event?.type !== 'SHEET_MUTATION') {
-        for (const k of Object.keys(snapshot)) {
-          if (k.startsWith('invict_managerial_sheets_')) {
-            delete snapshot[k];
-          }
+    } else if (!evtType) {
+      // Background task reconciliation: only send tasks and tombstones, never sheets/expenses/messages
+      for (const k of Object.keys(snapshot)) {
+        if (k !== 'invict_tasks' && k !== STORAGE_KEY_DELETED_TASKS && k !== STORAGE_KEY_DELETED_RECORDS) {
+          delete snapshot[k];
         }
       }
     }
@@ -733,8 +954,8 @@ export function pushStateToRemote(event?: CloudSyncPayload, stateSnapshot?: Reco
     pushDebounceTimer = null;
   }
 
-  // Task and Sheet mutations push immediately (0ms delay) so refreshing or closing right after saving never loses changes
-  if (event?.type === 'TASK_MUTATION' || event?.type === 'SHEET_MUTATION') {
+  // Push all explicit user mutations immediately (0ms delay) so refreshing or closing right after saving never loses changes
+  if (event?.type) {
     const evt = pendingRemoteEvent;
     const snap = pendingSnapshot;
     pendingRemoteEvent = undefined;
@@ -790,9 +1011,35 @@ export function broadcastCloudChange(
           // ignore
         }
         localStorage.setItem('invict_tasks', JSON.stringify(data));
-      } else if (type === 'EXPENSE_MUTATION') {
+      } else if (type === 'EXPENSE_MUTATION' && Array.isArray(data)) {
+        try {
+          const prevRaw = localStorage.getItem('invict_expenses');
+          if (prevRaw) {
+            const prevArr: any[] = JSON.parse(prevRaw);
+            const newIdSet = new Set(data.map((x: any) => x?.id).filter(Boolean));
+            const removedIds = prevArr
+              .map((x: any) => x?.id)
+              .filter((id: any) => typeof id === 'string' && !newIdSet.has(id));
+            if (removedIds.length > 0) markRecordIdsDeleted(removedIds);
+          }
+        } catch {
+          // ignore
+        }
         localStorage.setItem('invict_expenses', JSON.stringify(data));
-      } else if (type === 'MESSAGE_MUTATION') {
+      } else if (type === 'MESSAGE_MUTATION' && Array.isArray(data)) {
+        try {
+          const prevRaw = localStorage.getItem('invict_messages');
+          if (prevRaw) {
+            const prevArr: any[] = JSON.parse(prevRaw);
+            const newIdSet = new Set(data.map((x: any) => x?.id).filter(Boolean));
+            const removedIds = prevArr
+              .map((x: any) => x?.id)
+              .filter((id: any) => typeof id === 'string' && !newIdSet.has(id));
+            if (removedIds.length > 0) markRecordIdsDeleted(removedIds);
+          }
+        } catch {
+          // ignore
+        }
         localStorage.setItem('invict_messages', JSON.stringify(data));
       }
     } catch {

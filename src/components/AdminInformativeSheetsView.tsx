@@ -33,7 +33,7 @@ import {
   ArrowDown,
   ClipboardCheck
 } from 'lucide-react';
-import { broadcastCloudChange, subscribeToCloudSync } from '../utils/cloudSyncService';
+import { broadcastCloudChange, markRecordIdsDeleted, subscribeToCloudSync } from '../utils/cloudSyncService';
 import { FixedTermContractsSheet } from './FixedTermContractsSheet';
 import {
   canEditFixedTermContracts,
@@ -216,6 +216,39 @@ export function saveAdminInformativeSheets(
   summary: string
 ): void {
   try {
+    const now = Date.now();
+    try {
+      const prevRaw = localStorage.getItem(STORAGE_KEY_ADMIN_SHEETS);
+      if (prevRaw) {
+        const prev: AdminInformativeSheetsData = JSON.parse(prevRaw);
+        const removedIds: string[] = [];
+        const stampList = <T extends { id: string }>(nextList: T[] = [], prevList: T[] = []): T[] => {
+          const prevMap = new Map((Array.isArray(prevList) ? prevList : []).map((x) => [x.id, x]));
+          const nextIdSet = new Set((Array.isArray(nextList) ? nextList : []).map((x) => x.id));
+          for (const p of Array.isArray(prevList) ? prevList : []) {
+            if (p?.id && !nextIdSet.has(p.id)) removedIds.push(p.id);
+          }
+          return (Array.isArray(nextList) ? nextList : []).map((item) => {
+            const oldItem = prevMap.get(item.id);
+            if (!oldItem || JSON.stringify(oldItem) !== JSON.stringify(item)) {
+              return { ...item, updatedAtMs: now } as T;
+            }
+            return item;
+          });
+        };
+        data = {
+          ...data,
+          sinDisep: stampList(data.sinDisep, prev.sinDisep),
+          debeUniforme: stampList(data.debeUniforme, prev.debeUniforme),
+          informesClientes: stampList(data.informesClientes, prev.informesClientes),
+        };
+        if (removedIds.length > 0) {
+          markRecordIdsDeleted(removedIds);
+        }
+      }
+    } catch {
+      // ignore diff error
+    }
     localStorage.setItem(STORAGE_KEY_ADMIN_SHEETS, JSON.stringify(data));
     broadcastCloudChange(
       'SHEET_MUTATION',

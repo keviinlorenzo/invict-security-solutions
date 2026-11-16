@@ -58,7 +58,7 @@ export function registerServiceWorker(): Promise<ServiceWorkerRegistration | nul
     if ('caches' in window) {
       window.caches.keys().then((keys) => {
         keys.forEach((k) => {
-          if (k !== 'invict-cache-v8') {
+          if (k !== 'invict-cache-v9') {
             void window.caches.delete(k);
           }
         });

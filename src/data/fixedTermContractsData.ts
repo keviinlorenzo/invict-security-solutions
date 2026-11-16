@@ -1,6 +1,6 @@
 // Planilla informativa: Contratos a Plazo Fijo (edición exclusiva Recursos Humanos y Gerencia)
 import { UserPersona } from '../types';
-import { broadcastCloudChange } from '../utils/cloudSyncService';
+import { broadcastCloudChange, markRecordIdsDeleted } from '../utils/cloudSyncService';
 import { getTodayDateString } from '../utils/dateUtils';
 
 export interface FixedTermContractItem {
@@ -11,6 +11,7 @@ export interface FixedTermContractItem {
   endDate: string; // YYYY-MM-DD (se refleja en el calendario)
   observations?: string; // No obligatorio
   updatedAt?: string;
+  updatedAtMs?: number;
   updatedBy?: string;
 }
 
@@ -39,6 +40,30 @@ export function saveFixedTermContracts(
   summary: string
 ): void {
   try {
+    const now = Date.now();
+    try {
+      const prevRaw = localStorage.getItem(STORAGE_KEY_FIXED_TERM_CONTRACTS);
+      if (prevRaw) {
+        const prevList: FixedTermContractItem[] = JSON.parse(prevRaw);
+        if (Array.isArray(prevList)) {
+          const prevMap = new Map(prevList.map((x) => [x.id, x]));
+          const nextIdSet = new Set(contracts.map((x) => x.id));
+          const removedIds = prevList.map((x) => x.id).filter((id) => id && !nextIdSet.has(id));
+          if (removedIds.length > 0) {
+            markRecordIdsDeleted(removedIds);
+          }
+          contracts = contracts.map((item) => {
+            const oldItem = prevMap.get(item.id);
+            if (!oldItem || JSON.stringify(oldItem) !== JSON.stringify(item)) {
+              return { ...item, updatedAtMs: now };
+            }
+            return item;
+          });
+        }
+      }
+    } catch {
+      // ignore diff error
+    }
     localStorage.setItem(STORAGE_KEY_FIXED_TERM_CONTRACTS, JSON.stringify(contracts));
     broadcastCloudChange(
       'SHEET_MUTATION',
