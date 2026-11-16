@@ -24,7 +24,7 @@ import {
   Laptop,
   Smartphone
 } from 'lucide-react';
-import { calculateDaysRemaining } from '../utils/dateUtils';
+import { calculateDaysRemaining, isTaskInPeriod } from '../utils/dateUtils';
 import { PROFILE_METADATA } from '../utils/authService';
 import {
   ContractAlertItem,
@@ -110,7 +110,7 @@ export const Header: React.FC<HeaderProps> = ({
   const delayedTasks = tasks.filter(t => {
     if (t.status === 'Completada') return false;
     if (!isGerencia && t.area === 'GERENCIA') return false;
-    if ((t.monthPeriod || '2026-10') !== currentPeriod) return false;
+    if (!isTaskInPeriod(t, currentPeriod)) return false;
     if (effectiveArea && effectiveArea !== 'TODOS' && t.area !== effectiveArea) return false;
     const { status, days } = calculateDaysRemaining(t.dueDate, t.completedDate);
     // Para tareas Fija Semanal, disparar alerta todas las semanas para la tarea de la semana en curso (o vencida)

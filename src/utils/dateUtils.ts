@@ -25,6 +25,26 @@ export function getNextPeriodString(period: string): string {
 export const DEFAULT_PERIOD = getCurrentPeriodString();
 export const CURRENT_APP_DATE = getTodayDateString();
 
+/**
+ * Criterio único y canónico en toda la aplicación para determinar si una tarea
+ * pertenece a un período mensual ('YYYY-MM'). Garantiza que Matriz Operativa,
+ * Dashboard Gerencial, Informes Ejecutivos, Estadísticas Hubbard, Calendario y Exportaciones
+ * muestren exactamente la misma cantidad de tareas en todo momento.
+ */
+export function isTaskInPeriod(
+  task: { monthPeriod?: string; dueDate?: string } | null | undefined,
+  period: string
+): boolean {
+  if (!task || !period) return false;
+  if (task.monthPeriod && /^\d{4}-\d{2}$/.test(task.monthPeriod)) {
+    return task.monthPeriod === period;
+  }
+  if (task.dueDate && task.dueDate.startsWith(period)) {
+    return true;
+  }
+  return (task.monthPeriod || DEFAULT_PERIOD) === period;
+}
+
 const MONTH_NAMES_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'

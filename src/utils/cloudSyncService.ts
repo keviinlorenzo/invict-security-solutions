@@ -772,7 +772,7 @@ function initRemoteSync() {
       .keys()
       .then((keys) =>
         Promise.all(
-          keys.map((k) => (k !== 'invict-cache-v10' ? window.caches.delete(k) : Promise.resolve(false)))
+          keys.map((k) => (k !== 'invict-cache-v11' ? window.caches.delete(k) : Promise.resolve(false)))
         )
       )
       .then(startInitialFetch)

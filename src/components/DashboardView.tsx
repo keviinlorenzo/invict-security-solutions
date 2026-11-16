@@ -17,7 +17,7 @@ import {
   ShieldCheck,
   Compass
 } from 'lucide-react';
-import { calculateDaysRemaining, formatCurrencyARS, formatPeriodName } from '../utils/dateUtils';
+import { calculateDaysRemaining, formatCurrencyARS, formatPeriodName, isTaskInPeriod } from '../utils/dateUtils';
 import { MonthlyPeriodSelector } from './MonthlyPeriodSelector';
 
 interface DashboardViewProps {
@@ -60,10 +60,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   isSubGerencia = false,
 }) => {
   // Filter tasks by current period first
-  const periodTasks = tasks.filter(t => {
-    if (t.dueDate && t.dueDate.startsWith(currentPeriod)) return true;
-    return (t.monthPeriod || '2026-10') === currentPeriod;
-  });
+  const periodTasks = tasks.filter(t => isTaskInPeriod(t, currentPeriod));
   const fixedTasksInPeriod = periodTasks.filter(t => (t.nature || 'Fija Mensual') === 'Fija Mensual');
 
   // Filter tasks by selected area

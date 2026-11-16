@@ -1,6 +1,7 @@
 import { Task, Expense, AreaType, UserPersona } from '../types';
 import { getManagerialMonthData, calculateManagerialMetrics } from '../data/managerialSheetsData';
 import { determineHubbardCondition, HubbardConditionFormula } from '../data/hubbardConditionsData';
+import { isTaskInPeriod } from './dateUtils';
 
 export interface DataPoint {
   label: string;
@@ -133,24 +134,10 @@ export function parseDateParts(dateStr?: string): { year: number; month: number;
 
 /**
  * Determina si una tarea pertenece al período objetivo (ej. '2026-11').
+ * Usa el criterio canónico isTaskInPeriod para coincidir 100% con Matriz Operativa e Informes Ejecutivos.
  */
 function isTaskInTargetPeriod(t: Task, targetPeriod: string): boolean {
-  if (t.monthPeriod && t.monthPeriod.startsWith(targetPeriod)) return true;
-  if (t.dueDate) {
-    const dp = parseDateParts(t.dueDate);
-    if (dp) {
-      const p = `${dp.year}-${String(dp.month).padStart(2, '0')}`;
-      if (p === targetPeriod) return true;
-    }
-  }
-  if (t.startDate) {
-    const dp = parseDateParts(t.startDate);
-    if (dp) {
-      const p = `${dp.year}-${String(dp.month).padStart(2, '0')}`;
-      if (p === targetPeriod) return true;
-    }
-  }
-  return false;
+  return isTaskInPeriod(t, targetPeriod);
 }
 
 /**
@@ -169,195 +156,128 @@ function getTaskDay(t: Task): number {
 }
 
 /**
- * Evalúa si una tarea corresponde a un puesto o responsable específico.
+ * Evalúa si una tarea corresponde a un puesto específico (coincidencia estricta por área de puesto
+ * para garantizar paridad exacta con Matriz Operativa e Informes Ejecutivos).
  */
 function isTaskAssignedToPost(t: Task, meta: PostDefinition): boolean {
-  if (t.area && t.area === meta.area) return true;
-  if (t.assignee) {
-    const a = t.assignee.toLowerCase().trim();
-    const r = meta.responsible.toLowerCase().trim();
-    if (a === r || a.includes(r) || r.includes(a)) return true;
-    const rFirst = r.split(' ')[0];
-    if (rFirst && rFirst.length > 2 && a.includes(rFirst)) return true;
-  }
-  return false;
+  return t.area === meta.area;
 }
 
 /**
  * Construye la lista de definiciones de puestos dinámicamente a partir de los usuarios
- * y puestos actualmente configurados en la aplicación.
+ * y puestos actualmente configurados en la aplicación (1 definición consolidada por área).
  */
 export function buildDynamicPostDefinitions(allPersonas?: UserPersona[]): PostDefinition[] {
-  const AREA_METADATA: Record<AreaType, { name: string; badge: string; project: string }> = {
+  const AREA_METADATA: Record<AreaType, { name: string; badge: string; project: string; fallbackResponsible: string; fallbackRole: string; fallbackAvatarBg: string }> = {
     OPERACIONES: {
       name: 'Operaciones (Puestos & Oficina)',
       badge: 'bg-indigo-950/80 text-indigo-300 border-indigo-700/60',
       project: 'SERVICIOS DE VIGILANCIA Y LOGÍSTICA',
+      fallbackResponsible: 'Marianela Sosa',
+      fallbackRole: 'Gestión Operativa',
+      fallbackAvatarBg: 'bg-indigo-700',
     },
     SUPERVISIÓN: {
       name: 'Supervisión en Terreno / Móvil',
       badge: 'bg-cyan-950/80 text-cyan-300 border-cyan-700/60',
       project: 'INSPECCIÓN DE PUESTOS Y MÓVILES',
+      fallbackResponsible: 'Carlos Bilbao / Pablo Tejera',
+      fallbackRole: 'Supervisión Operativa',
+      fallbackAvatarBg: 'bg-stone-700',
     },
     RRHH: {
       name: 'Recursos Humanos (RR.HH.)',
       badge: 'bg-amber-950/80 text-amber-300 border-amber-700/60',
       project: 'LEGAJOS, EPP Y RELACIONES LABORALES',
+      fallbackResponsible: 'Tamara Alvarez',
+      fallbackRole: 'Responsable de Recursos Humanos',
+      fallbackAvatarBg: 'bg-amber-700',
     },
     ADM: {
       name: 'Administración (ADM)',
       badge: 'bg-blue-950/80 text-blue-300 border-blue-700/60',
       project: 'FACTURACIÓN, CUENTAS Y FORMULARIO 931',
+      fallbackResponsible: 'Giuliana Paura',
+      fallbackRole: 'Responsable de Administración',
+      fallbackAvatarBg: 'bg-blue-700',
     },
     AUX_ADM: {
       name: 'Auxiliar Administrativo',
       badge: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60',
       project: 'CAJA CHICA, INSUMOS Y ARCHIVO FÍSICO',
+      fallbackResponsible: 'Kevin Lorenzo',
+      fallbackRole: 'Auxiliar Administrativo',
+      fallbackAvatarBg: 'bg-emerald-700',
     },
     SELECCION: {
       name: 'Selección de Personal',
       badge: 'bg-purple-950/80 text-purple-300 border-purple-700/60',
       project: 'ENTREVISTAS, REPRIV Y PSICOTÉCNICOS',
+      fallbackResponsible: 'Selección',
+      fallbackRole: 'Responsable de Selección & Reclutamiento',
+      fallbackAvatarBg: 'bg-purple-700',
     },
     SUB_GERENCIA: {
       name: 'Sub Gerencia / Vicepresidencia',
       badge: 'bg-rose-950/80 text-rose-300 border-rose-700/60',
       project: 'SUPERVISIÓN INTEGRAL Y AUDITORÍA DE PUESTOS',
+      fallbackResponsible: 'Laura González',
+      fallbackRole: 'Vicepresidente',
+      fallbackAvatarBg: 'bg-rose-900',
     },
     GERENCIA: {
       name: 'Gerencia General (C-Level)',
       badge: 'bg-red-950/80 text-red-300 border-red-700/60',
       project: 'DIRECCIÓN ESTRATÉGICA Y GOBERNANZA',
+      fallbackResponsible: 'Yamila González / Domingo González',
+      fallbackRole: 'Dirección General (C-Level)',
+      fallbackAvatarBg: 'bg-red-700',
     },
     TODOS: {
       name: 'Coordinación General',
       badge: 'bg-slate-900 text-slate-300 border-slate-700',
       project: 'COORDINACIÓN GENERAL DE OFICINA',
+      fallbackResponsible: 'Dirección General',
+      fallbackRole: 'Coordinación General',
+      fallbackAvatarBg: 'bg-slate-700',
     },
   };
 
-  if (allPersonas && allPersonas.length > 0) {
-    // Excluir cuentas genéricas master duplicadas
-    const filtered = allPersonas.filter(p => p.id !== 'p-master-c-level');
-
-    // Mapear cada puesto actualmente cargado en la aplicación
-    return filtered.map(p => {
-      let displayName = p.name;
-      // Normalizar nombres si tenían versiones incompletas
-      if (displayName === 'Yamila') displayName = 'Yamila González';
-      if (displayName === 'Laura' || displayName === 'Laura (Sub Gerencia)') displayName = 'Laura González';
-
-      const areaMeta = AREA_METADATA[p.department] || {
-        name: p.role || p.department,
-        badge: 'bg-slate-800 text-slate-200 border-slate-700',
-        project: 'CONTROL OPERATIVO',
-      };
-
-      return {
-        area: p.department,
-        name: areaMeta.name,
-        responsible: displayName,
-        role: p.role,
-        avatarBg: p.avatarBg || 'bg-slate-700',
-        badgeClass: areaMeta.badge,
-        quotaWorkloadMonthly: p.department === 'GERENCIA' ? 8 : 6,
-        quotaEfficiency: p.department === 'GERENCIA' ? 95 : 90,
-        project: areaMeta.project,
-      };
-    });
-  }
-
-  // Fallback con los 8 puestos actualizados y sus nombres reales
-  return [
-    {
-      area: 'OPERACIONES',
-      name: 'Operaciones (Puestos & Oficina)',
-      responsible: 'Kevin',
-      role: 'Jefe de Operaciones & Logística',
-      avatarBg: 'bg-indigo-700',
-      badgeClass: 'bg-indigo-950/80 text-indigo-300 border-indigo-700/60',
-      quotaWorkloadMonthly: 8,
-      quotaEfficiency: 90,
-      project: 'SERVICIOS DE VIGILANCIA Y LOGÍSTICA',
-    },
-    {
-      area: 'SUPERVISIÓN',
-      name: 'Supervisión en Terreno / Móvil',
-      responsible: 'Bilbao',
-      role: 'Supervisor de Zona & Relevos',
-      avatarBg: 'bg-stone-700',
-      badgeClass: 'bg-cyan-950/80 text-cyan-300 border-cyan-700/60',
-      quotaWorkloadMonthly: 6,
-      quotaEfficiency: 90,
-      project: 'INSPECCIÓN DE PUESTOS Y MÓVILES',
-    },
-    {
-      area: 'RRHH',
-      name: 'Recursos Humanos (RR.HH.)',
-      responsible: 'Pilar',
-      role: 'Responsable de Recursos Humanos',
-      avatarBg: 'bg-amber-700',
-      badgeClass: 'bg-amber-950/80 text-amber-300 border-amber-700/60',
-      quotaWorkloadMonthly: 6,
-      quotaEfficiency: 90,
-      project: 'LEGAJOS, EPP Y RELACIONES LABORALES',
-    },
-    {
-      area: 'ADM',
-      name: 'Administración (ADM)',
-      responsible: 'Giuliana',
-      role: 'Responsable de Administración & Finanzas',
-      avatarBg: 'bg-blue-700',
-      badgeClass: 'bg-blue-950/80 text-blue-300 border-blue-700/60',
-      quotaWorkloadMonthly: 7,
-      quotaEfficiency: 90,
-      project: 'FACTURACIÓN, CUENTAS Y FORMULARIO 931',
-    },
-    {
-      area: 'AUX_ADM',
-      name: 'Auxiliar Administrativo',
-      responsible: 'Valeria',
-      role: 'Auxiliar Administrativa',
-      avatarBg: 'bg-emerald-700',
-      badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60',
-      quotaWorkloadMonthly: 6,
-      quotaEfficiency: 90,
-      project: 'CAJA CHICA, INSUMOS Y ARCHIVO FÍSICO',
-    },
-    {
-      area: 'SELECCION',
-      name: 'Selección de Personal',
-      responsible: 'Mariana',
-      role: 'Responsable de Selección & Reclutamiento',
-      avatarBg: 'bg-purple-700',
-      badgeClass: 'bg-purple-950/80 text-purple-300 border-purple-700/60',
-      quotaWorkloadMonthly: 5,
-      quotaEfficiency: 90,
-      project: 'ENTREVISTAS, REPRIV Y PSICOTÉCNICOS',
-    },
-    {
-      area: 'SUB_GERENCIA',
-      name: 'Sub Gerencia / Vicepresidencia',
-      responsible: 'Laura González',
-      role: 'Sub Gerente / Vicepresidencia',
-      avatarBg: 'bg-rose-900',
-      badgeClass: 'bg-rose-950/80 text-rose-300 border-rose-700/60',
-      quotaWorkloadMonthly: 6,
-      quotaEfficiency: 92,
-      project: 'SUPERVISIÓN INTEGRAL Y AUDITORÍA DE PUESTOS',
-    },
-    {
-      area: 'GERENCIA',
-      name: 'Gerencia General (C-Level)',
-      responsible: 'Yamila González',
-      role: 'Gerente General (C-Level)',
-      avatarBg: 'bg-red-700',
-      badgeClass: 'bg-red-950/80 text-red-300 border-red-700/60',
-      quotaWorkloadMonthly: 8,
-      quotaEfficiency: 95,
-      project: 'DIRECCIÓN ESTRATÉGICA Y GOBERNANZA',
-    },
+  const orderedAreas: AreaType[] = [
+    'OPERACIONES',
+    'SUPERVISIÓN',
+    'RRHH',
+    'ADM',
+    'AUX_ADM',
+    'SELECCION',
+    'SUB_GERENCIA',
+    'GERENCIA',
   ];
+
+  return orderedAreas.map(areaKey => {
+    const areaMeta = AREA_METADATA[areaKey];
+    const matching = (allPersonas || []).filter(p => p.department === areaKey);
+    const names = matching
+      .map(p => {
+        if (p.name === 'Yamila') return 'Yamila González';
+        if (p.name === 'Laura' || p.name === 'Laura (Sub Gerencia)') return 'Laura González';
+        return p.name;
+      })
+      .filter(Boolean);
+    const uniqueNames = Array.from(new Set(names));
+
+    return {
+      area: areaKey,
+      name: areaMeta.name,
+      responsible: uniqueNames.length > 0 ? uniqueNames.join(' / ') : areaMeta.fallbackResponsible,
+      role: matching[0]?.role || areaMeta.fallbackRole,
+      avatarBg: matching[0]?.avatarBg || areaMeta.fallbackAvatarBg,
+      badgeClass: areaMeta.badge,
+      quotaWorkloadMonthly: areaKey === 'GERENCIA' ? 8 : 6,
+      quotaEfficiency: areaKey === 'GERENCIA' ? 95 : 90,
+      project: areaMeta.project,
+    };
+  });
 }
 
 export const COMPANY_POSTS_METADATA = buildDynamicPostDefinitions();

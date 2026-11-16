@@ -37,7 +37,7 @@ import {
   ArrowDown,
   FileSpreadsheet,
 } from 'lucide-react';
-import { calculateDaysRemaining, formatDateLocale, formatPeriodName } from '../utils/dateUtils';
+import { calculateDaysRemaining, formatDateLocale, formatPeriodName, isTaskInPeriod } from '../utils/dateUtils';
 import { getDayOfWeekLabel, getDayOfWeekFromDateString, isMonthlyTaskStoppedForPeriod } from '../utils/monthRenewalService';
 import { exportTasksToCSV } from '../utils/exportUtils';
 import { exportTasksToPDF } from '../utils/pdfExportUtils';
@@ -126,9 +126,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
-  const [hideCompleted, setHideCompleted] = useState<boolean>(() => {
-    return localStorage.getItem('invict_hide_completed') === 'true';
-  });
+  const [hideCompleted, setHideCompleted] = useState<boolean>(false);
 
   const handleSort = (column: SortColumn) => {
     if (sortColumn === column) {
@@ -274,8 +272,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   // Tasks of the selected period (defense-in-depth: never include GERENCIA tasks for non-Gerencia users)
   const periodTasks = tasks.filter(t => {
     if (!isGerencia && t.area === 'GERENCIA') return false;
-    if (t.dueDate && t.dueDate.startsWith(currentPeriod)) return true;
-    return (t.monthPeriod || '2026-10') === currentPeriod;
+    return isTaskInPeriod(t, currentPeriod);
   });
 
   // Number of completed tasks in active tab
@@ -481,13 +478,15 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
     const areaTasks = areaId === 'TODOS' ? periodTasks : periodTasks.filter(t => t.area === areaId);
     const total = areaTasks.length;
     const completed = areaTasks.filter(t => t.status === 'Completada').length;
+    const inProgress = areaTasks.filter(t => t.status === 'En curso').length;
+    const notStarted = areaTasks.filter(t => t.status !== 'Completada' && t.status !== 'En curso').length;
     const pending = total - completed;
-    const urgentOrOverdue = areaTasks.filter(t => {
+    const overdue = areaTasks.filter(t => {
       if (t.status === 'Completada') return false;
-      const { days, status } = calculateDaysRemaining(t.dueDate, t.completedDate);
-      return days <= 1 || status === 'vencida';
+      const { status } = calculateDaysRemaining(t.dueDate, t.completedDate);
+      return status === 'vencida';
     }).length;
-    return { total, completed, pending, urgentOrOverdue };
+    return { total, completed, inProgress, notStarted, pending, overdue, urgentOrOverdue: overdue };
   };
 
   const kanbanColumns: TaskStatus[] = [
@@ -607,16 +606,19 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center gap-1 ml-1">
-                  <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full font-bold ${
-                    isActive
-                      ? 'bg-black/30 text-white'
-                      : 'bg-[#1d2535] text-slate-300'
-                  }`}>
-                    {stats.pending}
+                  <span
+                    title={`Total: ${stats.total} tareas (${stats.completed} completadas · ${stats.pending} pendientes)`}
+                    className={`text-[11px] font-mono px-2 py-0.5 rounded-full font-bold ${
+                      isActive
+                        ? 'bg-black/30 text-white'
+                        : 'bg-[#1d2535] text-slate-300'
+                    }`}
+                  >
+                    {stats.total}
                   </span>
                   {stats.urgentOrOverdue > 0 && (
                     <span
-                      title={`${stats.urgentOrOverdue} tareas vencidas o en <24hs`}
+                      title={`${stats.urgentOrOverdue} tarea(s) vencida(s)`}
                       className={`flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold ${
                         isActive
                           ? 'bg-white text-[#BE2629]'
@@ -674,7 +676,7 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
             }`}
           >
             <div className="text-[10px] text-emerald-400 font-mono uppercase flex items-center justify-center gap-1">
-              <span>Listas</span>
+              <span>Completadas</span>
               {isFilteringOutCompleted ? (
                 <EyeOff className="w-2.5 h-2.5 text-emerald-300" />
               ) : (
@@ -687,13 +689,20 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
             </span>
           </div>
           <div className="px-3 py-1.5 bg-[#0e121a] border border-[#202737] rounded-xl text-center min-w-[70px]">
-            <span className="text-[10px] text-amber-400 block uppercase font-mono">En Curso</span>
+            <span className="text-[10px] text-blue-400 block uppercase font-mono">En Curso</span>
+            <span className="text-sm font-bold text-blue-400 font-mono">{activeStats.inProgress}</span>
+          </div>
+          <div
+            title={`${activeStats.inProgress} en curso + ${activeStats.notStarted} sin iniciar`}
+            className="px-3 py-1.5 bg-[#0e121a] border border-[#202737] rounded-xl text-center min-w-[75px]"
+          >
+            <span className="text-[10px] text-amber-400 block uppercase font-mono">Pendientes</span>
             <span className="text-sm font-bold text-amber-400 font-mono">{activeStats.pending}</span>
           </div>
-          {activeStats.urgentOrOverdue > 0 && (
+          {activeStats.overdue > 0 && (
             <div className="px-3 py-1.5 bg-red-950/40 border border-red-800/60 rounded-xl text-center min-w-[70px]">
               <span className="text-[10px] text-red-400 block uppercase font-mono">Vencidas</span>
-              <span className="text-sm font-bold text-red-400 font-mono animate-pulse">{activeStats.urgentOrOverdue}</span>
+              <span className="text-sm font-bold text-red-400 font-mono animate-pulse">{activeStats.overdue}</span>
             </div>
           )}
         </div>

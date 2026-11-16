@@ -61,7 +61,8 @@ import {
   formatPeriodName,
   formatCurrentFullDate,
   getTodayDateString,
-  getAdjacentPeriod
+  getAdjacentPeriod,
+  isTaskInPeriod
 } from './utils/dateUtils';
 import {
   ensureMonthHasFixedTasks,
@@ -115,6 +116,8 @@ export default function App() {
       let updated = { ...t };
       if (updated.assignee === 'Yamila') updated.assignee = 'Yamila González';
       if (updated.assignee === 'Laura') updated.assignee = 'Laura González';
+      if (updated.assignee === 'Marianela') updated.assignee = 'Marianela Sosa';
+      if (updated.assignee === 'Giulaian Paura') updated.assignee = 'Giuliana Paura';
       if (!updated.monthPeriod && updated.dueDate && updated.dueDate.length >= 7 && updated.dueDate.includes('-')) {
         updated.monthPeriod = updated.dueDate.slice(0, 7);
       }
@@ -1478,13 +1481,13 @@ export default function App() {
 
   // Direct Header Export triggers
   const handleExportCurrentPeriodCSV = () => {
-    const periodTasks = visibleTasks.filter(t => (t.monthPeriod || DEFAULT_PERIOD) === currentPeriod);
+    const periodTasks = visibleTasks.filter(t => isTaskInPeriod(t, currentPeriod));
     exportTasksToCSV(periodTasks, `INVICT_Tareas_${currentPeriod}.csv`);
     showToast(`Planilla CSV de ${formatPeriodName(currentPeriod)} exportada.`);
   };
 
   const handleExportCurrentPeriodPDF = () => {
-    const periodTasks = visibleTasks.filter(t => (t.monthPeriod || DEFAULT_PERIOD) === currentPeriod);
+    const periodTasks = visibleTasks.filter(t => isTaskInPeriod(t, currentPeriod));
     exportTasksToPDF(periodTasks, `INVICT_Tareas_${currentPeriod}.pdf`);
     showToast(`Informe PDF de ${formatPeriodName(currentPeriod)} con marca de agua generado.`);
   };
@@ -1651,7 +1654,7 @@ export default function App() {
   // Counters synchronized with the selected Period and Area/Puesto in view
   const urgentTasksCount = visibleTasks.filter(t => {
     if (t.status === 'Completada') return false;
-    if ((t.monthPeriod || DEFAULT_PERIOD) !== currentPeriod) return false;
+    if (!isTaskInPeriod(t, currentPeriod)) return false;
     if (selectedArea && selectedArea !== 'TODOS' && t.area !== selectedArea) return false;
     return t.priority === 'Urgente';
   }).length;

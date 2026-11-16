@@ -23,7 +23,7 @@ import {
   exportExpensesToPDF,
   exportExecutiveReportToPDF
 } from '../utils/pdfExportUtils';
-import { formatPeriodName, getAvailablePeriodsList, calculateDaysRemaining } from '../utils/dateUtils';
+import { formatPeriodName, getAvailablePeriodsList, calculateDaysRemaining, isTaskInPeriod } from '../utils/dateUtils';
 
 interface ExportReportModalProps {
   isOpen: boolean;
@@ -56,7 +56,7 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({
   const availablePeriods = getAvailablePeriodsList();
   const periodTasks = tasks.filter(t => {
     if (!isGerencia && t.area === 'GERENCIA') return false;
-    return (t.monthPeriod || '2026-10') === selectedPeriod;
+    return isTaskInPeriod(t, selectedPeriod);
   });
   const allowedExpenses = isGerencia
     ? expenses
@@ -89,8 +89,8 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({
     const budgetUtilization = Math.round((totalExpenses / 3200000) * 100);
 
     const areas: AreaType[] = isGerencia
-      ? ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION', 'GERENCIA']
-      : ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION'];
+      ? ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION', 'SUB_GERENCIA', 'GERENCIA']
+      : ['OPERACIONES', 'SUPERVISIÓN', 'RRHH', 'ADM', 'AUX_ADM', 'SELECCION', 'SUB_GERENCIA'];
     const areaBreakdown = areas.map(areaKey => {
       const aTasks = periodTasks.filter(t => t.area === areaKey);
       const total = aTasks.length;
@@ -106,13 +106,13 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({
       });
       const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
       const getResponsible = (area: AreaType, def: string) => {
-        const found = allPersonas?.find(p => p.department === area);
-        return found ? found.name : def;
+        const matches = allPersonas?.filter(p => p.department === area) || [];
+        return matches.length > 0 ? Array.from(new Set(matches.map(p => p.name))).join(' / ') : def;
       };
       return {
         area: areaKey,
-        areaName: areaKey === 'OPERACIONES' ? 'Operaciones' : (areaKey === 'SUPERVISIÓN' ? 'Supervisión Operativa' : (areaKey === 'RRHH' ? 'Recursos Humanos' : (areaKey === 'ADM' ? 'Administración' : (areaKey === 'AUX_ADM' ? 'Auxiliar Adm.' : (areaKey === 'SELECCION' ? 'Selección' : 'Gerencia'))))),
-        responsible: areaKey === 'OPERACIONES' ? getResponsible('OPERACIONES', 'Kevin') : (areaKey === 'SUPERVISIÓN' ? getResponsible('SUPERVISIÓN', 'Bilbao') : (areaKey === 'RRHH' ? getResponsible('RRHH', 'Pilar') : (areaKey === 'ADM' ? getResponsible('ADM', 'Giuliana') : (areaKey === 'AUX_ADM' ? getResponsible('AUX_ADM', 'Kevin') : (areaKey === 'SELECCION' ? getResponsible('SELECCION', 'Mariana') : getResponsible('GERENCIA', 'Yamila')))))),
+        areaName: areaKey === 'OPERACIONES' ? 'Operaciones' : (areaKey === 'SUPERVISIÓN' ? 'Supervisión Operativa' : (areaKey === 'RRHH' ? 'Recursos Humanos' : (areaKey === 'ADM' ? 'Administración' : (areaKey === 'AUX_ADM' ? 'Auxiliar Adm.' : (areaKey === 'SELECCION' ? 'Selección' : (areaKey === 'SUB_GERENCIA' ? 'Sub Gerencia' : 'Gerencia')))))),
+        responsible: areaKey === 'OPERACIONES' ? getResponsible('OPERACIONES', 'Marianela Sosa') : (areaKey === 'SUPERVISIÓN' ? getResponsible('SUPERVISIÓN', 'Carlos Bilbao / Pablo Tejera') : (areaKey === 'RRHH' ? getResponsible('RRHH', 'Tamara Alvarez') : (areaKey === 'ADM' ? getResponsible('ADM', 'Giuliana Paura') : (areaKey === 'AUX_ADM' ? getResponsible('AUX_ADM', 'Kevin Lorenzo') : (areaKey === 'SELECCION' ? getResponsible('SELECCION', 'Selección') : (areaKey === 'SUB_GERENCIA' ? getResponsible('SUB_GERENCIA', 'Laura González') : getResponsible('GERENCIA', 'Yamila González'))))))),
         total,
         completed,
         pending,

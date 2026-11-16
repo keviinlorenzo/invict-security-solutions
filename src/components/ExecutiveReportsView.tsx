@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Task, Expense, UserPersona, AreaType, ExecutiveReportData, ShiftType } from '../types';
-import { calculateDaysRemaining, formatCurrencyARS, formatDateLocale, formatPeriodName } from '../utils/dateUtils';
+import { calculateDaysRemaining, formatCurrencyARS, formatDateLocale, formatPeriodName, isTaskInPeriod } from '../utils/dateUtils';
 import { exportExecutiveReportToPDF, exportTasksToPDF } from '../utils/pdfExportUtils';
 import { exportExecutiveReportToCSV, exportTasksToCSV } from '../utils/exportUtils';
 import {
@@ -76,7 +76,7 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
   // Filter for period (and strictly exclude GERENCIA tasks/expenses for non-Gerencia users)
   const periodTasks = tasks.filter(t => {
     if (!isGerencia && t.area === 'GERENCIA') return false;
-    return (t.monthPeriod || '2026-10') === currentPeriod;
+    return isTaskInPeriod(t, currentPeriod);
   });
   const allowedExpenses = isGerencia
     ? expenses
@@ -109,12 +109,15 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
   const supervisionRate = supervisionTasks.length > 0 ? Math.round((supervisionCompleted / supervisionTasks.length) * 100) : 0;
 
   // Area Breakdown calculation
-  // Helper to dynamically get the current assigned officer name from allPersonas
+  // Helper to dynamically get the current assigned officer name(s) from allPersonas
   const getOfficerForArea = (area: AreaType): string => {
     const meta = DEFAULT_POST_METADATA[area];
     if (!allPersonas || allPersonas.length === 0) return meta?.fallbackOfficer || '';
-    const match = allPersonas.find(p => p.department === area);
-    return match ? match.name : (meta?.fallbackOfficer || '');
+    const matches = allPersonas.filter(p => p.department === area);
+    if (matches.length > 0) {
+      return Array.from(new Set(matches.map(p => p.name))).join(' / ');
+    }
+    return meta?.fallbackOfficer || '';
   };
 
   const dynamicPostNames: Record<AreaType, { name: string; officer: string; color: string }> = {
@@ -136,6 +139,8 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
     const aTasks = periodTasks.filter(t => t.area === areaKey);
     const total = aTasks.length;
     const completed = aTasks.filter(t => t.status === 'Completada').length;
+    const inProgress = aTasks.filter(t => t.status === 'En curso').length;
+    const notStarted = aTasks.filter(t => t.status !== 'Completada' && t.status !== 'En curso').length;
     let overdue = 0;
     let pending = 0;
     aTasks.forEach(t => {
@@ -152,6 +157,8 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
       responsible: dynamicPostNames[areaKey].officer,
       total,
       completed,
+      inProgress,
+      notStarted,
       pending,
       overdue,
       rate,
@@ -172,21 +179,36 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
     };
   });
 
-  // --- WORKLOAD COMPARISON PER INDIVIDUAL COLLABORATOR & ASSIGNED POST ---
-  const visibleCollaboratorsForChart = isGerencia
-    ? allPersonas
-    : allPersonas.filter(p => p.department !== 'GERENCIA' && p.profileType !== 'GERENTE');
+  // --- WORKLOAD COMPARISON PER POST & ASSIGNED COLLABORATOR (100% SYNCHRONIZED WITH MATRIX) ---
+  const collaboratorWorkloadRaw = areas.map((areaKey) => {
+    const matchingPersonas = (allPersonas || []).filter(p => p.department === areaKey);
+    const primaryPersona = matchingPersonas[0];
+    const officerNames = matchingPersonas.length > 0
+      ? Array.from(new Set(matchingPersonas.map(p => p.name))).join(' / ')
+      : dynamicPostNames[areaKey].officer;
+    const persona: UserPersona = primaryPersona
+      ? {
+          ...primaryPersona,
+          id: `post-${areaKey}`,
+          name: officerNames,
+          department: areaKey,
+        }
+      : {
+          id: `post-${areaKey}`,
+          name: officerNames,
+          role: dynamicPostNames[areaKey].name,
+          department: areaKey,
+          email: `${areaKey.toLowerCase()}@invictsecurity.com.ar`,
+          avatarBg: 'bg-slate-700',
+          shift: 'Mañana',
+          profileType: 'operaciones',
+        };
 
-  const collaboratorWorkloadRaw = visibleCollaboratorsForChart.map((persona) => {
-    const firstName = persona.name.split(' ')[0].toLowerCase();
-    const assignedTasks = periodTasks.filter(t => {
-      const matchName = t.assignee.toLowerCase().includes(firstName);
-      const matchArea = t.area === persona.department;
-      return matchName || (t.assignee.toLowerCase().includes(persona.role.toLowerCase().slice(0, 5)) && matchArea);
-    });
+    const assignedTasks = periodTasks.filter(t => t.area === areaKey);
     const total = assignedTasks.length;
     const completed = assignedTasks.filter(t => t.status === 'Completada').length;
     const inProgress = assignedTasks.filter(t => t.status === 'En curso').length;
+    const notStarted = assignedTasks.filter(t => t.status !== 'Completada' && t.status !== 'En curso').length;
     let overdue = 0;
     assignedTasks.forEach(t => {
       if (t.status !== 'Completada') {
@@ -218,6 +240,7 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
       total,
       completed,
       inProgress,
+      notStarted,
       overdue,
       rate,
       isBottleneck,
@@ -664,7 +687,7 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
                     </span>
                   </div>
                   <span className="font-mono text-slate-400">
-                    En curso: {item.inProgress} · Pendientes: {item.total - item.completed}
+                    En curso: {item.inProgress} · Sin iniciar: {item.notStarted} · Pendientes: {item.total - item.completed}
                   </span>
                 </div>
               </div>
@@ -723,6 +746,7 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
                 <th className="py-3 px-4 text-center">Total Tareas</th>
                 <th className="py-3 px-4 text-center">Completadas</th>
                 <th className="py-3 px-4 text-center">En Curso</th>
+                <th className="py-3 px-4 text-center">Pendientes Totales</th>
                 <th className="py-3 px-4 text-center">Vencidas</th>
                 <th className="py-3 px-4 text-right">Eficacia</th>
               </tr>
@@ -749,6 +773,9 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
                     {row.completed}
                   </td>
                   <td className="py-3.5 px-4 whitespace-nowrap text-center font-mono text-blue-400">
+                    {row.inProgress}
+                  </td>
+                  <td className="py-3.5 px-4 whitespace-nowrap text-center font-mono text-amber-400 font-semibold">
                     {row.pending}
                   </td>
                   <td className="py-3.5 px-4 whitespace-nowrap text-center font-mono">
