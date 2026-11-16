@@ -18,7 +18,9 @@ import {
   Save,
   ShieldCheck,
   MapPin,
-  Shield
+  Shield,
+  Lock,
+  Reply
 } from 'lucide-react';
 import { calculateDaysRemaining, formatDateLocale } from '../utils/dateUtils';
 import { getDayOfWeekLabel, getDayOfWeekFromDateString, isMonthlyTaskStoppedForPeriod } from '../utils/monthRenewalService';
@@ -26,6 +28,12 @@ import { sendMentionEmailAlert } from '../utils/emailAlertService';
 import { triggerPersistentNotification } from '../utils/notificationService';
 import { InvictLogo } from './InvictLogo';
 import { PROFILE_METADATA } from '../utils/authService';
+import {
+  canPersonaViewComment,
+  isDirectedCommunication,
+  getReplyMentionTagForAuthor,
+  getDirectedRecipientsSummary
+} from '../utils/messagePrivacyUtils';
 
 interface TaskDetailModalProps {
   isOpen: boolean;
@@ -98,6 +106,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   // Available Puestos & Individual Collaborators for @ mentions
   const PUESTO_MENTIONS = [
     { tag: '@Gerencia', name: 'Gerencia General (C-Level)', email: 'consultasinvictsolutionss.a@gmail.com', isPuesto: true, badgeBg: 'bg-amber-950/80 text-amber-300 border-amber-700/60' },
+    { tag: '@Subgerencia', name: 'Sub Gerencia / Vicepresidencia', email: 'laura@invictsecurity.com.ar', isPuesto: true, badgeBg: 'bg-rose-950/80 text-rose-300 border-rose-700/60' },
     { tag: '@Operaciones', name: 'Operaciones (Puestos & Oficina)', email: 'operaciones@invictsecurity.com.ar', isPuesto: true, badgeBg: 'bg-red-950/80 text-red-300 border-red-700/60' },
     { tag: '@Supervisión', name: 'Supervisión en Terreno / Móvil', email: 'supervision@invictsecurity.com.ar', isPuesto: true, badgeBg: 'bg-amber-950/80 text-amber-300 border-amber-700/60' },
     { tag: '@RRHH', name: 'Recursos Humanos', email: 'rrhh@invictsecurity.com.ar', isPuesto: true, badgeBg: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' },
@@ -105,6 +114,10 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     { tag: '@Auxiliar', name: 'Auxiliar Administrativo', email: 'auxiliar@invictsecurity.com.ar', isPuesto: true, badgeBg: 'bg-cyan-950/80 text-cyan-300 border-cyan-700/60' },
     { tag: '@Selección', name: 'Selección & REPRIV', email: 'seleccion@invictsecurity.com.ar', isPuesto: true, badgeBg: 'bg-purple-950/80 text-purple-300 border-purple-700/60' },
   ];
+
+  const visibleComments = (task.comments || []).filter((c) =>
+    canPersonaViewComment(c, currentPersona, allPersonas)
+  );
 
   const PERSONA_MENTIONS = allPersonas.map(p => ({
     tag: `@${p.name.split(' ')[0]}`,
@@ -649,34 +662,65 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             <div className="flex items-center gap-2 mb-3">
               <MessageSquare className="w-4 h-4 text-[#BE2629]" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                Historial de Comentarios & Notificaciones ({task.comments?.length || 0})
+                Historial de Comentarios & Notificaciones ({visibleComments.length})
               </h3>
             </div>
             <div className="space-y-2.5 max-h-44 overflow-y-auto mb-4">
-              {task.comments && task.comments.length > 0 ? (
-                task.comments.map((c) => (
-                  <div key={c.id} className="p-2.5 rounded-xl bg-[#141924] border border-[#222b3d] text-xs">
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-                      <span className="font-semibold text-white">{c.author}</span>
-                      <span className="font-mono text-[10px]">{c.timestamp}</span>
-                    </div>
-                    <p className="text-slate-200 leading-snug">
-                      {c.text.split(/(@\w+)/g).map((part, i) => {
-                        if (part.startsWith('@')) {
-                          return (
-                            <span key={i} className="font-bold text-[#BE2629] bg-[#BE2629]/10 px-1 py-0.2 rounded">
-                              {part}
+              {visibleComments.length > 0 ? (
+                visibleComments.map((c) => {
+                  const isDirectedCmt = isDirectedCommunication({ text: c.text });
+                  const recipientsSummary = isDirectedCmt ? getDirectedRecipientsSummary(c.text) : '';
+                  const replyTag = getReplyMentionTagForAuthor(c.author);
+                  return (
+                    <div
+                      key={c.id}
+                      className={`p-2.5 rounded-xl border text-xs ${
+                        isDirectedCmt
+                          ? 'bg-[#151324] border-purple-800/60'
+                          : 'bg-[#141924] border-[#222b3d]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400 mb-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-white">{c.author}</span>
+                          {isDirectedCmt && (
+                            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-700/70 flex items-center gap-1">
+                              <Lock className="w-2.5 h-2.5 text-purple-400" />
+                              <span>Privado ({recipientsSummary})</span>
                             </span>
-                          );
-                        }
-                        return part;
-                      })}
-                    </p>
-                  </div>
-                ))
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleInsertMention(replyTag)}
+                            className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/60 flex items-center gap-1 cursor-pointer transition-colors"
+                            title={`Responder a ${c.author}`}
+                          >
+                            <Reply className="w-2.5 h-2.5" />
+                            <span>Responder</span>
+                          </button>
+                          <span className="font-mono text-[10px]">{c.timestamp}</span>
+                        </div>
+                      </div>
+                      <p className="text-slate-200 leading-snug">
+                        {c.text.split(/(@[A-Za-zÁÉÍÓÚáéíóúÑñ0-9._]+)/g).map((part, i) => {
+                          if (part.startsWith('@')) {
+                            return (
+                              <span key={i} className="font-bold text-[#BE2629] bg-[#BE2629]/10 px-1 py-0.2 rounded">
+                                {part}
+                              </span>
+                            );
+                          }
+                          return part;
+                        })}
+                      </p>
+                    </div>
+                  );
+                })
               ) : (
                 <div className="p-4 text-center text-slate-400 text-xs bg-[#10131b] rounded-xl">
-                  No hay comentarios registrados en esta tarea.
+                  No hay comentarios visibles para tu usuario en esta tarea.
                 </div>
               )}
             </div>

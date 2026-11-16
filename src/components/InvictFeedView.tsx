@@ -1,17 +1,25 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { InternalMessage, UserPersona, Task } from '../types';
 import {
   Send,
   AtSign,
   MessageSquare,
   Mail,
-  Check,
-  RotateCw,
   Trash2,
-  Lock
+  Lock,
+  Reply
 } from 'lucide-react';
 import { sendMentionEmailAlert } from '../utils/emailAlertService';
 import { triggerPersistentNotification } from '../utils/notificationService';
+import {
+  PUESTO_MENTION_DEFS,
+  canPersonaViewMessage,
+  isDirectedCommunication,
+  isPersonaMentioned,
+  isPersonaMessageAuthor,
+  getReplyMentionTagForAuthor,
+  getDirectedRecipientsSummary
+} from '../utils/messagePrivacyUtils';
 
 interface InvictFeedViewProps {
   messages: InternalMessage[];
@@ -46,32 +54,25 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   const [filterMode, setFilterMode] = useState<'all' | 'mentions' | 'direct'>('all');
   const [lastNotificationStatus, setLastNotificationStatus] = useState<string | null>(null);
-  const isExecutive = currentPersona.department === 'GERENCIA' || currentPersona.department === 'SUB_GERENCIA' || currentPersona.profileType === 'GERENTE' || currentPersona.profileType === 'SUB_GERENTE';
+  const [replyingToLabel, setReplyingToLabel] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const isExecutive =
+    currentPersona.department === 'GERENCIA' ||
+    currentPersona.department === 'SUB_GERENCIA' ||
+    currentPersona.profileType === 'GERENTE' ||
+    currentPersona.profileType === 'SUB_GERENTE';
 
-  // Detecta si se está mencionando a 1 sola persona (mensaje privado directo)
-  const detectedSingleRecipient = useMemo(() => {
+  // Detecta destinatarios específicos (@persona o @puesto) cuando no es @todos
+  const detectedDirectedInfo = useMemo(() => {
     if (!content.trim()) return null;
-    if (/@todos\b/i.test(content)) return null;
-    const normContent = content.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const isDirected = isDirectedCommunication({ text: content });
+    if (!isDirected) return null;
 
-    const matches: UserPersona[] = [];
-    allPersonas.forEach((p) => {
-      const firstName = p.name.split(' ')[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const dept = (p.department || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const prof = (p.profileType || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      if (
-        (firstName && normContent.includes(`@${firstName}`)) ||
-        (dept && normContent.includes(`@${dept}`)) ||
-        (prof && normContent.includes(`@${prof}`))
-      ) {
-        if (!matches.some(m => m.email === p.email)) {
-          matches.push(p);
-        }
-      }
-    });
-
-    return matches.length === 1 ? matches[0] : null;
-  }, [content, allPersonas]);
+    const summary = getDirectedRecipientsSummary(content);
+    return {
+      summary,
+    };
+  }, [content]);
 
   React.useEffect(() => {
     if (focusedMessageId) {
@@ -94,6 +95,30 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
 
   const handleInsertMention = (tag: string) => {
     setContent((prev) => (prev ? `${prev} ${tag} ` : `${tag} `));
+    setTimeout(() => textareaRef.current?.focus(), 20);
+  };
+
+  const handleReplyToMessage = (msg: InternalMessage) => {
+    const isAuthor = isPersonaMessageAuthor(currentPersona, msg.authorName, msg.authorEmail);
+    const replyTag = isAuthor
+      ? getDirectedRecipientsSummary(msg.content, msg.recipientName)
+          .split(',')[0]
+          .trim()
+      : getReplyMentionTagForAuthor(msg.authorName, msg.authorRole);
+    const normalizedTag = replyTag.startsWith('@') ? replyTag : `@${replyTag}`;
+
+    if (msg.taskId) {
+      setSelectedTaskId(msg.taskId);
+    }
+    setReplyingToLabel(`${msg.authorName} (${normalizedTag})`);
+    setContent((prev) => {
+      if (prev.toLowerCase().includes(normalizedTag.toLowerCase())) return prev;
+      return `${normalizedTag} ${prev}`.trim() + ' ';
+    });
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -102,18 +127,29 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
 
     const foundMentions: string[] = [];
     const mentionedNames: string[] = [];
-    const normContent = content.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
+    // 1. Verificar menciones a puestos institucionales (PUESTO_MENTION_DEFS)
+    PUESTO_MENTION_DEFS.forEach((def) => {
+      const dummyPersona: UserPersona = {
+        id: `def-${def.department}`,
+        name: def.name,
+        email: def.email,
+        role: def.role,
+        department: def.department,
+        profileType: def.profileType,
+        avatarBg: 'bg-slate-700',
+      };
+      if (isPersonaMentioned(dummyPersona, { text: content }, allPersonas)) {
+        if (!foundMentions.includes(def.email)) {
+          foundMentions.push(def.email);
+          mentionedNames.push(`${def.name} (${def.tag})`);
+        }
+      }
+    });
+
+    // 2. Verificar menciones a colaboradores de allPersonas
     allPersonas.forEach((p) => {
-      const firstName = p.name.split(' ')[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const dept = (p.department || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const prof = (p.profileType || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      if (
-        (firstName && normContent.includes(`@${firstName}`)) ||
-        (dept && normContent.includes(`@${dept}`)) ||
-        (prof && normContent.includes(`@${prof}`)) ||
-        normContent.includes('@todos')
-      ) {
+      if (isPersonaMentioned(p, { text: content }, allPersonas) || /@todos\b/i.test(content)) {
         if (!foundMentions.includes(p.email)) {
           foundMentions.push(p.email);
           mentionedNames.push(p.name);
@@ -126,27 +162,28 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
       mentionedNames.push('Todo el Equipo');
     }
 
-    const isSingleDirect = foundMentions.length === 1 && !/@todos\b/i.test(content) && foundMentions[0] !== 'consultasinvictsolutionss.a@gmail.com';
-    const directMeta = isSingleDirect ? {
-      isDirect: true,
-      recipientEmail: foundMentions[0],
-      recipientName: mentionedNames[0] || allPersonas.find(p => p.email === foundMentions[0])?.name,
-    } : undefined;
+    const isDirected = isDirectedCommunication({ text: content, mentions: foundMentions });
+    const recipientSummary = isDirected ? getDirectedRecipientsSummary(content) : undefined;
+    const directMeta = isDirected
+      ? {
+          isDirect: true,
+          recipientEmail: foundMentions.length === 1 ? foundMentions[0] : undefined,
+          recipientName: recipientSummary || mentionedNames.join(', '),
+        }
+      : undefined;
 
     onSendMessage(content, foundMentions, selectedTaskId || undefined, directMeta);
 
     if (foundMentions.length > 0) {
-      mentionList.forEach((m) => {
-        if (foundMentions.includes(m.email)) {
-          sendMentionEmailAlert({
-            recipientEmail: m.email,
-            recipientName: m.name,
-            senderName: currentPersona.name,
-            senderEmail: currentPersona.email,
-            messageContent: content,
-            taskTitle: tasks.find(t => t.id === selectedTaskId)?.title,
-          });
-        }
+      foundMentions.forEach((targetEmail, idx) => {
+        sendMentionEmailAlert({
+          recipientEmail: targetEmail,
+          recipientName: mentionedNames[idx] || targetEmail,
+          senderName: currentPersona.name,
+          senderEmail: currentPersona.email,
+          messageContent: content,
+          taskTitle: tasks.find(t => t.id === selectedTaskId)?.title,
+        });
       });
 
       triggerPersistentNotification(
@@ -165,40 +202,39 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
 
     setContent('');
     setSelectedTaskId('');
+    setReplyingToLabel(null);
   };
 
   const filteredMessages = messages.filter((msg) => {
     if (msg.id?.startsWith('msg-oct-') || msg.id === 'msg-1' || msg.id === 'msg-2') return false;
     if (msg.timestamp && (msg.timestamp.includes('/10/2026') || msg.timestamp.includes('2026-10'))) return false;
 
-    // Aislamiento estricto de mensajes privados individuales:
-    const isDirect = msg.isDirect || (
-      Array.isArray(msg.mentions) &&
-      msg.mentions.length === 1 &&
-      msg.mentions[0].toLowerCase() !== 'consultasinvictsolutionss.a@gmail.com' &&
-      !msg.content.toLowerCase().includes('@todos')
-    );
-
-    if (isDirect) {
-      const isAuthor =
-        (msg.authorEmail && msg.authorEmail.toLowerCase() === currentPersona.email.toLowerCase()) ||
-        (msg.authorName && msg.authorName.toLowerCase() === currentPersona.name.toLowerCase());
-
-      const targetEmail = (msg.recipientEmail || (Array.isArray(msg.mentions) ? msg.mentions[0] : '') || '').toLowerCase();
-      const isRecipient =
-        (targetEmail && targetEmail === currentPersona.email.toLowerCase()) ||
-        (msg.recipientName && msg.recipientName.toLowerCase() === currentPersona.name.toLowerCase()) ||
-        (Array.isArray(msg.mentions) && msg.mentions.some(e => e.toLowerCase() === currentPersona.email.toLowerCase())) ||
-        (msg.content && msg.content.toLowerCase().includes(`@${currentPersona.name.split(' ')[0].toLowerCase()}`));
-
-      if (!isAuthor && !isRecipient) return false;
+    // Aislamiento estricto de mensajes dirigidos:
+    // Si el mensaje va dirigido a una o más personas/puestos, SOLO el autor y los mencionados pueden visualizarlo y responderlo.
+    if (!canPersonaViewMessage(msg, currentPersona, allPersonas)) {
+      return false;
     }
 
+    const isDirect = isDirectedCommunication({
+      text: msg.content,
+      mentions: msg.mentions,
+      isDirect: msg.isDirect,
+      recipientEmail: msg.recipientEmail,
+      recipientName: msg.recipientName,
+    });
+
     if (filterMode === 'mentions') {
-      const myFirstName = currentPersona.name.split(' ')[0].toLowerCase();
-      const hasMyEmail = msg.mentions.includes(currentPersona.email);
-      const hasMyName = msg.content.toLowerCase().includes(`@${myFirstName}`);
-      return hasMyEmail || hasMyName;
+      if (isPersonaMessageAuthor(currentPersona, msg.authorName, msg.authorEmail)) return false;
+      return isPersonaMentioned(
+        currentPersona,
+        {
+          text: msg.content,
+          mentions: msg.mentions,
+          recipientEmail: msg.recipientEmail,
+          recipientName: msg.recipientName,
+        },
+        allPersonas
+      );
     }
 
     if (filterMode === 'direct') {
@@ -272,28 +308,68 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-3">
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
-                Etiquetar para enviar alerta (@):
-              </label>
-              <div className="flex flex-wrap gap-1">
-                {mentionList.map((m) => (
-                  <button
-                    key={m.tag}
-                    type="button"
-                    onClick={() => handleInsertMention(m.tag)}
-                    className="px-2 py-0.5 text-[10px] font-semibold rounded-lg bg-[#181e2b] hover:bg-[#252f44] text-slate-300 hover:text-white border border-[#273248] transition-colors cursor-pointer"
-                  >
-                    {m.tag}
-                  </button>
-                ))}
+            {replyingToLabel && (
+              <div className="p-2.5 rounded-xl bg-blue-950/60 border border-blue-700/60 text-[11px] text-blue-200 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 truncate">
+                  <Reply className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                  <span className="truncate">
+                    Respondiendo a: <strong>{replyingToLabel}</strong>
+                  </span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => handleInsertMention('@todos')}
-                  className="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/40 transition-colors cursor-pointer"
+                  onClick={() => setReplyingToLabel(null)}
+                  className="text-slate-400 hover:text-white text-xs cursor-pointer"
                 >
-                  @todos
+                  ✕
                 </button>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-1">
+                  Dirigir a Puesto (@):
+                </label>
+                <div className="flex flex-wrap gap-1">
+                  {PUESTO_MENTION_DEFS.map((m) => (
+                    <button
+                      key={m.tag}
+                      type="button"
+                      onClick={() => handleInsertMention(m.tag)}
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded-lg border transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm ${m.badgeBg}`}
+                      title={`Dirigir mensaje exclusivamente a ${m.name}`}
+                    >
+                      {m.tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-400 mb-1">
+                  Dirigir a Colaborador (@):
+                </label>
+                <div className="flex flex-wrap gap-1">
+                  {mentionList.map((m) => (
+                    <button
+                      key={m.tag}
+                      type="button"
+                      onClick={() => handleInsertMention(m.tag)}
+                      className="px-2 py-0.5 text-[10px] font-semibold rounded-lg bg-[#181e2b] hover:bg-[#252f44] text-slate-300 hover:text-white border border-[#273248] transition-colors cursor-pointer"
+                    >
+                      {m.tag}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => handleInsertMention('@todos')}
+                    className="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/40 transition-colors cursor-pointer"
+                    title="Visible para todos los usuarios"
+                  >
+                    @todos
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -307,7 +383,7 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
                 className="w-full text-xs p-2 bg-[#161a23] border border-[#262c3b] rounded-xl text-slate-200 focus:outline-none focus:border-[#BE2629] cursor-pointer"
               >
                 <option value="">-- Sin vincular a una tarea específica --</option>
-                {tasks.slice(0, 15).map((t) => (
+                {tasks.slice(0, 30).map((t) => (
                   <option key={t.id} value={t.id}>
                     [{t.area}] {t.title}
                   </option>
@@ -320,6 +396,7 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
                 Mensaje o novedad:
               </label>
               <textarea
+                ref={textareaRef}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder="Ejemplo: @Giuliana ya fueron enviadas las facturas de Kraft. Por favor ingresar el recibo de pago..."
@@ -328,13 +405,13 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
               />
             </div>
 
-            {detectedSingleRecipient && (
+            {detectedDirectedInfo && (
               <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-800/60 text-[11px] text-purple-200 flex items-start gap-2 shadow-sm animate-in fade-in">
                 <Lock className="w-3.5 h-3.5 text-purple-400 mt-0.5 shrink-0" />
                 <div className="leading-snug">
-                  <span className="font-bold text-white block">🔒 Mensaje Privado Individual</span>
+                  <span className="font-bold text-white block">🔒 Mensaje Dirigido Privado</span>
                   <span>
-                    Mencionas únicamente a <strong>{detectedSingleRecipient.name}</strong> ({detectedSingleRecipient.role}). Este mensaje <strong>solo llegará a esa persona</strong>; el resto del personal no tendrá acceso para visualizarlo.
+                    Dirigido a <strong>{detectedDirectedInfo.summary}</strong>. Únicamente esa(s) persona(s) tendrán acceso a visualizar este mensaje y responderlo (oculto para el resto de usuarios).
                   </span>
                 </div>
               </div>
@@ -343,10 +420,10 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
             <div className="p-2.5 rounded-xl bg-[#0e121a] border border-[#1e2538] text-[11px] text-slate-400 space-y-1">
               <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
                 <Mail className="w-3.5 h-3.5" />
-                <span>Alerta por correo electrónico activa</span>
+                <span>Alerta y privacidad activa</span>
               </div>
               <p className="leading-snug">
-                Cada @ dispara un correo automático a la casilla corporativa del usuario mencionado con copia para auditoría.
+                Si etiquetas a una persona o puesto con @, solo los mencionados podrán ver y responder el mensaje.
               </p>
             </div>
 
@@ -373,7 +450,7 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                Todas las Comunicaciones
+                Todas mis Comunicaciones
               </button>
               <button
                 onClick={() => setFilterMode('mentions')}
@@ -395,12 +472,12 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
                 }`}
               >
                 <Lock className="w-3 h-3 text-purple-400" />
-                <span>Mensajes Privados (1 a 1)</span>
+                <span>Mensajes Dirigidos (@)</span>
               </button>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-slate-400 font-mono">
-                {filteredMessages.length} mensajes registrados
+                {filteredMessages.length} mensajes visibles
               </span>
               {onClearOldMessages && isExecutive && (
                 <button
@@ -419,21 +496,26 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
           <div className="space-y-3">
             {filteredMessages.map((msg) => {
               const linkedTask = tasks.find(t => t.id === msg.taskId);
-              const normText = (msg.content || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-              const myFirst = (currentPersona.name.split(' ')[0] || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-              const isDirectMention =
-                msg.mentions.some(e => e.toLowerCase() === currentPersona.email.toLowerCase()) ||
-                (myFirst && normText.includes(`@${myFirst}`)) ||
-                normText.includes('@todos');
-              const isFocused = focusedMessageId === msg.id;
-              const isDirectMsg = msg.isDirect || (
-                Array.isArray(msg.mentions) &&
-                msg.mentions.length === 1 &&
-                msg.mentions[0].toLowerCase() !== 'consultasinvictsolutionss.a@gmail.com' &&
-                !msg.content.toLowerCase().includes('@todos')
+              const isDirectMention = isPersonaMentioned(
+                currentPersona,
+                {
+                  text: msg.content,
+                  mentions: msg.mentions,
+                  recipientEmail: msg.recipientEmail,
+                  recipientName: msg.recipientName,
+                },
+                allPersonas
               );
-              const isMsgAuthor = (msg.authorEmail && msg.authorEmail.toLowerCase() === currentPersona.email.toLowerCase()) ||
-                (msg.authorName && msg.authorName.toLowerCase() === currentPersona.name.toLowerCase());
+              const isFocused = focusedMessageId === msg.id;
+              const isDirectMsg = isDirectedCommunication({
+                text: msg.content,
+                mentions: msg.mentions,
+                isDirect: msg.isDirect,
+                recipientEmail: msg.recipientEmail,
+                recipientName: msg.recipientName,
+              });
+              const isMsgAuthor = isPersonaMessageAuthor(currentPersona, msg.authorName, msg.authorEmail);
+              const recipientsLabel = getDirectedRecipientsSummary(msg.content, msg.recipientName);
 
               return (
                 <div
@@ -469,7 +551,7 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
                         </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
                       {msg.mentions.length > 0 && (
                         <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-950 text-blue-300 border border-blue-800 flex items-center gap-1" title="Alerta por correo despachada">
                           <Mail className="w-2.5 h-2.5" />
@@ -479,15 +561,26 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
                       {isDirectMsg && (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-700/80 flex items-center gap-1 shadow-sm">
                           <Lock className="w-2.5 h-2.5 text-purple-400" />
-                          <span>{isMsgAuthor ? `Privado para ${msg.recipientName || 'destinatario'}` : `Privado para ti`}</span>
+                          <span>
+                            {isMsgAuthor
+                              ? `Exclusivo para ${recipientsLabel}`
+                              : `Dirigido a ti (${recipientsLabel})`}
+                          </span>
                         </span>
                       )}
-                      {isDirectMention && !isDirectMsg && (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#BE2629] text-white">
-                          Te mencionó
-                        </span>
-                      )}
-                      {onDeleteMessage && (isExecutive || msg.authorName === currentPersona.name) && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleReplyToMessage(msg);
+                        }}
+                        className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 hover:text-white border border-emerald-700/60 flex items-center gap-1 transition-colors cursor-pointer"
+                        title={`Responder a ${msg.authorName}`}
+                      >
+                        <Reply className="w-2.5 h-2.5" />
+                        <span>Responder</span>
+                      </button>
+                      {onDeleteMessage && (isExecutive || isMsgAuthor) && (
                         <button
                           type="button"
                           onClick={(e) => {
@@ -506,7 +599,7 @@ export const InvictFeedView: React.FC<InvictFeedViewProps> = ({
                   </div>
 
                   <p className="text-xs text-slate-200 leading-relaxed whitespace-pre-wrap pl-10">
-                    {msg.content.split(/(@\w+)/g).map((part, i) => {
+                    {msg.content.split(/(@[A-Za-zÁÉÍÓÚáéíóúÑñ0-9._]+)/g).map((part, i) => {
                       if (part.startsWith('@')) {
                         return (
                           <span key={i} className="font-bold text-[#BE2629] bg-[#BE2629]/10 px-1 py-0.2 rounded">

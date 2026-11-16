@@ -27,6 +27,12 @@ import {
 import { calculateDaysRemaining, isTaskInPeriod } from '../utils/dateUtils';
 import { PROFILE_METADATA } from '../utils/authService';
 import {
+  canPersonaViewMessage,
+  isPersonaMentioned,
+  isPersonaMessageAuthor,
+  isBroadcastToAll
+} from '../utils/messagePrivacyUtils';
+import {
   ContractAlertItem,
   isHumanResourcesUser,
   describeContractDays,
@@ -120,23 +126,19 @@ export const Header: React.FC<HeaderProps> = ({
     return status === 'vencida' || status === 'urgente_48h';
   });
 
-  const normalizeText = (s: string) =>
-    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
   const personalMentions = messages.filter(m => {
-    const emailMatch =
-      m.mentions.some(e => e.toLowerCase() === currentPersona.email.toLowerCase()) ||
-      (isGerencia && m.mentions.includes('consultasinvictsolutionss.a@gmail.com'));
-    if (emailMatch) return true;
-    const normContent = normalizeText(m.content || '');
-    const myFirstName = normalizeText(currentPersona.name.split(' ')[0] || '');
-    const myDept = normalizeText(currentPersona.department || '');
-    const myProf = normalizeText(currentPersona.profileType || '');
-    return (
-      (myFirstName && normContent.includes(`@${myFirstName}`)) ||
-      (myDept && normContent.includes(`@${myDept}`)) ||
-      (myProf && normContent.includes(`@${myProf}`)) ||
-      normContent.includes('@todos')
+    if (!canPersonaViewMessage(m, currentPersona, allPersonas)) return false;
+    if (isPersonaMessageAuthor(currentPersona, m.authorName, m.authorEmail)) return false;
+    if (isBroadcastToAll(m.content)) return true;
+    return isPersonaMentioned(
+      currentPersona,
+      {
+        text: m.content,
+        mentions: m.mentions,
+        recipientEmail: m.recipientEmail,
+        recipientName: m.recipientName,
+      },
+      allPersonas
     );
   });
 

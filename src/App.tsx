@@ -65,6 +65,14 @@ import {
   isTaskInPeriod
 } from './utils/dateUtils';
 import {
+  canPersonaViewMessage,
+  isDirectedCommunication,
+  isPersonaMentioned,
+  isPersonaMessageAuthor,
+  isBroadcastToAll,
+  getDirectedRecipientsSummary
+} from './utils/messagePrivacyUtils';
+import {
   ensureMonthHasFixedTasks,
   renewMonthFixedTasks,
   buildWeeklyTaskInstancesForMonth,
@@ -292,9 +300,15 @@ export default function App() {
       if (payload.authorEmail && payload.authorEmail !== '__initial__' && payload.authorEmail !== currentPersona.email) {
         if (payload.summary && payload.summary.includes('mensaje directo privado a')) {
           const recipientMatch = payload.summary.match(/mensaje directo privado a (.+)$/);
-          const targetRecipientName = recipientMatch ? recipientMatch[1].trim().toLowerCase() : '';
-          const myName = currentPersona.name.toLowerCase();
-          if (targetRecipientName && (myName.includes(targetRecipientName) || targetRecipientName.includes(myName))) {
+          const targetRecipientText = recipientMatch ? recipientMatch[1].trim() : '';
+          if (
+            targetRecipientText &&
+            isPersonaMentioned(
+              currentPersona,
+              { text: targetRecipientText, recipientName: targetRecipientText },
+              personas
+            )
+          ) {
             showToast(`🔒 ${payload.summary}`);
           }
         } else {
@@ -1321,20 +1335,30 @@ export default function App() {
     );
 
     if (commentText.includes('@') || (mentions && mentions.length > 0)) {
+      const isDirected = isDirectedCommunication({
+        text: commentText,
+        mentions: mentions || [],
+      });
+      const recipientSummary = isDirected ? getDirectedRecipientsSummary(commentText) : undefined;
       const newMsg: InternalMessage = {
         id: `msg-${Date.now()}`,
         authorName: currentPersona.name,
+        authorEmail: currentPersona.email,
         authorRole: currentPersona.role,
         content: commentText,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         mentions: mentions || [],
+        isDirect: isDirected,
+        recipientName: recipientSummary,
         taskId,
       };
       const updatedMsgs = [newMsg, ...messages];
       setMessages(updatedMsgs);
       broadcastCloudChange(
         'MESSAGE_MUTATION',
-        `${currentPersona.name} mencionó en la tarea "${taskTitle}"`,
+        isDirected
+          ? `${currentPersona.name} envió un mensaje directo privado a ${recipientSummary}`
+          : `${currentPersona.name} mencionó en la tarea "${taskTitle}"`,
         { name: currentPersona.name, profile: userProf, email: currentPersona.email },
         updatedMsgs
       );
@@ -1416,15 +1440,21 @@ export default function App() {
     taskId?: string,
     directMeta?: { isDirect: boolean; recipientEmail?: string; recipientName?: string }
   ) => {
-    const isDirect = directMeta?.isDirect ?? (
-      mentions.length === 1 &&
-      mentions[0].toLowerCase() !== 'consultasinvictsolutionss.a@gmail.com' &&
-      !content.toLowerCase().includes('@todos')
-    );
+    const isDirect =
+      directMeta?.isDirect ??
+      isDirectedCommunication({
+        text: content,
+        mentions,
+      });
 
     const targetPersona = mentions.length === 1
       ? personas.find(p => p.email.toLowerCase() === mentions[0].toLowerCase())
       : undefined;
+
+    const recipientName =
+      directMeta?.recipientName ||
+      targetPersona?.name ||
+      (isDirect ? getDirectedRecipientsSummary(content) : undefined);
 
     const newMsg: InternalMessage = {
       id: `msg-${Date.now()}`,
@@ -1435,8 +1465,8 @@ export default function App() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       mentions,
       isDirect,
-      recipientEmail: directMeta?.recipientEmail || (isDirect ? mentions[0] : undefined),
-      recipientName: directMeta?.recipientName || targetPersona?.name,
+      recipientEmail: directMeta?.recipientEmail || (isDirect && mentions.length === 1 ? mentions[0] : undefined),
+      recipientName,
       taskId,
     };
     const updated = [newMsg, ...messages.filter(m => !isOldOrTestMessage(m))];
@@ -1564,38 +1594,27 @@ export default function App() {
       // 1. Descartar mensajes de prueba antiguos
       if (isOldOrTestMessage(m)) return false;
 
-      // 2. Aislamiento de tareas exclusivas de gerencia para usuarios no gerenciales
-      if (!isCurrentUserGerencia && m.taskId && gerenciaTaskIds.has(m.taskId)) return false;
+      // 2. Regla estricta de Privacidad de Mensajes Dirigidos (@):
+      // Si el mensaje está dirigido a una o más personas/puestos específicos (y no contiene @todos),
+      // SOLO el autor del mensaje y la(s) persona(s)/puesto(s) mencionada(s) pueden visualizarlo y responderlo.
+      const isDirected = isDirectedCommunication({
+        text: m.content,
+        mentions: m.mentions,
+        isDirect: m.isDirect,
+        recipientEmail: m.recipientEmail,
+        recipientName: m.recipientName,
+      });
 
-      // 3. Regla de Mención Individual (@) -> Mensaje Privado Directo:
-      // Si el mensaje menciona a una sola persona, ÚNICAMENTE tienen acceso a visualizarlo el autor y la persona mencionada.
-      // El resto de usuarios no puede visualizarlo bajo ninguna circunstancia.
-      const isDirectMessage = m.isDirect || (
-        Array.isArray(m.mentions) &&
-        m.mentions.length === 1 &&
-        m.mentions[0].toLowerCase() !== 'consultasinvictsolutionss.a@gmail.com' &&
-        !m.content.toLowerCase().includes('@todos')
-      );
-
-      if (isDirectMessage) {
-        const isAuthor =
-          (m.authorEmail && m.authorEmail.toLowerCase() === currentPersona.email.toLowerCase()) ||
-          (m.authorName && m.authorName.toLowerCase() === currentPersona.name.toLowerCase());
-
-        const targetEmail = (m.recipientEmail || (Array.isArray(m.mentions) ? m.mentions[0] : '') || '').toLowerCase();
-        const isRecipient =
-          (targetEmail && targetEmail === currentPersona.email.toLowerCase()) ||
-          (m.recipientName && m.recipientName.toLowerCase() === currentPersona.name.toLowerCase()) ||
-          (Array.isArray(m.mentions) && m.mentions.some(e => e.toLowerCase() === currentPersona.email.toLowerCase())) ||
-          (m.content && m.content.toLowerCase().includes(`@${currentPersona.name.split(' ')[0].toLowerCase()}`));
-
-        // Solo visible para emisor y destinatario
-        return isAuthor || isRecipient;
+      if (isDirected) {
+        return canPersonaViewMessage(m, currentPersona, personas);
       }
+
+      // 3. Aislamiento de tareas exclusivas de gerencia para mensajes generales (sin destinatario específico)
+      if (!isCurrentUserGerencia && m.taskId && gerenciaTaskIds.has(m.taskId)) return false;
 
       return true;
     });
-  }, [messages, tasks, currentPersona, isCurrentUserGerencia]);
+  }, [messages, tasks, currentPersona, personas, isCurrentUserGerencia]);
 
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   const [dismissedMentionIds, setDismissedMentionIds] = useState<string[]>(() => {
@@ -1607,28 +1626,22 @@ export default function App() {
     }
   });
 
-  const normalizeMentionStr = (s: string) =>
-    (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
   const myDirectMentions = useMemo(() => {
-    const myFirstName = normalizeMentionStr(currentPersona.name.split(' ')[0] || '');
-    const myDept = normalizeMentionStr(currentPersona.department || '');
-    const myProf = normalizeMentionStr(currentPersona.profileType || '');
     return visibleMessages.filter((m) => {
-      if (m.authorName === currentPersona.name) return false;
-      const emailMatch =
-        m.mentions.some((e) => e.toLowerCase() === currentPersona.email.toLowerCase()) ||
-        (isCurrentUserGerencia && m.mentions.includes('consultasinvictsolutionss.a@gmail.com'));
-      if (emailMatch) return true;
-      const normContent = normalizeMentionStr(m.content || '');
-      return (
-        (myFirstName && normContent.includes(`@${myFirstName}`)) ||
-        (myDept && normContent.includes(`@${myDept}`)) ||
-        (myProf && normContent.includes(`@${myProf}`)) ||
-        normContent.includes('@todos')
+      if (isPersonaMessageAuthor(currentPersona, m.authorName, m.authorEmail)) return false;
+      if (isBroadcastToAll(m.content)) return true;
+      return isPersonaMentioned(
+        currentPersona,
+        {
+          text: m.content,
+          mentions: m.mentions,
+          recipientEmail: m.recipientEmail,
+          recipientName: m.recipientName,
+        },
+        personas
       );
     });
-  }, [visibleMessages, currentPersona, isCurrentUserGerencia]);
+  }, [visibleMessages, currentPersona, personas]);
 
   const unreadDirectMentions = useMemo(
     () => myDirectMentions.filter((m) => !dismissedMentionIds.includes(m.id)),

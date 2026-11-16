@@ -4,7 +4,7 @@
  * across static assets and APIs, and background push alerts for office workstations.
  */
 
-const CACHE_NAME = 'invict-cache-v11';
+const CACHE_NAME = 'invict-cache-v12';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
