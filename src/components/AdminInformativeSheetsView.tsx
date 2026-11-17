@@ -31,7 +31,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  ClipboardCheck
+  ClipboardCheck,
+  DollarSign
 } from 'lucide-react';
 import { broadcastCloudChange, markRecordIdsDeleted, subscribeToCloudSync } from '../utils/cloudSyncService';
 import { FixedTermContractsSheet } from './FixedTermContractsSheet';
@@ -40,6 +41,7 @@ import {
   getFixedTermContracts,
   FIXED_TERM_CONTRACTS_EVENT,
 } from '../data/fixedTermContractsData';
+import { getManagerialMonthData } from '../data/managerialSheetsData';
 import {
   formatPeriodName,
   getAdjacentPeriod,
@@ -86,10 +88,27 @@ export interface InformeClienteItem {
   updatedBy?: string;
 }
 
+export type LiquidacionPaymentStatus = 'PAGO' | 'PENDIENTE';
+
+export interface LiquidacionFinalItem {
+  id: string;
+  fullName: string; // Nombre del vigilador
+  assignedObjective: string; // Objetivo en el que estaba (vinculado con clientes cargados por Gerencia)
+  exitDate: string; // Fecha de baja (YYYY-MM-DD)
+  settlementDate: string; // Fecha de liquidación (día citado en oficinas, YYYY-MM-DD)
+  amount?: number | null; // Monto que se le abonará (opcional: no obligatorio)
+  observations: string; // Observaciones en caso de que lo requiera
+  status: LiquidacionPaymentStatus; // 'PAGO' | 'PENDIENTE' (similar a sueldos del personal)
+  updatedAt?: string;
+  updatedAtMs?: number;
+  updatedBy?: string;
+}
+
 export interface AdminInformativeSheetsData {
   sinDisep: PersonalSinDisepItem[];
   debeUniforme: PersonalDebeUniformeItem[];
   informesClientes: InformeClienteItem[];
+  liquidacionesFinales?: LiquidacionFinalItem[];
 }
 
 export const STORAGE_KEY_ADMIN_SHEETS = 'invict_admin_informative_sheets';
@@ -189,7 +208,49 @@ const INITIAL_ADMIN_SHEETS_DATA: AdminInformativeSheetsData = {
       updatedBy: 'Kevin Lorenzo',
     },
   ],
+  liquidacionesFinales: [],
 };
+
+/**
+ * Obtiene en tiempo real todos los clientes / objetivos ya cargados por Gerencia
+ * en sus planillas de facturación (de todos los períodos disponibles), más los habituales.
+ */
+export function getGerencialClientsList(currentPeriod: string = DEFAULT_PERIOD): string[] {
+  const clientSet = new Set<string>();
+  try {
+    // 1. Clientes del período actual de Gerencia
+    const currentMonthData = getManagerialMonthData(currentPeriod);
+    if (Array.isArray(currentMonthData?.clientBilling)) {
+      currentMonthData.clientBilling.forEach((c) => {
+        if (c?.clientName && c.clientName.trim()) {
+          clientSet.add(c.clientName.trim());
+        }
+      });
+    }
+    // 2. Escanear todas las planillas de Gerencia guardadas en localStorage
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('invict_managerial_sheets_')) {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(k) || '{}');
+          if (Array.isArray(parsed?.clientBilling)) {
+            parsed.clientBilling.forEach((c: any) => {
+              if (c?.clientName && String(c.clientName).trim()) {
+                clientSet.add(String(c.clientName).trim());
+              }
+            });
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  CLIENTES_HABITUALES.forEach((cl) => clientSet.add(cl));
+  return Array.from(clientSet).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+}
 
 export function getAdminInformativeSheets(): AdminInformativeSheetsData {
   try {
@@ -202,6 +263,9 @@ export function getAdminInformativeSheets(): AdminInformativeSheetsData {
         informesClientes: Array.isArray(parsed.informesClientes) && parsed.informesClientes.length > 0
           ? parsed.informesClientes
           : INITIAL_ADMIN_SHEETS_DATA.informesClientes,
+        liquidacionesFinales: Array.isArray(parsed.liquidacionesFinales)
+          ? parsed.liquidacionesFinales
+          : [],
       };
     }
   } catch (err) {
@@ -241,6 +305,7 @@ export function saveAdminInformativeSheets(
           sinDisep: stampList(data.sinDisep, prev.sinDisep),
           debeUniforme: stampList(data.debeUniforme, prev.debeUniforme),
           informesClientes: stampList(data.informesClientes, prev.informesClientes),
+          liquidacionesFinales: stampList(data.liquidacionesFinales || [], prev.liquidacionesFinales || []),
         };
         if (removedIds.length > 0) {
           markRecordIdsDeleted(removedIds);
@@ -274,23 +339,34 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
   currentPeriod,
   onPeriodChange,
 }) => {
-  const [activeSheet, setActiveSheet] = useState<'sin_disep' | 'debe_uniforme' | 'informes_clientes' | 'contratos'>('informes_clientes');
+  const [activeSheet, setActiveSheet] = useState<
+    'sin_disep' | 'debe_uniforme' | 'informes_clientes' | 'contratos' | 'liquidaciones_finales'
+  >('informes_clientes');
   const [contractsCount, setContractsCount] = useState(() => getFixedTermContracts().length);
+  const [gerencialClients, setGerencialClients] = useState<string[]>(() =>
+    getGerencialClientsList(currentPeriod || DEFAULT_PERIOD)
+  );
+  const [customObjectiveIds, setCustomObjectiveIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    const refreshContracts = () => setContractsCount(getFixedTermContracts().length);
+    const refreshContracts = () => {
+      setContractsCount(getFixedTermContracts().length);
+      setGerencialClients(getGerencialClientsList(currentPeriod || DEFAULT_PERIOD));
+    };
 
     window.addEventListener(FIXED_TERM_CONTRACTS_EVENT, refreshContracts);
+    window.addEventListener('invict_managerial_sheets_mutation', refreshContracts);
     window.addEventListener('storage', refreshContracts);
     const unsub = subscribeToCloudSync(() => {
       refreshContracts();
     });
     return () => {
       window.removeEventListener(FIXED_TERM_CONTRACTS_EVENT, refreshContracts);
+      window.removeEventListener('invict_managerial_sheets_mutation', refreshContracts);
       window.removeEventListener('storage', refreshContracts);
       unsub();
     };
-  }, []);
+  }, [currentPeriod]);
   const [sheetsData, setSheetsData] = useState<AdminInformativeSheetsData>(() => getAdminInformativeSheets());
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'TODOS' | InformeStatus>('TODOS');
@@ -354,11 +430,23 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
         currentPersona.profileType === 'GERENTE')
   );
 
+  // 3. Planilla de Liquidaciones Finales: EXCLUSIVAMENTE Recursos Humanos (Tamara) y Gerencia
+  const canEditLiquidaciones = Boolean(
+    currentPersona &&
+      (currentPersona.department === 'RRHH' ||
+        currentPersona.profileType === 'recursos humanos' ||
+        (currentPersona.name && currentPersona.name.toLowerCase().includes('tamara')) ||
+        currentPersona.department === 'GERENCIA' ||
+        currentPersona.profileType === 'GERENTE')
+  );
+
   const canEditCurrentSheet =
     activeSheet === 'informes_clientes'
       ? canEditInformes
       : activeSheet === 'contratos'
       ? canEditFixedTermContracts(currentPersona)
+      : activeSheet === 'liquidaciones_finales'
+      ? canEditLiquidaciones
       : canEditAdmin;
 
   useEffect(() => {
@@ -599,8 +687,126 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
     onPeriodChange?.(newPeriod);
   };
 
+  // --- Handlers: LIQUIDACIONES FINALES (Exclusivo RR.HH. y Gerencia) ---
+  const liquidacionesList = sheetsData.liquidacionesFinales || [];
+
+  const handleAddLiquidacion = () => {
+    if (!canEditLiquidaciones) return;
+    const today = getTodayDateString();
+    const newRow: LiquidacionFinalItem = {
+      id: `liq-${Date.now()}`,
+      fullName: '',
+      assignedObjective: '',
+      exitDate: today,
+      settlementDate: today,
+      amount: null,
+      observations: '',
+      status: 'PENDIENTE',
+      updatedAt: new Date().toLocaleDateString('es-AR'),
+      updatedAtMs: Date.now(),
+      updatedBy: currentPersona.name,
+    };
+    const next = {
+      ...sheetsData,
+      liquidacionesFinales: [...liquidacionesList, newRow],
+    };
+    updateData(next, `${currentPersona.name} agregó un registro en Liquidaciones Finales`);
+    onNotify?.('Fila agregada en Planilla: Liquidaciones Finales');
+  };
+
+  const handleChangeLiquidacion = (
+    id: string,
+    field: keyof LiquidacionFinalItem,
+    value: string | number | null
+  ) => {
+    if (!canEditLiquidaciones) return;
+    const nextList = liquidacionesList.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            [field]: value,
+            updatedAt: new Date().toLocaleDateString('es-AR'),
+            updatedAtMs: Date.now(),
+            updatedBy: currentPersona.name,
+          }
+        : item
+    );
+    updateData(
+      { ...sheetsData, liquidacionesFinales: nextList },
+      `${currentPersona.name} actualizó Liquidaciones Finales`
+    );
+  };
+
+  const handleToggleLiquidacionStatus = (id: string) => {
+    if (!canEditLiquidaciones) return;
+    const nextList = liquidacionesList.map((item) => {
+      if (item.id === id) {
+        const nextStatus: LiquidacionPaymentStatus = item.status === 'PAGO' ? 'PENDIENTE' : 'PAGO';
+        return {
+          ...item,
+          status: nextStatus,
+          updatedAt: new Date().toLocaleDateString('es-AR'),
+          updatedAtMs: Date.now(),
+          updatedBy: currentPersona.name,
+        };
+      }
+      return item;
+    });
+    const changed = nextList.find((x) => x.id === id);
+    updateData(
+      { ...sheetsData, liquidacionesFinales: nextList },
+      `${currentPersona.name} marcó la liquidación de "${changed?.fullName || 'Vigilador'}" como ${
+        changed?.status === 'PAGO' ? 'PAGADO' : 'PENDIENTE'
+      }`
+    );
+    onNotify?.(
+      `Liquidación de "${changed?.fullName || 'Vigilador'}" actualizada a: ${
+        changed?.status === 'PAGO' ? 'PAGADO' : 'PENDIENTE'
+      }`
+    );
+  };
+
+  const handleDeleteLiquidacion = (id: string) => {
+    if (!canEditLiquidaciones) return;
+    const target = liquidacionesList.find((i) => i.id === id);
+    if (!window.confirm(`¿Deseas eliminar la liquidación de "${target?.fullName || 'Sin nombre'}"?`)) return;
+    const nextList = liquidacionesList.filter((i) => i.id !== id);
+    updateData(
+      { ...sheetsData, liquidacionesFinales: nextList },
+      `${currentPersona.name} eliminó registro de Liquidaciones Finales`
+    );
+    onNotify?.(`Registro "${target?.fullName || 'Sin nombre'}" eliminado de Liquidaciones Finales.`);
+  };
+
   // --- Filtered Lists ---
   const q = searchTerm.toLowerCase().trim();
+
+  const filteredLiquidaciones = useMemo(() => {
+    if (!q) return liquidacionesList;
+    return liquidacionesList.filter(
+      (i) =>
+        (i.fullName || '').toLowerCase().includes(q) ||
+        (i.assignedObjective || '').toLowerCase().includes(q) ||
+        (i.observations || '').toLowerCase().includes(q) ||
+        (i.status === 'PAGO' ? 'pagado pago' : 'pendiente impago').includes(q)
+    );
+  }, [liquidacionesList, q]);
+
+  // Métricas en tiempo real de Liquidaciones Finales
+  const totalLiquidacionesCount = liquidacionesList.length;
+  const paidLiquidacionesCount = liquidacionesList.filter((i) => i.status === 'PAGO').length;
+  const pendingLiquidacionesCount = totalLiquidacionesCount - paidLiquidacionesCount;
+  const totalLiquidacionesAmount = liquidacionesList.reduce(
+    (acc, i) => acc + (i.amount !== null && i.amount !== undefined && !isNaN(Number(i.amount)) ? Number(i.amount) : 0),
+    0
+  );
+  const paidLiquidacionesAmount = liquidacionesList
+    .filter((i) => i.status === 'PAGO')
+    .reduce(
+      (acc, i) => acc + (i.amount !== null && i.amount !== undefined && !isNaN(Number(i.amount)) ? Number(i.amount) : 0),
+      0
+    );
+  const remainingLiquidacionesAmount = Math.max(0, totalLiquidacionesAmount - paidLiquidacionesAmount);
 
   const filteredSinDisep = useMemo(() => {
     if (!q) return sheetsData.sinDisep;
@@ -781,6 +987,45 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
 
       doc.save(`INVICT_Personal_Sin_DISEP_${new Date().toISOString().slice(0, 10)}.pdf`);
       onNotify?.('Planilla de Personal Sin DISEP exportada a PDF.');
+    } else if (activeSheet === 'liquidaciones_finales') {
+      doc.setTextColor(20, 25, 35);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text('PLANILLA INFORMATIVA: LIQUIDACIONES FINALES (RR.HH. & GERENCIA)', 14, 28);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(
+        `Total Liquidaciones: ${totalLiquidacionesCount} (Pagadas: ${paidLiquidacionesCount} | Pendientes: ${pendingLiquidacionesCount}) · Total a Abonar: $${totalLiquidacionesAmount.toLocaleString('es-AR')} · Pagado: $${paidLiquidacionesAmount.toLocaleString('es-AR')} · Resta por Pagar: $${remainingLiquidacionesAmount.toLocaleString('es-AR')}`,
+        14,
+        34
+      );
+
+      const tableRows = filteredLiquidaciones.map((r, idx) => [
+        idx + 1,
+        r.fullName || '-',
+        r.assignedObjective || '-',
+        r.exitDate || '-',
+        r.settlementDate || '-',
+        r.amount !== null && r.amount !== undefined && r.amount !== ('' as any)
+          ? `$ ${Number(r.amount).toLocaleString('es-AR')}`
+          : 'Sin definir',
+        r.observations || '-',
+        r.status === 'PAGO' ? 'PAGADO' : 'PENDIENTE',
+      ]);
+
+      autoTable(doc, {
+        startY: 38,
+        head: [['#', 'Nombre del Vigilador', 'Objetivo en el que estaba', 'Fecha de Baja', 'Fecha Liquidación (Citado)', 'Monto a Abonar', 'Observaciones', 'Estado de Pago']],
+        body: tableRows,
+        theme: 'striped',
+        headStyles: { fillColor: [190, 38, 41], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
+        bodyStyles: { fontSize: 7.5 },
+        margin: { bottom: 16, left: 12, right: 12 },
+      });
+
+      doc.save(`INVICT_Liquidaciones_Finales_${new Date().toISOString().slice(0, 10)}.pdf`);
+      onNotify?.('Planilla de Liquidaciones Finales exportada a PDF.');
     } else {
       doc.setTextColor(20, 25, 35);
       doc.setFont('helvetica', 'bold');
@@ -853,6 +1098,48 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       a.click();
       URL.revokeObjectURL(url);
       onNotify?.('Planilla de Personal que Debe Uniforme exportada a CSV.');
+    } else if (activeSheet === 'liquidaciones_finales') {
+      const headers = [
+        '#',
+        'Nombre del Vigilador',
+        'Objetivo en el que estaba',
+        'Fecha de Baja',
+        'Fecha de Liquidación (Citado en Oficinas)',
+        'Monto a Abonar',
+        'Observaciones',
+        'Estado de Pago',
+      ];
+      const rows = filteredLiquidaciones.map((r, idx) =>
+        [
+          String(idx + 1),
+          escape(r.fullName),
+          escape(r.assignedObjective),
+          escape(r.exitDate),
+          escape(r.settlementDate),
+          escape(
+            r.amount !== null && r.amount !== undefined && r.amount !== ('' as any)
+              ? String(r.amount)
+              : ''
+          ),
+          escape(r.observations),
+          escape(r.status === 'PAGO' ? 'PAGADO' : 'PENDIENTE'),
+        ].join(';')
+      );
+      const summaryLine = `# RESUMEN: Total Liquidaciones: ${totalLiquidacionesCount} | Monto Total a Abonar: $${totalLiquidacionesAmount} | Abonado (Pagado): $${paidLiquidacionesAmount} | Resta por Pagar: $${remainingLiquidacionesAmount}\n`;
+      const csv =
+        '\uFEFF# INVICT SECURITY SOLUTIONS S.A. - PLANILLA INFORMATIVA: LIQUIDACIONES FINALES\n' +
+        summaryLine +
+        headers.join(';') +
+        '\n' +
+        rows.join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `INVICT_Liquidaciones_Finales_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onNotify?.('Planilla de Liquidaciones Finales exportada a CSV.');
     } else {
       const headers = ['N°', 'Cliente / Objetivo', 'N° de Caso', 'Fecha de Envío', 'Vía de Envío', 'Estado', 'Descripción', 'Seguimiento / Medidas', 'Registrado Por'];
       const rows = filteredInformes.map((r) =>
@@ -926,7 +1213,19 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
             </span>
 
             {/* Indicador dinámico de permisos según la planilla activa */}
-            {activeSheet === 'contratos' ? (
+            {activeSheet === 'liquidaciones_finales' ? (
+              canEditLiquidaciones ? (
+                <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                  Modo Edición Habilitado ({currentPersona.department === 'GERENCIA' ? 'Gerencia' : 'Recursos Humanos - Tamara'})
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase bg-amber-950/80 text-amber-300 border border-amber-700/60 rounded-full flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-400" />
+                  Modo Solo Lectura (Exclusivo Recursos Humanos y Gerencia)
+                </span>
+              )
+            ) : activeSheet === 'contratos' ? (
               canEditFixedTermContracts(currentPersona) ? (
                 <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase bg-violet-950/80 text-violet-300 border border-violet-700/60 rounded-full flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3 text-violet-400" />
@@ -969,14 +1268,18 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
           </div>
 
           <h2 className="text-xl font-black text-white tracking-tight">
-            {activeSheet === 'contratos'
+            {activeSheet === 'liquidaciones_finales'
+              ? 'Planillas Informativas: Liquidaciones Finales'
+              : activeSheet === 'contratos'
               ? 'Planillas Informativas: Contratos a Plazo Fijo'
               : activeSheet === 'informes_clientes'
               ? 'Planillas Informativas: Informes Enviados a Clientes'
               : 'Control Informativo: Personal Sin DISEP & Devolución de Uniformes'}
           </h2>
           <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-            {activeSheet === 'contratos'
+            {activeSheet === 'liquidaciones_finales'
+              ? 'Control numerado de liquidaciones finales de vigiladores: objetivo asignado (vinculado con clientes de Gerencia), fecha de baja, fecha de citación en oficinas, monto a abonar (opcional), observaciones y estado de pago.'
+              : activeSheet === 'contratos'
               ? 'Registro numerado de contratos a plazo fijo: colaborador, objetivo asignado, inicio y fin de contrato. La fecha de fin se refleja en el calendario y Recursos Humanos recibe una alerta una semana antes del vencimiento.'
               : activeSheet === 'informes_clientes'
               ? 'Registro correlativo mensual de informes de seguridad y novedades remitidos a clientes. Control de número de caso, fecha de despacho, medidas adoptadas y resolución de incidentes.'
@@ -1013,7 +1316,17 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
             </button>
           )}
 
-          {activeSheet !== 'informes_clientes' && canEditAdmin && (
+          {activeSheet === 'liquidaciones_finales' && canEditLiquidaciones && (
+            <button
+              onClick={handleAddLiquidacion}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all cursor-pointer active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Agregar Liquidación Final</span>
+            </button>
+          )}
+
+          {(activeSheet === 'sin_disep' || activeSheet === 'debe_uniforme') && canEditAdmin && (
             <button
               onClick={activeSheet === 'sin_disep' ? handleAddSinDisep : handleAddDebeUniforme}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#BE2629] hover:bg-[#d32f32] text-white font-bold text-xs shadow-lg transition-all cursor-pointer active:scale-95"
@@ -1030,7 +1343,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       {/* Sub-Tabs Selector & Search Bar */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap">
-          {/* TAB 1: INFORMES A CLIENTES (NUEVA PLANILLA) */}
+          {/* TAB 1: INFORMES A CLIENTES */}
           <button
             onClick={() => setActiveSheet('informes_clientes')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer border ${
@@ -1093,6 +1406,22 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
               {contractsCount}
             </span>
           </button>
+
+          {/* TAB 5: LIQUIDACIONES FINALES (edición exclusiva RR.HH. y Gerencia) */}
+          <button
+            onClick={() => setActiveSheet('liquidaciones_finales')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer border ${
+              activeSheet === 'liquidaciones_finales'
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-950/40'
+                : 'bg-[#121620] text-slate-300 border-[#22293b] hover:bg-[#192030]'
+            }`}
+          >
+            <DollarSign className="w-4 h-4" />
+            <span>5. LIQUIDACIONES FINALES</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-black/30 text-white">
+              {totalLiquidacionesCount}
+            </span>
+          </button>
         </div>
 
         {/* Search & Month Controls */}
@@ -1131,6 +1460,8 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
               placeholder={
                 activeSheet === 'informes_clientes'
                   ? 'Buscar por cliente, caso, descripción o seguimiento...'
+                  : activeSheet === 'liquidaciones_finales'
+                  ? 'Buscar por vigilador, objetivo, observación o estado...'
                   : 'Buscar en la planilla...'
               }
               className="w-full bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none"
@@ -1138,6 +1469,443 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
           </div>
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* PLANILLA 5: LIQUIDACIONES FINALES (EDITA EXCLUSIVAMENTE RR.HH. Y GERENCIA) */}
+      {/* ========================================================================= */}
+      {activeSheet === 'liquidaciones_finales' && (
+        <div className="space-y-4">
+          {/* Cuadro de Métricas de Liquidaciones Finales */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-[#111927] via-[#131d2e] to-[#111927] border border-[#23324d] shadow-lg space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-black uppercase tracking-wider text-white">
+                  Resumen & Métricas de Liquidaciones Finales
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {paidLiquidacionesCount} pagada(s) · {pendingLiquidacionesCount} pendiente(s)
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Métrica 1: Cantidad de Liquidaciones */}
+              <div className="p-3.5 rounded-2xl bg-[#0e1420] border border-[#222c40] flex items-center justify-between shadow">
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                    Total Liquidaciones
+                  </span>
+                  <span className="text-2xl font-black text-white font-mono">
+                    {totalLiquidacionesCount}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                    {paidLiquidacionesCount} abonadas / {pendingLiquidacionesCount} sin abonar
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-blue-950/60 border border-blue-800 text-blue-400 flex items-center justify-center font-bold">
+                  <ClipboardCheck className="w-5 h-5" />
+                </div>
+              </div>
+
+              {/* Métrica 2: Monto Total a Abonar */}
+              <div className="p-3.5 rounded-2xl bg-[#0e1420] border border-[#222c40] flex items-center justify-between shadow">
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                    Monto Total a Abonar
+                  </span>
+                  <span className="text-xl font-black text-cyan-300 font-mono">
+                    $ {totalLiquidacionesAmount.toLocaleString('es-AR')}
+                  </span>
+                  <span className="text-[10px] text-cyan-400/80 block mt-0.5">
+                    Suma total de liquidaciones cargadas
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-cyan-950/60 border border-cyan-800 text-cyan-400 flex items-center justify-center font-bold">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+              </div>
+
+              {/* Métrica 3: Monto Ya Pagado */}
+              <div className="p-3.5 rounded-2xl bg-[#0e1420] border border-emerald-800/50 flex items-center justify-between shadow">
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-emerald-400 block">
+                    Total Ya Abonado (Pagado)
+                  </span>
+                  <span className="text-xl font-black text-emerald-400 font-mono">
+                    $ {paidLiquidacionesAmount.toLocaleString('es-AR')}
+                  </span>
+                  <span className="text-[10px] text-emerald-400/80 block mt-0.5">
+                    {paidLiquidacionesCount} liquidación(es) marcada(s) como PAGADO
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-emerald-950/60 border border-emerald-800 text-emerald-400 flex items-center justify-center font-bold">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+              </div>
+
+              {/* Métrica 4: Lo que Resta por Pagar */}
+              <div className="p-3.5 rounded-2xl bg-[#0e1420] border border-amber-700/60 flex items-center justify-between shadow">
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-amber-400 block">
+                    Resta por Pagar (Saldo Pendiente)
+                  </span>
+                  <span className="text-xl font-black text-amber-300 font-mono">
+                    $ {remainingLiquidacionesAmount.toLocaleString('es-AR')}
+                  </span>
+                  <span className="text-[10px] text-amber-400/80 block mt-0.5">
+                    {pendingLiquidacionesCount} liquidación(es) pendiente(s) de pago
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-amber-950/60 border border-amber-800 text-amber-400 flex items-center justify-center font-bold">
+                  <Clock className="w-5 h-5" />
+                </div>
+              </div>
+            </div>
+
+            {totalLiquidacionesAmount > 0 && (
+              <div className="pt-1">
+                <div className="flex items-center justify-between text-[11px] text-slate-300 mb-1">
+                  <span>Progreso de cancelación de liquidaciones finales</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    {Math.round((paidLiquidacionesAmount / totalLiquidacionesAmount) * 100)}% abonado
+                  </span>
+                </div>
+                <div className="w-full h-2 rounded-full bg-[#0b0f18] overflow-hidden border border-[#1f293d]">
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-300"
+                    style={{
+                      width: `${Math.min(100, Math.round((paidLiquidacionesAmount / totalLiquidacionesAmount) * 100))}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Tabla de Liquidaciones Finales */}
+          <div className="p-4 rounded-2xl bg-[#121620] border border-[#22293b] shadow space-y-3">
+            <div className="flex items-center justify-between border-b border-[#1f2637] pb-3 flex-wrap gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-emerald-400" />
+                  <span>Planilla 5: Liquidaciones Finales del Personal</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Edición exclusiva para Recursos Humanos (Tamara) y Gerencia. El objetivo se vincula directamente con los clientes cargados por Gerencia y el monto a abonar es opcional.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {!canEditLiquidaciones && (
+                  <span className="text-[11px] px-2.5 py-1 rounded-lg bg-amber-950/60 text-amber-300 border border-amber-800/60 font-semibold flex items-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    Solo visualización
+                  </span>
+                )}
+                {canEditLiquidaciones && (
+                  <button
+                    type="button"
+                    onClick={handleAddLiquidacion}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition-all cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Agregar Fila</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-[#161b26] border-b border-[#252c3e] text-slate-300 font-bold uppercase tracking-wider text-[10px]">
+                    <th className="py-2.5 px-3 text-center w-12">#</th>
+                    <th className="py-2.5 px-3 min-w-[200px]">
+                      <div className="flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Nombre del Vigilador</span>
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-3 min-w-[230px]">
+                      <div className="flex items-center gap-1.5">
+                        <Building className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Objetivo en el que estaba</span>
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-3 min-w-[140px]">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Fecha de Baja</span>
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-3 min-w-[160px]">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Fecha de Liquidación (Citado)</span>
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-3 min-w-[160px]">
+                      <div className="flex items-center gap-1.5">
+                        <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Monto a Abonar (Opcional)</span>
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-3 min-w-[240px]">Observaciones</th>
+                    <th className="py-2.5 px-3 text-center min-w-[145px]">Estado de Pago</th>
+                    {canEditLiquidaciones && <th className="py-2.5 px-2 text-center w-12">Acción</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1e2433]">
+                  {filteredLiquidaciones.map((item, idx) => {
+                    const isCustomObj =
+                      customObjectiveIds[item.id] ||
+                      (Boolean(item.assignedObjective) && !gerencialClients.includes(item.assignedObjective));
+                    const isPaid = item.status === 'PAGO';
+
+                    return (
+                      <tr
+                        key={item.id}
+                        className={`transition-colors ${
+                          isPaid ? 'bg-emerald-950/10 hover:bg-emerald-950/20' : 'hover:bg-[#161b26]/70'
+                        }`}
+                      >
+                        {/* 1. Numeración correlativa */}
+                        <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-400">
+                          <span className="px-2 py-0.5 rounded bg-black/40 border border-[#2b374e]">
+                            #{idx + 1}
+                          </span>
+                        </td>
+
+                        {/* 2. Nombre del Vigilador */}
+                        <td className="py-2 px-3">
+                          <input
+                            type="text"
+                            disabled={!canEditLiquidaciones}
+                            value={item.fullName}
+                            onChange={(e) => handleChangeLiquidacion(item.id, 'fullName', e.target.value)}
+                            placeholder="Apellido y Nombre del vigilador..."
+                            className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold focus:outline-none transition-colors"
+                          />
+                        </td>
+
+                        {/* 3. Objetivo en el que estaba (vinculado con clientes cargados por Gerencia) */}
+                        <td className="py-2 px-3">
+                          {canEditLiquidaciones ? (
+                            isCustomObj ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  list="gerencia-clientes-liq-list"
+                                  value={item.assignedObjective}
+                                  onChange={(e) =>
+                                    handleChangeLiquidacion(item.id, 'assignedObjective', e.target.value)
+                                  }
+                                  placeholder="Escribir o elegir objetivo..."
+                                  className="w-full bg-[#161c28] border border-[#263147] focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-amber-200 font-semibold focus:outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setCustomObjectiveIds((prev) => ({ ...prev, [item.id]: false }))
+                                  }
+                                  className="px-2 py-1 rounded bg-[#1f283a] text-[10px] text-slate-300 hover:text-white cursor-pointer shrink-0"
+                                  title="Volver a la lista de clientes de Gerencia"
+                                >
+                                  Lista
+                                </button>
+                              </div>
+                            ) : (
+                              <select
+                                value={item.assignedObjective || ''}
+                                onChange={(e) => {
+                                  if (e.target.value === '__CUSTOM__') {
+                                    setCustomObjectiveIds((prev) => ({ ...prev, [item.id]: true }));
+                                  } else {
+                                    handleChangeLiquidacion(item.id, 'assignedObjective', e.target.value);
+                                  }
+                                }}
+                                className="w-full bg-[#161c28] border border-[#263147] focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-amber-200 font-semibold focus:outline-none cursor-pointer"
+                              >
+                                <option value="">-- Seleccionar Cliente / Objetivo --</option>
+                                {gerencialClients.map((cl) => (
+                                  <option key={cl} value={cl}>
+                                    {cl}
+                                  </option>
+                                ))}
+                                <option value="__CUSTOM__">✏️ Otro objetivo (escribir manualmente)...</option>
+                              </select>
+                            )
+                          ) : (
+                            <span className="text-xs font-semibold text-amber-200 px-1">
+                              {item.assignedObjective || '-'}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 4. Fecha de Baja */}
+                        <td className="py-2 px-3">
+                          <input
+                            type="date"
+                            disabled={!canEditLiquidaciones}
+                            value={item.exitDate}
+                            onChange={(e) => handleChangeLiquidacion(item.id, 'exitDate', e.target.value)}
+                            className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-rose-300 font-mono focus:outline-none transition-colors"
+                          />
+                        </td>
+
+                        {/* 5. Fecha de Liquidación (día citado en oficinas) */}
+                        <td className="py-2 px-3">
+                          <input
+                            type="date"
+                            disabled={!canEditLiquidaciones}
+                            value={item.settlementDate}
+                            onChange={(e) =>
+                              handleChangeLiquidacion(item.id, 'settlementDate', e.target.value)
+                            }
+                            className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-cyan-300 font-mono focus:outline-none transition-colors"
+                          />
+                        </td>
+
+                        {/* 6. Monto que se le abonará (NO obligatorio) */}
+                        <td className="py-2 px-3">
+                          {canEditLiquidaciones ? (
+                            <div className="relative flex items-center">
+                              <span className="absolute left-2.5 text-xs font-mono text-slate-400">$</span>
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={
+                                  item.amount !== null && item.amount !== undefined
+                                    ? item.amount
+                                    : ''
+                                }
+                                onChange={(e) => {
+                                  const rawVal = e.target.value;
+                                  const parsedVal =
+                                    rawVal === '' ? null : Math.max(0, parseFloat(rawVal) || 0);
+                                  handleChangeLiquidacion(item.id, 'amount', parsedVal);
+                                }}
+                                placeholder="Opcional (sin monto)"
+                                className="w-full bg-[#161c28] border border-[#263147] focus:border-emerald-500 rounded-lg pl-6 pr-2.5 py-1.5 text-xs text-emerald-300 font-mono font-bold placeholder:text-slate-500 placeholder:font-normal focus:outline-none transition-colors"
+                              />
+                            </div>
+                          ) : (
+                            <span className="font-mono font-bold text-xs text-emerald-300 px-1">
+                              {item.amount !== null &&
+                              item.amount !== undefined &&
+                              item.amount !== ('' as any)
+                                ? `$ ${Number(item.amount).toLocaleString('es-AR')}`
+                                : <span className="text-slate-500 italic font-normal">Sin definir</span>}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 7. Observaciones */}
+                        <td className="py-2 px-3">
+                          <input
+                            type="text"
+                            disabled={!canEditLiquidaciones}
+                            value={item.observations}
+                            onChange={(e) =>
+                              handleChangeLiquidacion(item.id, 'observations', e.target.value)
+                            }
+                            placeholder="Observaciones (opcional)..."
+                            className="w-full bg-[#161c28] disabled:bg-transparent border border-[#263147] disabled:border-transparent focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none transition-colors"
+                          />
+                        </td>
+
+                        {/* 8. Estado de Pago (Pagado / No Pagado - similar a sueldos del personal) */}
+                        <td className="py-2 px-3 text-center">
+                          {canEditLiquidaciones ? (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleLiquidacionStatus(item.id)}
+                              className={`w-full px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider border transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95 ${
+                                isPaid
+                                  ? 'bg-emerald-950/90 hover:bg-emerald-900 text-emerald-300 border-emerald-600/70'
+                                  : 'bg-amber-950/80 hover:bg-amber-900/80 text-amber-300 border-amber-700/60'
+                              }`}
+                              title="Clic para cambiar entre PAGADO y PENDIENTE"
+                            >
+                              {isPaid ? (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                  <span>PAGADO</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                  <span>PENDIENTE</span>
+                                </>
+                              )}
+                            </button>
+                          ) : (
+                            <span
+                              className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase inline-flex items-center gap-1 border ${
+                                isPaid
+                                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                                  : 'bg-amber-950/80 text-amber-300 border-amber-700/60'
+                              }`}
+                            >
+                              {isPaid ? (
+                                <>
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                  <span>PAGADO</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="w-3 h-3 text-amber-400" />
+                                  <span>PENDIENTE</span>
+                                </>
+                              )}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 9. Acción Eliminar */}
+                        {canEditLiquidaciones && (
+                          <td className="py-2 px-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteLiquidacion(item.id)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-colors cursor-pointer"
+                              title="Eliminar liquidación"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+
+                  {filteredLiquidaciones.length === 0 && (
+                    <tr>
+                      <td colSpan={canEditLiquidaciones ? 9 : 8} className="py-10 text-center text-slate-400 text-xs">
+                        <DollarSign className="w-8 h-8 text-slate-600 mx-auto mb-2 opacity-50" />
+                        <p className="font-semibold text-slate-300">
+                          No hay liquidaciones finales cargadas en la planilla.
+                        </p>
+                        <p className="text-slate-500 text-[11px] mt-1">
+                          {canEditLiquidaciones
+                            ? 'Haz clic en "+ Agregar Liquidación Final" para numerar y registrar la primera liquidación.'
+                            : 'Recursos Humanos o Gerencia aún no han registrado liquidaciones finales.'}
+                        </p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              <datalist id="gerencia-clientes-liq-list">
+                {gerencialClients.map((cl) => (
+                  <option key={cl} value={cl} />
+                ))}
+              </datalist>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* PLANILLA 4: CONTRATOS A PLAZO FIJO (EDITA RR.HH. Y GERENCIA) */}

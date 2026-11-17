@@ -150,6 +150,7 @@ export function mergeAdminInformativeSheets(
     sinDisep: mergeRecordsById(localSheets.sinDisep, remoteSheets.sinDisep, extraDeletedIds),
     debeUniforme: mergeRecordsById(localSheets.debeUniforme, remoteSheets.debeUniforme, extraDeletedIds),
     informesClientes: mergeRecordsById(localSheets.informesClientes, remoteSheets.informesClientes, extraDeletedIds),
+    liquidacionesFinales: mergeRecordsById(localSheets.liquidacionesFinales, remoteSheets.liquidacionesFinales, extraDeletedIds),
   };
 }
 
