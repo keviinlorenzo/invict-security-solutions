@@ -56,6 +56,7 @@ export interface PersonalSinDisepItem {
   assignedObjective: string;
   observations: string;
   updatedAt?: string;
+  updatedAtMs?: number;
   updatedBy?: string;
 }
 
@@ -67,6 +68,7 @@ export interface PersonalDebeUniformeItem {
   assignedObjective: string;
   observations: string;
   updatedAt?: string;
+  updatedAtMs?: number;
   updatedBy?: string;
 }
 
@@ -85,6 +87,7 @@ export interface InformeClienteItem {
   sentVia?: string; // Vía de envío: Email, WhatsApp, En Mano, Portal
   senderName?: string; // Auxiliar Adm / Operaciones que lo emitió
   updatedAt?: string;
+  updatedAtMs?: number;
   updatedBy?: string;
 }
 
@@ -474,6 +477,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       assignedObjective: '',
       observations: '',
       updatedAt: new Date().toLocaleDateString('es-AR'),
+      updatedAtMs: Date.now(),
       updatedBy: currentPersona.name,
     };
     const next = { ...sheetsData, sinDisep: [...sheetsData.sinDisep, newRow] };
@@ -485,7 +489,13 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
     if (!canEditAdmin) return;
     const nextList = sheetsData.sinDisep.map((item) =>
       item.id === id
-        ? { ...item, [field]: value, updatedAt: new Date().toLocaleDateString('es-AR'), updatedBy: currentPersona.name }
+        ? {
+            ...item,
+            [field]: value,
+            updatedAt: new Date().toLocaleDateString('es-AR'),
+            updatedAtMs: Date.now(),
+            updatedBy: currentPersona.name,
+          }
         : item
     );
     updateData({ ...sheetsData, sinDisep: nextList }, `${currentPersona.name} actualizó Personal Sin DISEP`);
@@ -511,6 +521,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       assignedObjective: '',
       observations: '',
       updatedAt: new Date().toLocaleDateString('es-AR'),
+      updatedAtMs: Date.now(),
       updatedBy: currentPersona.name,
     };
     const next = { ...sheetsData, debeUniforme: [...sheetsData.debeUniforme, newRow] };
@@ -522,7 +533,13 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
     if (!canEditAdmin) return;
     const nextList = sheetsData.debeUniforme.map((item) =>
       item.id === id
-        ? { ...item, [field]: value, updatedAt: new Date().toLocaleDateString('es-AR'), updatedBy: currentPersona.name }
+        ? {
+            ...item,
+            [field]: value,
+            updatedAt: new Date().toLocaleDateString('es-AR'),
+            updatedAtMs: Date.now(),
+            updatedBy: currentPersona.name,
+          }
         : item
     );
     updateData({ ...sheetsData, debeUniforme: nextList }, `${currentPersona.name} actualizó Personal que Debe Uniforme`);
@@ -582,6 +599,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
     }
 
     const todayAr = new Date().toLocaleDateString('es-AR');
+    const nowMs = Date.now();
 
     if (editingInformeId) {
       // Editar existente
@@ -597,6 +615,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
               status: formStatus,
               sentVia: formSentVia,
               updatedAt: todayAr,
+              updatedAtMs: nowMs,
               updatedBy: currentPersona.name,
             }
           : inf
@@ -610,7 +629,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       // Crear nuevo informe correlativo para este mes
       const nextOrder = currentMonthInformes.length + 1;
       const newInforme: InformeClienteItem = {
-        id: `inf-${Date.now()}`,
+        id: `inf-${nowMs}`,
         orderNumber: nextOrder,
         monthPeriod: selectedPeriod,
         clientName: formClientName.trim(),
@@ -622,6 +641,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
         sentVia: formSentVia,
         senderName: `${currentPersona.name} (${currentPersona.profileType || currentPersona.department})`,
         updatedAt: todayAr,
+        updatedAtMs: nowMs,
         updatedBy: currentPersona.name,
       };
 
@@ -670,6 +690,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
           ...inf,
           status: nextStatus,
           updatedAt: new Date().toLocaleDateString('es-AR'),
+          updatedAtMs: Date.now(),
           updatedBy: currentPersona.name,
         };
       }

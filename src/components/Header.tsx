@@ -24,7 +24,12 @@ import {
   Laptop,
   Smartphone
 } from 'lucide-react';
-import { calculateDaysRemaining, isTaskInPeriod } from '../utils/dateUtils';
+import {
+  calculateDaysRemaining,
+  isTaskInPeriod,
+  isSupervisorPersona,
+  doesSupervisionTaskMatchSupervisor
+} from '../utils/dateUtils';
 import { PROFILE_METADATA } from '../utils/authService';
 import {
   canPersonaViewMessage,
@@ -118,6 +123,9 @@ export const Header: React.FC<HeaderProps> = ({
     if (!isGerencia && t.area === 'GERENCIA') return false;
     if (!isTaskInPeriod(t, currentPeriod)) return false;
     if (effectiveArea && effectiveArea !== 'TODOS' && t.area !== effectiveArea) return false;
+    if (isSupervisorPersona(currentPersona) && t.area === 'SUPERVISIÓN') {
+      if (!doesSupervisionTaskMatchSupervisor(t, currentPersona)) return false;
+    }
     const { status, days } = calculateDaysRemaining(t.dueDate, t.completedDate);
     // Para tareas Fija Semanal, disparar alerta todas las semanas para la tarea de la semana en curso (o vencida)
     if (t.nature === 'Fija Semanal' && days <= 7) {

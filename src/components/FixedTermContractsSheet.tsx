@@ -53,7 +53,11 @@ export const FixedTermContractsSheet: React.FC<Props> = ({ currentPersona, onNot
     saveFixedTermContracts(next, currentPersona, summary);
   };
 
-  const stamp = () => ({ updatedAt: new Date().toLocaleDateString('es-AR'), updatedBy: currentPersona.name });
+  const stamp = () => ({
+    updatedAt: new Date().toLocaleDateString('es-AR'),
+    updatedAtMs: Date.now(),
+    updatedBy: currentPersona.name,
+  });
 
   const handleAdd = () => {
     if (!canEdit) return;

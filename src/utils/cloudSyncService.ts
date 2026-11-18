@@ -383,7 +383,8 @@ export function collectLocalSharedState(): Record<string, any> {
 
 function buildDomainScopedSnapshot(
   fullSnapshot: Record<string, any>,
-  evtType?: string
+  evtType?: string,
+  eventData?: any
 ): Record<string, any> {
   const snapshot = { ...fullSnapshot };
   snapshot[STORAGE_KEY_DELETED_TASKS] = getDeletedTaskIds();
@@ -401,12 +402,27 @@ function buildDomainScopedSnapshot(
       if (evtType === 'TASK_MUTATION') {
         if (k !== 'invict_tasks' && k !== 'invict_stopped_monthly_tasks') delete snapshot[k];
       } else if (evtType === 'SHEET_MUTATION') {
-        if (
-          !k.startsWith('invict_managerial_sheets_') &&
-          k !== 'invict_admin_informative_sheets' &&
-          k !== 'invict_fixed_term_contracts'
+        // Strict per-sheet isolation so editing one sheet NEVER sends stale copies of other sheets!
+        if (eventData && typeof eventData === 'object' && !Array.isArray(eventData) && 'period' in eventData && eventData.period) {
+          const targetKey = `invict_managerial_sheets_${eventData.period}`;
+          if (k !== targetKey) delete snapshot[k];
+        } else if (
+          eventData &&
+          typeof eventData === 'object' &&
+          !Array.isArray(eventData) &&
+          ('sinDisep' in eventData || 'debeUniforme' in eventData || 'informesClientes' in eventData || 'liquidacionesFinales' in eventData)
         ) {
-          delete snapshot[k];
+          if (k !== 'invict_admin_informative_sheets') delete snapshot[k];
+        } else if (Array.isArray(eventData)) {
+          if (k !== 'invict_fixed_term_contracts') delete snapshot[k];
+        } else {
+          if (
+            !k.startsWith('invict_managerial_sheets_') &&
+            k !== 'invict_admin_informative_sheets' &&
+            k !== 'invict_fixed_term_contracts'
+          ) {
+            delete snapshot[k];
+          }
         }
       } else if (evtType === 'EXPENSE_MUTATION') {
         if (k !== 'invict_expenses') delete snapshot[k];
@@ -443,8 +459,6 @@ function buildDomainScopedSnapshot(
 export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>): void {
   if (typeof window === 'undefined' || !snapshot) return;
 
-  const hasPendingLocalPush = localStorage.getItem(STORAGE_KEY_PENDING_PUSH) === '1';
-
   // 1. Merge deleted task and record IDs first so deleted items are never resurrected
   if (Array.isArray(snapshot[STORAGE_KEY_DELETED_TASKS])) {
     markTaskIdsDeleted(snapshot[STORAGE_KEY_DELETED_TASKS]);
@@ -455,50 +469,44 @@ export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>):
     snapshot[STORAGE_KEY_DELETED_RECORDS] = getDeletedRecordIds();
   }
 
-  const deletedTasksSet = new Set<string>(getDeletedTaskIds());
-  const deletedRecordsSet = new Set<string>(getDeletedRecordIds());
+  const deletedTasksArr = getDeletedTaskIds();
+  const deletedRecordsArr = getDeletedRecordIds();
 
-  // 2. Smart merge invict_tasks if this browser has unsaved local edits; otherwise trust remote state filtered by tombstones
+  // 2. ALWAYS smart-merge invict_tasks by updatedAtMs + tombstones so an in-flight download never overwrites newer local edits
   if (Array.isArray(snapshot.invict_tasks)) {
     try {
-      if (hasPendingLocalPush) {
-        const localRaw = localStorage.getItem('invict_tasks');
-        const localTasks = localRaw ? JSON.parse(localRaw) : [];
-        snapshot.invict_tasks = mergeTaskLists(
-          localTasks,
-          snapshot.invict_tasks,
-          snapshot[STORAGE_KEY_DELETED_TASKS]
-        );
-      } else {
-        snapshot.invict_tasks = snapshot.invict_tasks.filter(
-          (t: any) => t && typeof t.id === 'string' && !deletedTasksSet.has(t.id)
-        );
-      }
+      const localRaw = localStorage.getItem('invict_tasks');
+      const localTasks = localRaw ? JSON.parse(localRaw) : [];
+      snapshot.invict_tasks = mergeTaskLists(
+        localTasks,
+        snapshot.invict_tasks,
+        deletedTasksArr
+      );
     } catch {
       // fallback to snapshot.invict_tasks
     }
   }
 
-  // 2b. Smart merge Planillas Informativas, Contratos a Plazo Fijo, Gastos y Mensajes
+  // 2b. ALWAYS smart-merge Planillas Informativas, Contratos a Plazo Fijo, Gastos y Mensajes by updatedAtMs + tombstones
   if (snapshot.invict_admin_informative_sheets && typeof snapshot.invict_admin_informative_sheets === 'object') {
     try {
-      if (hasPendingLocalPush) {
-        const localRaw = localStorage.getItem('invict_admin_informative_sheets');
-        if (localRaw) {
-          const localObj = JSON.parse(localRaw);
-          snapshot.invict_admin_informative_sheets = mergeAdminInformativeSheets(
-            localObj,
-            snapshot.invict_admin_informative_sheets,
-            snapshot[STORAGE_KEY_DELETED_RECORDS]
-          );
-        }
+      const localRaw = localStorage.getItem('invict_admin_informative_sheets');
+      if (localRaw) {
+        const localObj = JSON.parse(localRaw);
+        snapshot.invict_admin_informative_sheets = mergeAdminInformativeSheets(
+          localObj,
+          snapshot.invict_admin_informative_sheets,
+          deletedRecordsArr
+        );
       } else {
+        const deletedRecordsSet = new Set<string>(deletedRecordsArr);
         const s = snapshot.invict_admin_informative_sheets;
         snapshot.invict_admin_informative_sheets = {
           ...s,
           sinDisep: Array.isArray(s.sinDisep) ? s.sinDisep.filter((x: any) => x?.id && !deletedRecordsSet.has(x.id)) : [],
           debeUniforme: Array.isArray(s.debeUniforme) ? s.debeUniforme.filter((x: any) => x?.id && !deletedRecordsSet.has(x.id)) : [],
           informesClientes: Array.isArray(s.informesClientes) ? s.informesClientes.filter((x: any) => x?.id && !deletedRecordsSet.has(x.id)) : [],
+          liquidacionesFinales: Array.isArray(s.liquidacionesFinales) ? s.liquidacionesFinales.filter((x: any) => x?.id && !deletedRecordsSet.has(x.id)) : [],
         };
       }
     } catch {
@@ -509,19 +517,18 @@ export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>):
   for (const arrKey of ['invict_fixed_term_contracts', 'invict_expenses', 'invict_messages'] as const) {
     if (Array.isArray(snapshot[arrKey])) {
       try {
-        if (hasPendingLocalPush) {
-          const localRaw = localStorage.getItem(arrKey);
-          if (localRaw) {
-            const localArr = JSON.parse(localRaw);
-            if (Array.isArray(localArr)) {
-              snapshot[arrKey] = mergeRecordsById(
-                localArr,
-                snapshot[arrKey],
-                snapshot[STORAGE_KEY_DELETED_RECORDS]
-              );
-            }
+        const localRaw = localStorage.getItem(arrKey);
+        if (localRaw) {
+          const localArr = JSON.parse(localRaw);
+          if (Array.isArray(localArr)) {
+            snapshot[arrKey] = mergeRecordsById(
+              localArr,
+              snapshot[arrKey],
+              deletedRecordsArr
+            );
           }
         } else {
+          const deletedRecordsSet = new Set<string>(deletedRecordsArr);
           snapshot[arrKey] = snapshot[arrKey].filter(
             (x: any) => x && typeof x.id === 'string' && !deletedRecordsSet.has(x.id)
           );
@@ -701,8 +708,8 @@ function flushPendingPushKeepalive() {
     pendingRemoteEvent?.type ||
     (localStorage.getItem(STORAGE_KEY_PENDING_TYPE) as CloudSyncPayload['type']) ||
     'TASK_MUTATION';
-  const rawSnap = pendingSnapshot || collectLocalSharedState();
-  const scopedSnap = buildDomainScopedSnapshot(rawSnap, evtType);
+  const rawSnap = collectLocalSharedState();
+  const scopedSnap = buildDomainScopedSnapshot(rawSnap, evtType, pendingRemoteEvent?.data);
 
   const lightweightEvent = pendingRemoteEvent
     ? {
@@ -725,6 +732,28 @@ function flushPendingPushKeepalive() {
       };
 
   try {
+    let bodyStr = JSON.stringify({
+      p_client_id: CLIENT_INSTANCE_ID,
+      p_last_event: lightweightEvent,
+      p_partial_state: scopedSnap,
+    });
+    // Browser fetch keepalive has a hard 64KB limit; if invict_tasks makes it >58KB, strip task history arrays for the unload beacon
+    if (bodyStr.length > 58000 && Array.isArray(scopedSnap.invict_tasks)) {
+      const compactSnap = {
+        ...scopedSnap,
+        invict_tasks: scopedSnap.invict_tasks.map((t: any) => {
+          if (!t || typeof t !== 'object') return t;
+          const { history, ...rest } = t;
+          return rest;
+        }),
+      };
+      bodyStr = JSON.stringify({
+        p_client_id: CLIENT_INSTANCE_ID,
+        p_last_event: lightweightEvent,
+        p_partial_state: compactSnap,
+      });
+    }
+    const useKeepalive = bodyStr.length <= 60000;
     void fetch(`${SUPABASE_URL}/rest/v1/rpc/upsert_invict_cloud_state`, {
       method: 'POST',
       headers: {
@@ -732,27 +761,8 @@ function flushPendingPushKeepalive() {
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         'Content-Type': 'application/json',
       },
-      keepalive: true,
-      body: JSON.stringify({
-        p_client_id: CLIENT_INSTANCE_ID,
-        p_last_event: lightweightEvent,
-        p_partial_state: scopedSnap,
-      }),
-    });
-  } catch {
-    // ignore
-  }
-
-  try {
-    void fetch('/api/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      keepalive: true,
-      body: JSON.stringify({
-        clientId: CLIENT_INSTANCE_ID,
-        event: lightweightEvent,
-        partialState: scopedSnap,
-      }),
+      keepalive: useKeepalive,
+      body: bodyStr,
     });
   } catch {
     // ignore
@@ -763,7 +773,7 @@ function initRemoteSync() {
   if (remoteSyncInitialized || typeof window === 'undefined') return;
   remoteSyncInitialized = true;
 
-  // 1. Purge any legacy Service Worker caches BEFORE initial fetch so stale cached API responses are never read
+  // 1. Purge any legacy Service Worker caches BEFORE initial fetch so stale cached JS/API responses are never read
   const startInitialFetch = () => {
     void fetchFullRemoteState(true);
   };
@@ -773,7 +783,7 @@ function initRemoteSync() {
       .keys()
       .then((keys) =>
         Promise.all(
-          keys.map((k) => (k !== 'invict-cache-v11' ? window.caches.delete(k) : Promise.resolve(false)))
+          keys.map((k) => (k !== 'invict-cache-v20' ? window.caches.delete(k) : Promise.resolve(false)))
         )
       )
       .then(startInitialFetch)
@@ -836,7 +846,7 @@ async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Rec
   if (typeof window === 'undefined') return;
   if (isPushInFlight) {
     pendingRemoteEvent = event || pendingRemoteEvent;
-    pendingSnapshot = stateSnapshot || collectLocalSharedState();
+    pendingSnapshot = collectLocalSharedState();
     queuedPushAfterFlight = true;
     return;
   }
@@ -844,21 +854,21 @@ async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Rec
   isPushInFlight = true;
   let pushSucceeded = false;
   try {
-    const rawSnapshot = stateSnapshot || collectLocalSharedState();
-
-    // Always ensure snapshot has the freshest invict_tasks and deleted IDs from localStorage
+    // Always grab the freshest localStorage state right before sending
     const freshLocal = collectLocalSharedState();
+    const rawSnapshot = stateSnapshot ? { ...stateSnapshot, ...freshLocal } : freshLocal;
+
     if (Array.isArray(freshLocal.invict_tasks)) {
       rawSnapshot.invict_tasks = mergeTaskLists(
         freshLocal.invict_tasks,
-        Array.isArray(rawSnapshot.invict_tasks) ? rawSnapshot.invict_tasks : [],
+        Array.isArray(stateSnapshot?.invict_tasks) ? stateSnapshot.invict_tasks : [],
         getDeletedTaskIds()
       );
     }
 
-    // Domain isolation: send ONLY the keys relevant to event.type so saves are fast (<100ms)
+    // Domain isolation: send ONLY the exact key(s) relevant to event.type and event.data so saves are fast (<100ms)
     // and PostgreSQL's merge_cloud_state_jsonb merges item-by-item atomically on the server!
-    const snapshot = buildDomainScopedSnapshot(rawSnapshot, event?.type);
+    const snapshot = buildDomainScopedSnapshot(rawSnapshot, event?.type, event?.data);
 
     // Strip huge duplicate objects from event to keep egress and database row tiny
     const lightweightEvent = event
@@ -893,7 +903,6 @@ async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Rec
         const res = await fetch('/api/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          keepalive: true,
           body: JSON.stringify({
             clientId: CLIENT_INSTANCE_ID,
             event: lightweightEvent,
@@ -927,7 +936,7 @@ async function executePushToRemote(event?: CloudSyncPayload, stateSnapshot?: Rec
     if (queuedPushAfterFlight) {
       queuedPushAfterFlight = false;
       const nextEvt = pendingRemoteEvent;
-      const nextSnap = pendingSnapshot || collectLocalSharedState();
+      const nextSnap = collectLocalSharedState();
       pendingRemoteEvent = undefined;
       pendingSnapshot = undefined;
       void executePushToRemote(nextEvt, nextSnap);

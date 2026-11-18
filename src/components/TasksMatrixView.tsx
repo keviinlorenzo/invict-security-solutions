@@ -37,7 +37,14 @@ import {
   ArrowDown,
   FileSpreadsheet,
 } from 'lucide-react';
-import { calculateDaysRemaining, formatDateLocale, formatPeriodName, isTaskInPeriod } from '../utils/dateUtils';
+import {
+  calculateDaysRemaining,
+  formatDateLocale,
+  formatPeriodName,
+  isTaskInPeriod,
+  isSupervisorPersona,
+  doesSupervisionTaskMatchSupervisor
+} from '../utils/dateUtils';
 import { getDayOfWeekLabel, getDayOfWeekFromDateString, isMonthlyTaskStoppedForPeriod } from '../utils/monthRenewalService';
 import { exportTasksToCSV } from '../utils/exportUtils';
 import { exportTasksToPDF } from '../utils/pdfExportUtils';
@@ -165,9 +172,13 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   const isSubGerencia = Boolean(
     currentPersona && (currentPersona.department === 'SUB_GERENCIA' || currentPersona.profileType === 'SUB_GERENTE')
   );
+  const isCurrentUserSupervisor = isSupervisorPersona(currentPersona);
 
   // Helper to dynamically compute current assigned officers from allPersonas so any change by Gerencia is reflected immediately
   const getOfficersForArea = (area: AreaType, fallback: string): string => {
+    if (area === 'SUPERVISIÓN' && isCurrentUserSupervisor && currentPersona?.name) {
+      return currentPersona.name;
+    }
     if (!allPersonas || allPersonas.length === 0) return fallback;
     if (area === 'TODOS') return isGerencia ? 'Gerencia General & Auditoría Integral' : isSubGerencia ? 'Sub Gerencia & Supervisión Integral' : 'Coordinación General de Oficina';
     const matching = allPersonas.filter(p => p.department === area);
@@ -269,10 +280,15 @@ export const TasksMatrixView: React.FC<TasksMatrixViewProps> = ({
   const activeTabDef = postTabs.find(p => p.id === activeTabId) || postTabs[0];
   const effectiveSearch = (globalSearchTerm || localSearch).toLowerCase().trim();
 
-  // Tasks of the selected period (defense-in-depth: never include GERENCIA tasks for non-Gerencia users)
+  // Tasks of the selected period (defense-in-depth: never include GERENCIA tasks for non-Gerencia users,
+  // and if the logged-in user is a Supervisor - Tejera or Bilbao -, only show their own assigned SUPERVISIÓN tasks)
   const periodTasks = tasks.filter(t => {
     if (!isGerencia && t.area === 'GERENCIA') return false;
-    return isTaskInPeriod(t, currentPeriod);
+    if (!isTaskInPeriod(t, currentPeriod)) return false;
+    if (isCurrentUserSupervisor && t.area === 'SUPERVISIÓN') {
+      return doesSupervisionTaskMatchSupervisor(t, currentPersona);
+    }
+    return true;
   });
 
   // Number of completed tasks in active tab

@@ -250,3 +250,58 @@ export function getWeekIndexForDate(dateStr: string): number {
   if (day <= 28) return 4;
   return 5;
 }
+
+/**
+ * Determina si un usuario pertenece al perfil de Supervisión (Carlos Bilbao o Pablo Tejera).
+ */
+export function isSupervisorPersona(persona?: { department?: string; profileType?: string } | null): boolean {
+  if (!persona) return false;
+  return persona.department === 'SUPERVISIÓN' || persona.profileType === 'supervisión';
+}
+
+/**
+ * En el área de SUPERVISIÓN existen dos supervisores individuales (Carlos Bilbao y Pablo Tejera).
+ * Esta función verifica si una tarea de SUPERVISIÓN corresponde específicamente al supervisor indicado.
+ */
+export function doesSupervisionTaskMatchSupervisor(
+  task: { area?: string; assignee?: string; assigneeEmail?: string },
+  supervisor?: { name?: string; email?: string } | null
+): boolean {
+  if (!supervisor) return true;
+  if (task.area && task.area !== 'SUPERVISIÓN') return false;
+
+  const supName = (supervisor.name || '').toLowerCase();
+  const supEmail = (supervisor.email || '').toLowerCase();
+  const assignee = (task.assignee || '').toLowerCase();
+  const assigneeEmail = (task.assigneeEmail || '').toLowerCase();
+
+  const isTejera = supName.includes('tejera') || supName.includes('pablo') || supEmail.includes('tejera');
+  const isBilbao = supName.includes('bilbao') || supName.includes('carlos') || supEmail.includes('bilbao');
+
+  if (isTejera) {
+    return (
+      assignee.includes('tejera') ||
+      assignee.includes('pablo') ||
+      assigneeEmail.includes('tejera') ||
+      assigneeEmail.includes('pablo')
+    );
+  }
+
+  if (isBilbao) {
+    if (
+      assignee.includes('tejera') ||
+      assignee.includes('pablo') ||
+      assigneeEmail.includes('tejera') ||
+      assigneeEmail.includes('pablo')
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  // Fallback general por coincidencia de nombre o email
+  if (supEmail && assigneeEmail && supEmail === assigneeEmail) return true;
+  const firstWord = supName.split(/\s+/)[0];
+  if (firstWord && firstWord.length >= 3 && assignee.includes(firstWord)) return true;
+  return true;
+}

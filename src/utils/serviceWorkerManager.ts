@@ -53,12 +53,12 @@ export function registerServiceWorker(): Promise<ServiceWorkerRegistration | nul
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
     return Promise.resolve(null);
   }
-  // Purge legacy service worker caches that previously cached Supabase GET responses
+  // Purge legacy service worker caches so stale JS/HTML bundles are never served
   try {
     if ('caches' in window) {
       window.caches.keys().then((keys) => {
         keys.forEach((k) => {
-          if (k !== 'invict-cache-v11') {
+          if (k !== 'invict-cache-v20') {
             void window.caches.delete(k);
           }
         });
@@ -67,6 +67,19 @@ export function registerServiceWorker(): Promise<ServiceWorkerRegistration | nul
   } catch {
     // ignore
   }
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      if (!sessionStorage.getItem('invict_sw_reloaded_v20')) {
+        sessionStorage.setItem('invict_sw_reloaded_v20', '1');
+        window.location.reload();
+      }
+    } catch {
+      // ignore
+    }
+  });
   return navigator.serviceWorker
     .register('/sw.js')
     .then((registration) => {

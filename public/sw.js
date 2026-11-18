@@ -4,10 +4,8 @@
  * across static assets and APIs, and background push alerts for office workstations.
  */
 
-const CACHE_NAME = 'invict-cache-v13';
+const CACHE_NAME = 'invict-cache-v20';
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/icons/icon-192-v2.png',
   '/icons/icon-512-v2.png',
@@ -16,12 +14,13 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_ASSETS).catch((err) => {
         console.warn('Failed to precache some assets:', err);
       });
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
@@ -39,19 +38,17 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Network-only for all API/Supabase traffic; Network-first for HTML & app bundles
+// Network-only for all API/Supabase traffic; Network-first for HTML & app bundles so no client ever runs stale code
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
 
-  // Ignore browser extensions and unsupported protocols
   if (url.protocol.startsWith('chrome-extension') || url.protocol.startsWith('moz-extension')) {
     return;
   }
 
-  // NEVER cache cross-origin requests (e.g., Supabase REST/Realtime/Auth) or API endpoints
+  // NEVER intercept or cache cross-origin requests (Supabase REST/Realtime/Auth) or API endpoints
   if (
     url.origin !== self.location.origin ||
     url.hostname.includes('supabase.co') ||
@@ -63,53 +60,25 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first para páginas HTML: así cada equipo recibe la última versión publicada
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((c) => c.put('/index.html', copy));
-          return res;
-        })
-        .catch(() => caches.match('/index.html').then((r) => r || caches.match('/')))
-    );
-    return;
-  }
-
-  // Stale-While-Revalidate: Return cached version immediately while updating in the background
+  // Network-first for all same-origin requests (HTML, JS, CSS, assets)
   event.respondWith(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.match(event.request).then((cachedResponse) => {
-        // Fetch from network to revalidate and update cache in the background
-        const networkFetchPromise = fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              cache.put(event.request, networkResponse.clone());
-            }
-            return networkResponse;
-          })
-          .catch(() => {
-            // If network fails and we didn't have cachedResponse
-            if (!cachedResponse) {
-              if (event.request.headers.get('accept')?.includes('text/html')) {
-                return cache.match('/index.html') || cache.match('/');
-              }
-              if (url.pathname.startsWith('/api/')) {
-                return new Response(
-                  JSON.stringify({ offline: true, error: 'Sin conexión de red', timestamp: new Date().toISOString() }),
-                  { status: 503, headers: { 'Content-Type': 'application/json' } }
-                );
-              }
-              return new Response('Sin conexión a la red de oficina', { status: 503, statusText: 'Offline' });
-            }
-            return cachedResponse;
-          });
-
-        // Serve cached immediately if present, otherwise await the network response
-        return cachedResponse || networkFetchPromise;
-      });
-    })
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const copy = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
+        return networkResponse;
+      })
+      .catch(() => {
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) return cachedResponse;
+          if (event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html')) {
+            return caches.match('/index.html').then((r) => r || caches.match('/'));
+          }
+          return new Response('Sin conexión a la red', { status: 503, statusText: 'Offline' });
+        });
+      })
   );
 });
 

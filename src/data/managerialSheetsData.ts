@@ -2,7 +2,7 @@
 // Strict security: Access restricted to GERENCIA (Yamila, Laura, Domingo)
 import * as XLSX from 'xlsx';
 import { getCurrentPeriodString } from '../utils/dateUtils';
-import { broadcastCloudChange } from '../utils/cloudSyncService';
+import { broadcastCloudChange, markRecordIdsDeleted } from '../utils/cloudSyncService';
 
 export interface FixedExpenseItem {
   id: string;
@@ -623,9 +623,54 @@ export function mergeManagerialMonthData(
 
 export function saveManagerialMonthData(period: string, data: ManagerialMonthData): void {
   try {
+    const now = Date.now();
+    const deletedSet = new Set<string>(Array.isArray(data.deletedItemIds) ? data.deletedItemIds : []);
+
+    try {
+      const prevRaw = localStorage.getItem(`${STORAGE_PREFIX}${period}`);
+      if (prevRaw) {
+        const prev: ManagerialMonthData = JSON.parse(prevRaw);
+        const stampArr = <T extends { id: string; updatedAt?: number }>(
+          nextList: T[] = [],
+          prevList: T[] = []
+        ): T[] => {
+          const prevMap = new Map((Array.isArray(prevList) ? prevList : []).map((x) => [x.id, x]));
+          const nextIdSet = new Set((Array.isArray(nextList) ? nextList : []).map((x) => x.id));
+          for (const p of Array.isArray(prevList) ? prevList : []) {
+            if (p?.id && !nextIdSet.has(p.id)) {
+              deletedSet.add(p.id);
+            }
+          }
+          return (Array.isArray(nextList) ? nextList : []).map((item) => {
+            const oldItem = prevMap.get(item.id);
+            if (!oldItem || JSON.stringify(oldItem) !== JSON.stringify(item)) {
+              return { ...item, updatedAt: now };
+            }
+            return item;
+          });
+        };
+
+        data = {
+          ...data,
+          salaries: stampArr(data.salaries, prev.salaries),
+          fixedExpenses: stampArr(data.fixedExpenses, prev.fixedExpenses),
+          bankExpenses: stampArr(data.bankExpenses, prev.bankExpenses),
+          clientBilling: stampArr(data.clientBilling, prev.clientBilling),
+        };
+      }
+    } catch {
+      // ignore diff error
+    }
+
+    const deletedIdsArr = Array.from(deletedSet);
+    if (deletedIdsArr.length > 0) {
+      markRecordIdsDeleted(deletedIdsArr);
+    }
+
     const stampedData: ManagerialMonthData = {
       ...data,
-      updatedAt: Date.now(),
+      updatedAt: now,
+      deletedItemIds: deletedIdsArr,
     };
     localStorage.setItem(`${STORAGE_PREFIX}${period}`, JSON.stringify(stampedData));
     broadcastCloudChange(

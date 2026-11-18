@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 import { Task, Expense, UserPersona, AreaType, ExecutiveReportData, ShiftType } from '../types';
-import { calculateDaysRemaining, formatCurrencyARS, formatDateLocale, formatPeriodName, isTaskInPeriod } from '../utils/dateUtils';
+import {
+  calculateDaysRemaining,
+  formatCurrencyARS,
+  formatDateLocale,
+  formatPeriodName,
+  isTaskInPeriod,
+  doesSupervisionTaskMatchSupervisor
+} from '../utils/dateUtils';
 import { exportExecutiveReportToPDF, exportTasksToPDF } from '../utils/pdfExportUtils';
 import { exportExecutiveReportToCSV, exportTasksToCSV } from '../utils/exportUtils';
 import {
@@ -179,32 +186,65 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
     };
   });
 
-  // --- WORKLOAD COMPARISON PER POST & ASSIGNED COLLABORATOR (100% SYNCHRONIZED WITH MATRIX) ---
-  const collaboratorWorkloadRaw = areas.map((areaKey) => {
-    const matchingPersonas = (allPersonas || []).filter(p => p.department === areaKey);
-    const primaryPersona = matchingPersonas[0];
-    const officerNames = matchingPersonas.length > 0
-      ? Array.from(new Set(matchingPersonas.map(p => p.name))).join(' / ')
-      : dynamicPostNames[areaKey].officer;
-    const persona: UserPersona = primaryPersona
-      ? {
-          ...primaryPersona,
-          id: `post-${areaKey}`,
-          name: officerNames,
-          department: areaKey,
+  // --- WORKLOAD COMPARISON PER INDIVIDUAL COLLABORATOR (100% SYNCHRONIZED WITH MATRIX & BY USER) ---
+  const individualCollaboratorsList: UserPersona[] = React.useMemo(() => {
+    const result: UserPersona[] = [];
+    for (const areaKey of areas) {
+      const matching = (allPersonas || []).filter((p) => p.department === areaKey);
+      if (areaKey === 'SUPERVISIÓN') {
+        // En Supervisión siempre separar por usuario individual (Carlos Bilbao y Pablo Tejera)
+        if (matching.length > 0) {
+          matching.forEach((sup) => result.push(sup));
+        } else {
+          result.push(
+            {
+              id: 'p-bilbao',
+              name: 'Carlos Bilbao',
+              role: 'Supervisor',
+              department: 'SUPERVISIÓN',
+              email: 'carlos.bilbao@invictsecurity.com.ar',
+              avatarBg: 'bg-stone-700',
+              profileType: 'supervisión',
+            },
+            {
+              id: 'p-tejera',
+              name: 'Pablo Tejera',
+              role: 'Supervisor',
+              department: 'SUPERVISIÓN',
+              email: 'pablo.tejera@invictsecurity.com.ar',
+              avatarBg: 'bg-stone-800',
+              profileType: 'supervisión',
+            }
+          );
         }
-      : {
-          id: `post-${areaKey}`,
-          name: officerNames,
-          role: dynamicPostNames[areaKey].name,
-          department: areaKey,
-          email: `${areaKey.toLowerCase()}@invictsecurity.com.ar`,
-          avatarBg: 'bg-slate-700',
-          shift: 'Mañana',
-          profileType: 'operaciones',
-        };
+      } else {
+        const primary = matching[0];
+        if (primary) {
+          result.push(primary);
+        } else {
+          result.push({
+            id: `post-${areaKey}`,
+            name: dynamicPostNames[areaKey].officer,
+            role: dynamicPostNames[areaKey].name,
+            department: areaKey,
+            email: `${areaKey.toLowerCase()}@invictsecurity.com.ar`,
+            avatarBg: 'bg-slate-700',
+            profileType: 'operaciones',
+          });
+        }
+      }
+    }
+    return result;
+  }, [areas, allPersonas]);
 
-    const assignedTasks = periodTasks.filter(t => t.area === areaKey);
+  const collaboratorWorkloadRaw = individualCollaboratorsList.map((persona) => {
+    const assignedTasks = periodTasks.filter((t) => {
+      if (t.area !== persona.department) return false;
+      if (persona.department === 'SUPERVISIÓN') {
+        return doesSupervisionTaskMatchSupervisor(t, persona);
+      }
+      return true;
+    });
     const total = assignedTasks.length;
     const completed = assignedTasks.filter(t => t.status === 'Completada').length;
     const inProgress = assignedTasks.filter(t => t.status === 'En curso').length;
@@ -720,16 +760,16 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
         </div>
       </div>
 
-      {/* Post Performance Matrix Table */}
+      {/* Collaborator Performance Matrix Table (Por Usuario) */}
       <div className="bg-[#121620] border border-[#22293b] rounded-2xl shadow-xl overflow-hidden">
         <div className="p-4 sm:p-5 bg-[#161c29] border-b border-[#252f44] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
               <Users className="w-4 h-4 text-[#BE2629]" />
-              <span>Matriz de Desempeño por Puesto de Trabajo</span>
+              <span>Matriz de Desempeño por Usuario / Colaborador</span>
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Tasa de cumplimiento, tareas resueltas y mora por cada área de la oficina central
+              Tasa de cumplimiento, tareas resueltas y mora desglosadas individualmente por cada usuario responsable
             </p>
           </div>
           <span className="text-[11px] font-mono text-slate-400">
@@ -741,8 +781,8 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-[#141824] border-b border-[#22293b] text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                <th className="py-3 px-4">Puesto / Área</th>
-                <th className="py-3 px-4">Responsable Asignado</th>
+                <th className="py-3 px-4">Usuario / Responsable</th>
+                <th className="py-3 px-4">Puesto / Rol</th>
                 <th className="py-3 px-4 text-center">Total Tareas</th>
                 <th className="py-3 px-4 text-center">Completadas</th>
                 <th className="py-3 px-4 text-center">En Curso</th>
@@ -752,19 +792,20 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1e2433]">
-              {areaBreakdown.map((row) => (
-                <tr key={row.area} className="hover:bg-[#161b26] transition-colors">
+              {collaboratorWorkloadRaw.map((row) => (
+                <tr key={row.persona.id} className="hover:bg-[#161b26] transition-colors">
                   <td className="py-3.5 px-4 whitespace-nowrap">
                     <div className="flex items-center gap-2 font-bold text-white">
                       <span
                         className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: dynamicPostNames[row.area].color }}
+                        style={{ backgroundColor: dynamicPostNames[row.persona.department]?.color || '#3B82F6' }}
                       />
-                      <span>{row.areaName}</span>
+                      <span>{row.persona.name}</span>
                     </div>
                   </td>
                   <td className="py-3.5 px-4 whitespace-nowrap text-slate-300">
-                    {row.responsible}
+                    <span className="font-semibold text-slate-200">{row.persona.role}</span>{' '}
+                    <span className="text-[10px] font-mono text-slate-400">({row.persona.department})</span>
                   </td>
                   <td className="py-3.5 px-4 whitespace-nowrap text-center font-mono font-bold text-white">
                     {row.total}
@@ -776,7 +817,7 @@ export const ExecutiveReportsView: React.FC<ExecutiveReportsViewProps> = ({
                     {row.inProgress}
                   </td>
                   <td className="py-3.5 px-4 whitespace-nowrap text-center font-mono text-amber-400 font-semibold">
-                    {row.pending}
+                    {row.total - row.completed}
                   </td>
                   <td className="py-3.5 px-4 whitespace-nowrap text-center font-mono">
                     <span className={row.overdue > 0 ? 'text-red-400 font-bold' : 'text-slate-500'}>
