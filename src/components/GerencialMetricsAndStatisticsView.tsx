@@ -49,6 +49,7 @@ import {
   Crown
 } from 'lucide-react';
 import { formatPeriodName, getAdjacentPeriod } from '../utils/dateUtils';
+import { applyRegisteredCreatorPdfFooter, stampWatermarkOnCanvas } from '../utils/pdfExportUtils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
@@ -237,18 +238,7 @@ export const GerencialMetricsAndStatisticsView: React.FC<GerencialMetricsAndStat
       margin: { bottom: 15, left: 14, right: 14 },
     });
 
-    const pageCount = (doc as any).internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(7);
-      doc.setTextColor(140, 150, 165);
-      doc.text(
-        `INVICT Security Solutions S.A. · Tecnología Administrativa Hubbard · Página ${i} de ${pageCount}`,
-        pageWidth / 2,
-        pageHeight - 6,
-        { align: 'center' }
-      );
-    }
+    applyRegisteredCreatorPdfFooter(doc, 'Tecnología Administrativa Hubbard');
 
     doc.save(`INVICT_Estadisticas_Gerenciales_${timeMode === 'monthly' ? currentPeriod : selectedYear}.pdf`);
   };
@@ -258,13 +248,14 @@ export const GerencialMetricsAndStatisticsView: React.FC<GerencialMetricsAndStat
     if (!dashboardRef.current || isExportingJPG) return;
     try {
       setIsExportingJPG(true);
-      const canvas = await html2canvas(dashboardRef.current, {
+      const rawCanvas = await html2canvas(dashboardRef.current, {
         scale: 2,
         backgroundColor: '#090b0f',
         useCORS: true,
         logging: false,
         windowWidth: 1400,
       });
+      const canvas = stampWatermarkOnCanvas(rawCanvas);
       const imgData = canvas.toDataURL('image/jpeg', 0.95);
       const periodLabel = timeMode === 'monthly' ? currentPeriod : selectedYear;
       const link = document.createElement('a');

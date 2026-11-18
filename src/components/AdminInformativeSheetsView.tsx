@@ -42,6 +42,8 @@ import {
   FIXED_TERM_CONTRACTS_EVENT,
 } from '../data/fixedTermContractsData';
 import { getManagerialMonthData } from '../data/managerialSheetsData';
+import { applyRegisteredCreatorPdfFooter } from '../utils/pdfExportUtils';
+import { CSV_REGISTERED_WATERMARK } from '../utils/exportUtils';
 import {
   formatPeriodName,
   getAdjacentPeriod,
@@ -963,19 +965,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
         margin: { bottom: 16, left: 10, right: 10 },
       });
 
-      const pageCount = (doc as any).internal.getNumberOfPages();
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(7.5);
-        doc.setTextColor(140, 150, 165);
-        doc.text(
-          `INVICT Security Solutions S.A. · Documento oficial de entrega y seguimiento a clientes · Página ${i} de ${pageCount}`,
-          pageWidth / 2,
-          pageHeight - 8,
-          { align: 'center' }
-        );
-      }
-
+      applyRegisteredCreatorPdfFooter(doc, 'Documento oficial de entrega y seguimiento a clientes');
       doc.save(`INVICT_Informes_Clientes_${selectedPeriod}.pdf`);
       onNotify?.(`Planilla de Informes a Clientes (${formatPeriodName(selectedPeriod)}) exportada a PDF.`);
     } else if (activeSheet === 'sin_disep') {
@@ -1006,6 +996,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
         margin: { bottom: 16, left: 12, right: 12 },
       });
 
+      applyRegisteredCreatorPdfFooter(doc, 'Planilla Informativa: Personal Sin DISEP');
       doc.save(`INVICT_Personal_Sin_DISEP_${new Date().toISOString().slice(0, 10)}.pdf`);
       onNotify?.('Planilla de Personal Sin DISEP exportada a PDF.');
     } else if (activeSheet === 'liquidaciones_finales') {
@@ -1045,6 +1036,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
         margin: { bottom: 16, left: 12, right: 12 },
       });
 
+      applyRegisteredCreatorPdfFooter(doc, 'Planilla Informativa: Liquidaciones Finales');
       doc.save(`INVICT_Liquidaciones_Finales_${new Date().toISOString().slice(0, 10)}.pdf`);
       onNotify?.('Planilla de Liquidaciones Finales exportada a PDF.');
     } else {
@@ -1076,6 +1068,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
         margin: { bottom: 16, left: 12, right: 12 },
       });
 
+      applyRegisteredCreatorPdfFooter(doc, 'Planilla Informativa: Personal que Debe Uniforme');
       doc.save(`INVICT_Personal_Debe_Uniforme_${new Date().toISOString().slice(0, 10)}.pdf`);
       onNotify?.('Planilla de Personal que Debe Uniforme exportada a PDF.');
     }
@@ -1084,12 +1077,18 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
   // --- CSV Export ---
   const handleExportCSV = () => {
     const escape = (val: string) => `"${(val || '').replace(/"/g, '""')}"`;
+    const footerLine = `\n\n"# ${CSV_REGISTERED_WATERMARK}"\n`;
     if (activeSheet === 'sin_disep') {
       const headers = ['#', 'Nombre y Apellido del Vigilador', 'Fecha de Ingreso', 'Objetivo Asignado', 'Observaciones'];
       const rows = filteredSinDisep.map((r, idx) =>
         [String(idx + 1), escape(r.fullName), escape(r.entryDate), escape(r.assignedObjective), escape(r.observations)].join(';')
       );
-      const csv = '\uFEFF# INVICT SECURITY SOLUTIONS S.A. - PLANILLA INFORMATIVA: PERSONAL SIN DISEP\n' + headers.join(';') + '\n' + rows.join('\n');
+      const csv =
+        `\uFEFF# ${CSV_REGISTERED_WATERMARK}\n# PLANILLA INFORMATIVA: PERSONAL SIN DISEP\n` +
+        headers.join(';') +
+        '\n' +
+        rows.join('\n') +
+        footerLine;
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -1110,7 +1109,12 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
           escape(r.observations),
         ].join(';')
       );
-      const csv = '\uFEFF# INVICT SECURITY SOLUTIONS S.A. - PLANILLA INFORMATIVA: PERSONAL QUE DEBE UNIFORME\n' + headers.join(';') + '\n' + rows.join('\n');
+      const csv =
+        `\uFEFF# ${CSV_REGISTERED_WATERMARK}\n# PLANILLA INFORMATIVA: PERSONAL QUE DEBE UNIFORME\n` +
+        headers.join(';') +
+        '\n' +
+        rows.join('\n') +
+        footerLine;
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -1148,11 +1152,12 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       );
       const summaryLine = `# RESUMEN: Total Liquidaciones: ${totalLiquidacionesCount} | Monto Total a Abonar: $${totalLiquidacionesAmount} | Abonado (Pagado): $${paidLiquidacionesAmount} | Resta por Pagar: $${remainingLiquidacionesAmount}\n`;
       const csv =
-        '\uFEFF# INVICT SECURITY SOLUTIONS S.A. - PLANILLA INFORMATIVA: LIQUIDACIONES FINALES\n' +
+        `\uFEFF# ${CSV_REGISTERED_WATERMARK}\n# PLANILLA INFORMATIVA: LIQUIDACIONES FINALES\n` +
         summaryLine +
         headers.join(';') +
         '\n' +
-        rows.join('\n');
+        rows.join('\n') +
+        footerLine;
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -1176,7 +1181,12 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
           escape(r.senderName || '-'),
         ].join(';')
       );
-      const csv = `\uFEFF# INVICT SECURITY SOLUTIONS S.A. - PLANILLA DE INFORMES ENVIADOS A CLIENTES (${formatPeriodName(selectedPeriod)})\n` + headers.join(';') + '\n' + rows.join('\n');
+      const csv =
+        `\uFEFF# ${CSV_REGISTERED_WATERMARK}\n# PLANILLA DE INFORMES ENVIADOS A CLIENTES (${formatPeriodName(selectedPeriod)})\n` +
+        headers.join(';') +
+        '\n' +
+        rows.join('\n') +
+        footerLine;
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

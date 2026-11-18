@@ -15,6 +15,74 @@ const BRAND_RED: [number, number, number] = [190, 38, 41]; // #BE2629
 const DARK_BG: [number, number, number] = [18, 22, 32];
 const TEXT_MUTED: [number, number, number] = [100, 116, 139];
 
+export const REGISTERED_WATERMARK_TEXT =
+  'INVICT Security Solutions S.A. · Sistema de Gestión · Sitio creado por Kevin Lorenzo';
+
+export function applyRegisteredCreatorPdfFooter(
+  doc: jsPDF,
+  rightContextLabel = 'Documento Oficial Reservado para Directorio C-Level'
+) {
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setDrawColor(220, 225, 230);
+    doc.line(14, pageHeight - 12, pageWidth - 14, pageHeight - 12);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(BRAND_RED[0], BRAND_RED[1], BRAND_RED[2]);
+    doc.text(REGISTERED_WATERMARK_TEXT, 14, pageHeight - 7);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(TEXT_MUTED[0], TEXT_MUTED[1], TEXT_MUTED[2]);
+    doc.text(
+      `Página ${i} de ${pageCount} · ${rightContextLabel}`,
+      pageWidth - 14,
+      pageHeight - 7,
+      { align: 'right' }
+    );
+  }
+}
+
+export function stampWatermarkOnCanvas(sourceCanvas: HTMLCanvasElement): HTMLCanvasElement {
+  try {
+    const barHeight = Math.max(40, Math.round(sourceCanvas.width * 0.024));
+    const out = document.createElement('canvas');
+    out.width = sourceCanvas.width;
+    out.height = sourceCanvas.height + barHeight;
+    const ctx = out.getContext('2d');
+    if (!ctx) return sourceCanvas;
+
+    ctx.fillStyle = '#090b0f';
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(sourceCanvas, 0, 0);
+
+    // Top border of footer strip
+    ctx.strokeStyle = '#BE2629';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(24, sourceCanvas.height + 2);
+    ctx.lineTo(out.width - 24, sourceCanvas.height + 2);
+    ctx.stroke();
+
+    const fontSize = Math.max(14, Math.round(barHeight * 0.42));
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.fillStyle = '#f8fafc';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(
+      REGISTERED_WATERMARK_TEXT,
+      28,
+      sourceCanvas.height + Math.round(barHeight / 2) + 2
+    );
+    return out;
+  } catch {
+    return sourceCanvas;
+  }
+}
+
 function addWatermarkAndHeader(
   doc: jsPDF,
   title: string,
@@ -22,7 +90,6 @@ function addWatermarkAndHeader(
 ) {
   const pageCount = (doc as any).internal.getNumberOfPages();
   const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
 
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
@@ -55,25 +122,9 @@ function addWatermarkAndHeader(
       doc.setTextColor(TEXT_MUTED[0], TEXT_MUTED[1], TEXT_MUTED[2]);
       doc.text(subtitle, 14, 34);
     }
-
-    // Bottom Watermark & Creator Citation (Required by User)
-    doc.setDrawColor(220, 225, 230);
-    doc.line(14, pageHeight - 12, pageWidth - 14, pageHeight - 12);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(BRAND_RED[0], BRAND_RED[1], BRAND_RED[2]);
-    doc.text('INVICT Security Solutions S.A. · Sistema de Gestión', 14, pageHeight - 7);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(TEXT_MUTED[0], TEXT_MUTED[1], TEXT_MUTED[2]);
-    doc.text(
-      `Página ${i} de ${pageCount} · Documento Oficial Reservado para Directorio C-Level`,
-      pageWidth - 14,
-      pageHeight - 7,
-      { align: 'right' }
-    );
   }
+
+  applyRegisteredCreatorPdfFooter(doc, 'Documento Oficial Reservado para Directorio C-Level');
 }
 
 export function exportTasksToPDF(tasks: Task[], fileName = 'INVICT_Matriz_Tareas.pdf') {

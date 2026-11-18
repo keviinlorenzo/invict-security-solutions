@@ -18,8 +18,21 @@ function escapeCSV(val: string | number | undefined | null): string {
   return `"${str}"`;
 }
 
+export const CSV_REGISTERED_WATERMARK =
+  'INVICT Security Solutions S.A. · Sistema de Gestión · Sitio creado por Kevin Lorenzo';
+
 function downloadFile(content: string, fileName: string, mimeType = 'text/csv;charset=utf-8;') {
-  const blob = new Blob([content], { type: mimeType });
+  let finalContent = content;
+  if (!finalContent.includes('Sitio creado por Kevin Lorenzo')) {
+    const hasBom = finalContent.startsWith('\uFEFF');
+    const bodyWithoutBom = hasBom ? finalContent.slice(1) : finalContent;
+    finalContent =
+      '\uFEFF' +
+      `# ${CSV_REGISTERED_WATERMARK}\n` +
+      bodyWithoutBom.trimEnd() +
+      `\n\n"# ${CSV_REGISTERED_WATERMARK}"\n`;
+  }
+  const blob = new Blob([finalContent], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);

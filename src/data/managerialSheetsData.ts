@@ -1437,25 +1437,28 @@ export function generatePlainTextTable(
     return out;
   };
 
+  const watermarkFooter = `\n---\nINVICT Security Solutions S.A. · Sistema de Gestión · Sitio creado por Kevin Lorenzo\n`;
+
   switch (sheetType) {
     case 'gastos_fijos':
-      return renderGastosFijos();
+      return renderGastosFijos() + watermarkFooter;
     case 'gastos_bancarios':
-      return renderGastosBancarios();
+      return renderGastosBancarios() + watermarkFooter;
     case 'sueldos':
-      return renderSueldos();
+      return renderSueldos() + watermarkFooter;
     case 'clientes':
-      return renderClientes();
+      return renderClientes() + watermarkFooter;
     case 'rentabilidad':
-      return renderRentabilidad();
+      return renderRentabilidad() + watermarkFooter;
     case 'resumen':
-      return renderResumen();
+      return renderResumen() + watermarkFooter;
     case 'todas':
     default:
       return [
         `=======================================================`,
         `INVICT SECURITY SOLUTIONS S.A. - PLANILLAS MENSUALES GERENCIALES`,
         `Período: ${period} · Generado para: Dirección General (C-Level)`,
+        `INVICT Security Solutions S.A. · Sistema de Gestión · Sitio creado por Kevin Lorenzo`,
         `=======================================================\n`,
         renderClientes(),
         '\n',
@@ -1468,6 +1471,7 @@ export function generatePlainTextTable(
         renderRentabilidad(),
         '\n',
         renderResumen(),
+        watermarkFooter,
       ].join('\n');
   }
 }

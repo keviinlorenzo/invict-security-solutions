@@ -19,6 +19,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { HubbardConditionFormula } from '../../data/hubbardConditionsData';
+import { applyRegisteredCreatorPdfFooter, stampWatermarkOnCanvas } from '../../utils/pdfExportUtils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
@@ -116,12 +117,13 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
     if (!cardRef.current || isExporting) return;
     try {
       setIsExporting(true);
-      const canvas = await html2canvas(cardRef.current, {
+      const rawCanvas = await html2canvas(cardRef.current, {
         scale: 2,
         backgroundColor: '#121620',
         useCORS: true,
         logging: false,
       });
+      const canvas = stampWatermarkOnCanvas(rawCanvas);
       const imgData = canvas.toDataURL('image/jpeg', 0.95);
       const cleanLabel = (series.periodLabel || 'Periodo').replace(/[\/\s:]+/g, '_');
       const link = document.createElement('a');
@@ -213,18 +215,7 @@ export const HubbardStatisticGraph: React.FC<HubbardStatisticGraphProps> = ({
       });
 
       // Pie de Página
-      const finalPageCount = (doc as any).internal.getNumberOfPages();
-      for (let i = 1; i <= finalPageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(7);
-        doc.setTextColor(140, 150, 165);
-        doc.text(
-          `INVICT Security Solutions S.A. · Tecnología Administrativa Hubbard · Página ${i} de ${finalPageCount}`,
-          pageWidth / 2,
-          pageHeight - 5,
-          { align: 'center' }
-        );
-      }
+      applyRegisteredCreatorPdfFooter(doc, 'Tecnología Administrativa Hubbard');
 
       const cleanLabel = (series.periodLabel || 'Periodo').replace(/[\/\s:]+/g, '_');
       doc.save(`INVICT_Estadistica_${series.id}_${cleanLabel}.pdf`);

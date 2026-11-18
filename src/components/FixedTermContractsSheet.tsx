@@ -5,6 +5,8 @@ import { Plus, Trash2, Download, FileText, Search, AlertTriangle, CalendarClock,
 import { UserPersona } from '../types';
 import { subscribeToCloudSync } from '../utils/cloudSyncService';
 import { getTodayDateString } from '../utils/dateUtils';
+import { applyRegisteredCreatorPdfFooter } from '../utils/pdfExportUtils';
+import { CSV_REGISTERED_WATERMARK } from '../utils/exportUtils';
 import {
   FixedTermContractItem,
   FIXED_TERM_CONTRACTS_EVENT,
@@ -162,10 +164,11 @@ export const FixedTermContractsSheet: React.FC<Props> = ({ currentPersona, onNot
       ].join(';')
     );
     const csv =
-      '\uFEFF# INVICT SECURITY SOLUTIONS S.A. - PLANILLA INFORMATIVA: CONTRATOS A PLAZO FIJO\n' +
+      `\uFEFF# ${CSV_REGISTERED_WATERMARK}\n# PLANILLA INFORMATIVA: CONTRATOS A PLAZO FIJO\n` +
       headers.join(';') +
       '\n' +
-      rows.join('\n');
+      rows.join('\n') +
+      `\n\n"# ${CSV_REGISTERED_WATERMARK}"\n`;
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -203,8 +206,9 @@ export const FixedTermContractsSheet: React.FC<Props> = ({ currentPersona, onNot
       theme: 'striped',
       headStyles: { fillColor: [190, 38, 41], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
       bodyStyles: { fontSize: 7.5 },
-      margin: { left: 12, right: 12 },
+      margin: { bottom: 16, left: 12, right: 12 },
     });
+    applyRegisteredCreatorPdfFooter(doc, 'Planilla Informativa: Contratos a Plazo Fijo');
     doc.save(`INVICT_Contratos_Plazo_Fijo_${getTodayDateString()}.pdf`);
     onNotify?.('Planilla de Contratos a Plazo Fijo exportada a PDF.');
   };
