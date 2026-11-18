@@ -88,7 +88,8 @@ function getRecordUpdatedMs(item: any): number {
 export function mergeRecordsById(
   localArr: any[],
   remoteArr: any[],
-  extraDeletedIds?: string[]
+  extraDeletedIds?: string[],
+  allowRecentLocalOnly: boolean = true
 ): any[] {
   const safeLocal = Array.isArray(localArr) ? localArr : [];
   const safeRemote = Array.isArray(remoteArr) ? remoteArr : [];
@@ -104,13 +105,17 @@ export function mergeRecordsById(
     }
   }
 
+  const now = Date.now();
   const localOnly: any[] = [];
   for (const l of safeLocal) {
     if (!l || typeof l.id !== 'string' || deletedSet.has(l.id)) continue;
     const r = remoteMap.get(l.id);
     if (!r) {
-      localOnly.push(l);
-      remoteMap.set(l.id, l);
+      const lTs = getRecordUpdatedMs(l);
+      if (allowRecentLocalOnly && lTs > 0 && now - lTs < 120_000) {
+        localOnly.push(l);
+        remoteMap.set(l.id, l);
+      }
     } else {
       const lTs = getRecordUpdatedMs(l);
       const rTs = getRecordUpdatedMs(r);
@@ -140,17 +145,18 @@ export function mergeRecordsById(
 export function mergeAdminInformativeSheets(
   localSheets: any,
   remoteSheets: any,
-  extraDeletedIds?: string[]
+  extraDeletedIds?: string[],
+  allowRecentLocalOnly: boolean = true
 ): any {
   if (!localSheets || typeof localSheets !== 'object') return remoteSheets;
   if (!remoteSheets || typeof remoteSheets !== 'object') return localSheets;
   return {
     ...remoteSheets,
     ...localSheets,
-    sinDisep: mergeRecordsById(localSheets.sinDisep, remoteSheets.sinDisep, extraDeletedIds),
-    debeUniforme: mergeRecordsById(localSheets.debeUniforme, remoteSheets.debeUniforme, extraDeletedIds),
-    informesClientes: mergeRecordsById(localSheets.informesClientes, remoteSheets.informesClientes, extraDeletedIds),
-    liquidacionesFinales: mergeRecordsById(localSheets.liquidacionesFinales, remoteSheets.liquidacionesFinales, extraDeletedIds),
+    sinDisep: mergeRecordsById(localSheets.sinDisep, remoteSheets.sinDisep, extraDeletedIds, allowRecentLocalOnly),
+    debeUniforme: mergeRecordsById(localSheets.debeUniforme, remoteSheets.debeUniforme, extraDeletedIds, allowRecentLocalOnly),
+    informesClientes: mergeRecordsById(localSheets.informesClientes, remoteSheets.informesClientes, extraDeletedIds, allowRecentLocalOnly),
+    liquidacionesFinales: mergeRecordsById(localSheets.liquidacionesFinales, remoteSheets.liquidacionesFinales, extraDeletedIds, allowRecentLocalOnly),
   };
 }
 
@@ -163,9 +169,18 @@ function getTaskLastUpdatedMs(task: any): number {
   if (typeof task.updatedAt === 'number' && task.updatedAt > maxTs) {
     maxTs = task.updatedAt;
   }
-  if (Array.isArray(task.history) && task.history.length > 0 && task.history[0]?.timestamp) {
-    const parsed = Date.parse(task.history[0].timestamp);
-    if (!isNaN(parsed) && parsed > maxTs) maxTs = parsed;
+  if (Array.isArray(task.history) && task.history.length > 0) {
+    if (task.history[0]?.timestamp) {
+      const parsed = Date.parse(task.history[0].timestamp);
+      if (!isNaN(parsed) && parsed > maxTs) maxTs = parsed;
+    }
+    if (typeof task.history[0]?.id === 'string') {
+      const modMatch = task.history[0].id.match(/(\d{13})/);
+      if (modMatch) {
+        const modTs = Number(modMatch[1]);
+        if (!isNaN(modTs) && modTs > maxTs) maxTs = modTs;
+      }
+    }
   }
   if (task.googleSyncedAt) {
     const parsed = Date.parse(task.googleSyncedAt);
@@ -184,7 +199,8 @@ function getTaskLastUpdatedMs(task: any): number {
 export function mergeTaskLists(
   localTasks: any[],
   remoteTasks: any[],
-  extraDeletedIds?: string[]
+  extraDeletedIds?: string[],
+  allowRecentLocalOnly: boolean = true
 ): any[] {
   const safeLocal = Array.isArray(localTasks) ? localTasks : [];
   const safeRemote = Array.isArray(remoteTasks) ? remoteTasks : [];
@@ -200,13 +216,17 @@ export function mergeTaskLists(
     }
   }
 
+  const now = Date.now();
   const localOnlyTasks: any[] = [];
   for (const lt of safeLocal) {
     if (!lt || typeof lt.id !== 'string' || deletedSet.has(lt.id)) continue;
     const rt = remoteMap.get(lt.id);
     if (!rt) {
-      localOnlyTasks.push(lt);
-      remoteMap.set(lt.id, lt);
+      const localTs = getTaskLastUpdatedMs(lt);
+      if (allowRecentLocalOnly && localTs > 0 && now - localTs < 120_000) {
+        localOnlyTasks.push(lt);
+        remoteMap.set(lt.id, lt);
+      }
     } else {
       const localTs = getTaskLastUpdatedMs(lt);
       const remoteTs = getTaskLastUpdatedMs(rt);
@@ -471,8 +491,11 @@ export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>):
 
   const deletedTasksArr = getDeletedTaskIds();
   const deletedRecordsArr = getDeletedRecordIds();
+  const hasPendingLocalPush =
+    localStorage.getItem(STORAGE_KEY_PENDING_PUSH) === '1' || isPushInFlight;
 
-  // 2. ALWAYS smart-merge invict_tasks by updatedAtMs + tombstones so an in-flight download never overwrites newer local edits
+  // 2. Smart-merge invict_tasks by updatedAtMs + tombstones.
+  // Only allow local-only tasks if this browser actually has an unsent local mutation in flight.
   if (Array.isArray(snapshot.invict_tasks)) {
     try {
       const localRaw = localStorage.getItem('invict_tasks');
@@ -480,14 +503,15 @@ export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>):
       snapshot.invict_tasks = mergeTaskLists(
         localTasks,
         snapshot.invict_tasks,
-        deletedTasksArr
+        deletedTasksArr,
+        hasPendingLocalPush
       );
     } catch {
       // fallback to snapshot.invict_tasks
     }
   }
 
-  // 2b. ALWAYS smart-merge Planillas Informativas, Contratos a Plazo Fijo, Gastos y Mensajes by updatedAtMs + tombstones
+  // 2b. Smart-merge Planillas Informativas, Contratos a Plazo Fijo, Gastos y Mensajes by updatedAtMs + tombstones
   if (snapshot.invict_admin_informative_sheets && typeof snapshot.invict_admin_informative_sheets === 'object') {
     try {
       const localRaw = localStorage.getItem('invict_admin_informative_sheets');
@@ -496,7 +520,8 @@ export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>):
         snapshot.invict_admin_informative_sheets = mergeAdminInformativeSheets(
           localObj,
           snapshot.invict_admin_informative_sheets,
-          deletedRecordsArr
+          deletedRecordsArr,
+          hasPendingLocalPush
         );
       } else {
         const deletedRecordsSet = new Set<string>(deletedRecordsArr);
@@ -524,7 +549,8 @@ export function applyStateSnapshotToLocalStorage(snapshot: Record<string, any>):
             snapshot[arrKey] = mergeRecordsById(
               localArr,
               snapshot[arrKey],
-              deletedRecordsArr
+              deletedRecordsArr,
+              hasPendingLocalPush
             );
           }
         } else {
@@ -783,7 +809,7 @@ function initRemoteSync() {
       .keys()
       .then((keys) =>
         Promise.all(
-          keys.map((k) => (k !== 'invict-cache-v20' ? window.caches.delete(k) : Promise.resolve(false)))
+          keys.map((k) => (k !== 'invict-cache-v21' ? window.caches.delete(k) : Promise.resolve(false)))
         )
       )
       .then(startInitialFetch)

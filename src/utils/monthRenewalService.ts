@@ -153,18 +153,40 @@ export function buildWeeklyTaskInstancesForMonth(
   });
 }
 
+function buildDeterministicTaskSlug(area: string, title: string, assignee?: string): string {
+  const raw = `${area || ''}-${assignee || ''}-${title || ''}`
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  let hash = 0;
+  for (let i = 0; i < raw.length; i++) {
+    hash = (hash * 31 + raw.charCodeAt(i)) >>> 0;
+  }
+  return `${raw.slice(0, 24)}-${hash.toString(36)}`;
+}
+
 /**
  * Renueva / proyecta todas las tareas Fijas Semanales activas (cuya repetición no fue detenida)
- * para todas las semanas del período `targetPeriod` (por ejemplo, el mes siguiente).
+ * para todas las semanas del período `targetPeriod` (solo cuando el usuario presiona explícitamente el botón de renovar).
  */
 export function renewWeeklyFixedTasksForPeriod(
   existingTasks: Task[],
   targetPeriod: string
 ): { updatedTasks: Task[]; addedCount: number; seriesCount: number } {
+  const getSeriesCompositeKey = (t: Task) =>
+    `${(t.area || '').trim().toUpperCase()}::${(t.assignee || '').trim().toLowerCase()}::${(t.title || '').trim().toLowerCase()}`;
+
   const stoppedSeriesIds = new Set(
     existingTasks
       .filter(t => t.nature === 'Fija Semanal' && t.weeklyRecurrenceStopped && t.weeklySeriesId)
       .map(t => t.weeklySeriesId!)
+  );
+  const stoppedCompositeKeys = new Set(
+    existingTasks
+      .filter(t => t.nature === 'Fija Semanal' && t.weeklyRecurrenceStopped)
+      .map(t => getSeriesCompositeKey(t))
   );
 
   const seriesMap = new Map<string, Task>();
@@ -172,7 +194,9 @@ export function renewWeeklyFixedTasksForPeriod(
     if (t.nature !== 'Fija Semanal') return;
     if (t.weeklyRecurrenceStopped) return;
     if (t.weeklySeriesId && stoppedSeriesIds.has(t.weeklySeriesId)) return;
-    const key = t.weeklySeriesId || `${t.area}::${t.title.toLowerCase().trim()}`;
+    const compKey = getSeriesCompositeKey(t);
+    if (stoppedCompositeKeys.has(compKey)) return;
+    const key = t.weeklySeriesId || compKey;
     const prev = seriesMap.get(key);
     if (!prev || (t.monthPeriod || '') >= (prev.monthPeriod || '')) {
       seriesMap.set(key, t);
@@ -184,6 +208,7 @@ export function renewWeeklyFixedTasksForPeriod(
   }
 
   const newWeeklyTasks: Task[] = [];
+  const now = Date.now();
 
   seriesMap.forEach((templateTask, seriesKey) => {
     const dayOfWeek =
@@ -192,21 +217,25 @@ export function renewWeeklyFixedTasksForPeriod(
         : getDayOfWeekFromDateString(templateTask.dueDate);
     const seriesId = templateTask.weeklySeriesId || seriesKey;
     const weekDates = getWeeklyDatesForMonth(targetPeriod, dayOfWeek);
+    const slug = buildDeterministicTaskSlug(templateTask.area, templateTask.title, templateTask.assignee);
 
     weekDates.forEach((dateStr, idx) => {
+      const deterministicId = `task-wk-${targetPeriod}-w${idx + 1}-${slug}`;
       const alreadyExists = existingTasks.some(
         existing =>
-          existing.nature === 'Fija Semanal' &&
-          (existing.monthPeriod || '2026-10') === targetPeriod &&
-          existing.dueDate === dateStr &&
-          (existing.weeklySeriesId === seriesId ||
-            (existing.area === templateTask.area &&
-              existing.title.toLowerCase().trim() === templateTask.title.toLowerCase().trim()))
+          existing.id === deterministicId ||
+          (existing.nature === 'Fija Semanal' &&
+            (existing.monthPeriod || '2026-10') === targetPeriod &&
+            existing.dueDate === dateStr &&
+            (existing.weeklySeriesId === seriesId ||
+              (existing.area === templateTask.area &&
+                (existing.assignee || '').toLowerCase().trim() === (templateTask.assignee || '').toLowerCase().trim() &&
+                existing.title.toLowerCase().trim() === templateTask.title.toLowerCase().trim())))
       );
 
       if (!alreadyExists) {
         newWeeklyTasks.push({
-          id: `task-wk-${targetPeriod}-w${idx + 1}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id: deterministicId,
           area: templateTask.area,
           title: templateTask.title,
           assignee: templateTask.assignee,
@@ -227,6 +256,7 @@ export function renewWeeklyFixedTasksForPeriod(
           category: templateTask.category || 'Administrativo',
           commentsCount: 0,
           comments: [],
+          updatedAtMs: now,
         });
       }
     });
@@ -331,17 +361,10 @@ function buildActiveMonthlyFixedTasksForPeriod(
   return [...fromStandardTemplate, ...fromCustomMonthly];
 }
 
-export function ensureMonthTasks(existingTasks: Task[], targetPeriod: string): Task[] {
-  const periodTasks = existingTasks.filter(t => (t.monthPeriod || '2026-10') === targetPeriod);
-  let result = [...existingTasks];
-
-  if (periodTasks.length === 0) {
-    const newTasks = buildActiveMonthlyFixedTasksForPeriod(existingTasks, targetPeriod);
-    result = [...result, ...newTasks];
-  }
-
-  const { updatedTasks } = renewWeeklyFixedTasksForPeriod(result, targetPeriod);
-  return updatedTasks;
+export function ensureMonthTasks(existingTasks: Task[], _targetPeriod: string): Task[] {
+  // NUNCA auto-generar ni clonar tareas silenciosamente al recargar la página o cambiar de mes.
+  // La creación o renovación de tareas sólo ocurre por acción explícita del usuario.
+  return existingTasks;
 }
 
 export function resetMonthToStandardFixedTasks(existingTasks: Task[], targetPeriod: string): Task[] {

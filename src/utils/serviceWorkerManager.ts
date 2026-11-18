@@ -58,7 +58,7 @@ export function registerServiceWorker(): Promise<ServiceWorkerRegistration | nul
     if ('caches' in window) {
       window.caches.keys().then((keys) => {
         keys.forEach((k) => {
-          if (k !== 'invict-cache-v20') {
+          if (k !== 'invict-cache-v21') {
             void window.caches.delete(k);
           }
         });
@@ -72,8 +72,8 @@ export function registerServiceWorker(): Promise<ServiceWorkerRegistration | nul
     if (refreshing) return;
     refreshing = true;
     try {
-      if (!sessionStorage.getItem('invict_sw_reloaded_v20')) {
-        sessionStorage.setItem('invict_sw_reloaded_v20', '1');
+      if (!sessionStorage.getItem('invict_sw_reloaded_v21')) {
+        sessionStorage.setItem('invict_sw_reloaded_v21', '1');
         window.location.reload();
       }
     } catch {

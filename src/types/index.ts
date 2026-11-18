@@ -87,6 +87,7 @@ export interface Task {
   };
   lastModifiedAt?: string; // Formatted date & time
   lastModifiedAction?: string;
+  updatedAtMs?: number;
   history?: TaskModification[];
 }
 
@@ -159,6 +160,7 @@ export interface Expense {
   checkNumber?: string; // N° de Cheque o E-Check
   // DESGLOSE DETALLADO DE ÍTEMS DEL COMPROBANTE
   items?: ExpenseItemBreakdown[];
+  updatedAtMs?: number;
 }
 
 export interface ExpenseFormulaResult {

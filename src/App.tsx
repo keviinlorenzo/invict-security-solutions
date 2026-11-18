@@ -106,6 +106,7 @@ import {
   broadcastCloudChange,
   getCustomPosts,
   getDeletedPostIds,
+  getDeletedTaskIds,
   saveNewCustomPost,
   deleteWorkplacePost,
   updateWorkplacePost,
@@ -119,19 +120,22 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>(() => {
     const saved = localStorage.getItem('invict_tasks');
     const base: Task[] = saved ? JSON.parse(saved) : INITIAL_TASKS;
+    const deletedSet = new Set(getDeletedTaskIds());
     // Normalizar responsables y asignar monthPeriod únicamente si no fue definido explícitamente
-    const normalized = base.map((t) => {
-      let updated = { ...t };
-      if (updated.assignee === 'Yamila') updated.assignee = 'Yamila González';
-      if (updated.assignee === 'Laura') updated.assignee = 'Laura González';
-      if (updated.assignee === 'Marianela') updated.assignee = 'Marianela Sosa';
-      if (updated.assignee === 'Giulaian Paura') updated.assignee = 'Giuliana Paura';
-      if (!updated.monthPeriod && updated.dueDate && updated.dueDate.length >= 7 && updated.dueDate.includes('-')) {
-        updated.monthPeriod = updated.dueDate.slice(0, 7);
-      }
-      return updated;
-    });
-    return ensureMonthHasFixedTasks(DEFAULT_PERIOD, normalized);
+    const normalized = base
+      .filter((t) => t && t.id && !deletedSet.has(t.id))
+      .map((t) => {
+        let updated = { ...t };
+        if (updated.assignee === 'Yamila') updated.assignee = 'Yamila González';
+        if (updated.assignee === 'Laura') updated.assignee = 'Laura González';
+        if (updated.assignee === 'Marianela') updated.assignee = 'Marianela Sosa';
+        if (updated.assignee === 'Giulaian Paura') updated.assignee = 'Giuliana Paura';
+        if (!updated.monthPeriod && updated.dueDate && updated.dueDate.length >= 7 && updated.dueDate.includes('-')) {
+          updated.monthPeriod = updated.dueDate.slice(0, 7);
+        }
+        return updated;
+      });
+    return normalized;
   });
 
   const [expenses, setExpenses] = useState<Expense[]>(() => {
@@ -317,7 +321,13 @@ export default function App() {
       }
       if (payload.stateSnapshot) {
         if (Array.isArray(payload.stateSnapshot.invict_tasks)) {
-          setTasks(payload.stateSnapshot.invict_tasks);
+          const incomingTasks = payload.stateSnapshot.invict_tasks;
+          setTasks((prev) => mergeTaskLists(prev, incomingTasks, getDeletedTaskIds(), false));
+          setSelectedTaskForDetail((prevSel) => {
+            if (!prevSel) return null;
+            const updatedSel = incomingTasks.find((t: Task) => t.id === prevSel.id);
+            return updatedSel || prevSel;
+          });
         }
         if (Array.isArray(payload.stateSnapshot.invict_expenses)) {
           setExpenses(payload.stateSnapshot.invict_expenses);
@@ -333,7 +343,8 @@ export default function App() {
         }
       }
       if (payload.type === 'TASK_MUTATION' && Array.isArray(payload.data)) {
-        setTasks(payload.data);
+        const incomingData = payload.data;
+        setTasks((prev) => mergeTaskLists(prev, incomingData, getDeletedTaskIds(), false));
       } else if (payload.type === 'EXPENSE_MUTATION' && payload.data) {
         setExpenses(payload.data);
       } else if (payload.type === 'MESSAGE_MUTATION' && payload.data) {
@@ -624,10 +635,6 @@ export default function App() {
 
   const handlePeriodChange = (newPeriod: string) => {
     setCurrentPeriod(newPeriod);
-    const updated = ensureMonthHasFixedTasks(newPeriod, tasks);
-    if (updated.length !== tasks.length) {
-      setTasks(updated);
-    }
   };
 
   const handleResetFixedTasks = () => {
@@ -792,16 +799,14 @@ export default function App() {
   };
 
   const handleReassignTasksToPersona = (area: AreaType, newAssigneeName: string) => {
+    const nowMs = Date.now();
     setTasks(prev => {
       const updated = prev.map(t => {
         if (t.area === area) {
-          return { ...t, assignee: newAssigneeName };
+          return { ...t, assignee: newAssigneeName, updatedAtMs: nowMs };
         }
         return t;
       });
-      try {
-        localStorage.setItem('invict_tasks', JSON.stringify(updated));
-      } catch (e) {}
       broadcastCloudChange(
         'TASK_MUTATION',
         `Reasignación de todas las tareas del área ${area} a ${newAssigneeName}`,
@@ -814,7 +819,8 @@ export default function App() {
 
   // Task Management handlers
   const handleAddTask = (newTaskData: Omit<Task, 'id'>) => {
-    const formatted = formatModificationTimestamp(new Date());
+    const nowMs = Date.now();
+    const formatted = formatModificationTimestamp(new Date(nowMs));
     const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
 
     if (newTaskData.nature === 'Fija Semanal') {
@@ -822,6 +828,7 @@ export default function App() {
       const weeklyInstances = buildWeeklyTaskInstancesForMonth(
         {
           ...newTaskData,
+          updatedAtMs: nowMs,
           lastModifiedBy: {
             name: currentPersona.name,
             email: currentPersona.email,
@@ -833,14 +840,9 @@ export default function App() {
         },
         currentPeriod,
         newTaskData.dueDate
-      );
+      ).map((inst) => ({ ...inst, updatedAtMs: nowMs }));
 
       const updatedTasks = [...weeklyInstances, ...tasks];
-      try {
-        localStorage.setItem('invict_tasks', JSON.stringify(updatedTasks));
-      } catch {
-        // ignore
-      }
       setTasks(updatedTasks);
       if (selectedArea !== 'TODOS' && selectedArea !== newTaskData.area) {
         setSelectedArea(newTaskData.area);
@@ -860,8 +862,9 @@ export default function App() {
     const mod = logCloudModification('Creó nueva tarea en la nube', undefined, newTaskData.title);
     const newTask: Task = {
       ...newTaskData,
-      id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: `task-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
       monthPeriod: newTaskData.monthPeriod || currentPeriod,
+      updatedAtMs: nowMs,
       lastModifiedBy: {
         name: currentPersona.name,
         email: currentPersona.email,
@@ -872,11 +875,6 @@ export default function App() {
       history: [mod],
     };
     const updatedTasks = [newTask, ...tasks];
-    try {
-      localStorage.setItem('invict_tasks', JSON.stringify(updatedTasks));
-    } catch {
-      // ignore
-    }
     setTasks(updatedTasks);
     if (selectedArea !== 'TODOS' && selectedArea !== newTask.area) {
       setSelectedArea(newTask.area);
@@ -895,7 +893,8 @@ export default function App() {
 
   const handleAddMultipleTasks = (tasksList: Omit<Task, 'id'>[]) => {
     if (!tasksList || tasksList.length === 0) return;
-    const formatted = formatModificationTimestamp(new Date());
+    const nowMs = Date.now();
+    const formatted = formatModificationTimestamp(new Date(nowMs));
     const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
     const mod = logCloudModification(
       `Importó ${tasksList.length} tareas desde archivo Excel / CSV`,
@@ -905,8 +904,9 @@ export default function App() {
 
     const createdTasks: Task[] = tasksList.map((t, idx) => ({
       ...t,
-      id: `task-imp-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+      id: `task-imp-${nowMs}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
       monthPeriod: t.monthPeriod || currentPeriod,
+      updatedAtMs: nowMs,
       lastModifiedBy: {
         name: currentPersona.name,
         email: currentPersona.email,
@@ -918,11 +918,6 @@ export default function App() {
     }));
 
     const updatedTasks = [...createdTasks, ...tasks];
-    try {
-      localStorage.setItem('invict_tasks', JSON.stringify(updatedTasks));
-    } catch {
-      // ignore
-    }
     setTasks(updatedTasks);
     const distinctAreas = new Set(createdTasks.map(ct => ct.area));
     if (distinctAreas.size > 1) {
@@ -940,7 +935,8 @@ export default function App() {
   };
 
   const handleToggleMonthlyRecurrence = (targetTask: Task, stopRecurrence: boolean) => {
-    const formatted = formatModificationTimestamp(new Date());
+    const nowMs = Date.now();
+    const formatted = formatModificationTimestamp(new Date(nowMs));
     const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
     const taskPeriod = targetTask.monthPeriod || currentPeriod;
     const targetKey = getMonthlyTaskSeriesKey(targetTask.area, targetTask.title);
@@ -954,6 +950,7 @@ export default function App() {
     setMonthlyTaskStopped(targetTask.area, targetTask.title, stopRecurrence ? nextPeriod : null);
 
     let updatedTasks = tasks;
+    const removedIds: string[] = [];
 
     if (stopRecurrence) {
       // Retirar ocurrencias futuras pendientes (de meses posteriores al actual) y marcar la tarea actual como frenada
@@ -965,6 +962,7 @@ export default function App() {
             (t.monthPeriod || '2026-10') > taskPeriod &&
             t.status !== 'Completada'
           ) {
+            removedIds.push(t.id);
             return false;
           }
           return true;
@@ -979,6 +977,7 @@ export default function App() {
               ...t,
               monthlyRecurrenceStopped: true,
               monthlyStoppedFromPeriod: nextPeriod,
+              updatedAtMs: nowMs,
               lastModifiedBy: {
                 name: currentPersona.name,
                 email: currentPersona.email,
@@ -991,6 +990,7 @@ export default function App() {
           }
           return t;
         });
+      if (removedIds.length > 0) markTaskIdsDeleted(removedIds);
     } else {
       updatedTasks = tasks.map(t => {
         if (
@@ -1001,6 +1001,7 @@ export default function App() {
             ...t,
             monthlyRecurrenceStopped: false,
             monthlyStoppedFromPeriod: undefined,
+            updatedAtMs: nowMs,
             lastModifiedBy: {
               name: currentPersona.name,
               email: currentPersona.email,
@@ -1036,7 +1037,8 @@ export default function App() {
   };
 
   const handleToggleWeeklyRecurrence = (targetTask: Task, stopRecurrence: boolean) => {
-    const formatted = formatModificationTimestamp(new Date());
+    const nowMs = Date.now();
+    const formatted = formatModificationTimestamp(new Date(nowMs));
     const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
     const actionDesc = stopRecurrence
       ? 'Detuvo la repetición automática semanal'
@@ -1053,12 +1055,14 @@ export default function App() {
     };
 
     let updatedTasks: Task[];
+    const removedIds: string[] = [];
 
     if (stopRecurrence) {
       // Marcar la serie como detenida y retirar las ocurrencias futuras aún no completadas posteriores a esta semana
       updatedTasks = tasks
         .filter(t => {
           if (isSameSeries(t) && t.id !== targetTask.id && t.dueDate > targetTask.dueDate && t.status !== 'Completada') {
+            removedIds.push(t.id);
             return false;
           }
           return true;
@@ -1068,6 +1072,7 @@ export default function App() {
             return {
               ...t,
               weeklyRecurrenceStopped: true,
+              updatedAtMs: nowMs,
               lastModifiedBy: {
                 name: currentPersona.name,
                 email: currentPersona.email,
@@ -1080,6 +1085,7 @@ export default function App() {
           }
           return t;
         });
+      if (removedIds.length > 0) markTaskIdsDeleted(removedIds);
     } else {
       // Reactivar la serie y volver a proyectar las semanas faltantes del mes actual
       const reactivated = tasks.map(t => {
@@ -1087,6 +1093,7 @@ export default function App() {
           return {
             ...t,
             weeklyRecurrenceStopped: false,
+            updatedAtMs: nowMs,
             lastModifiedBy: {
               name: currentPersona.name,
               email: currentPersona.email,
@@ -1123,8 +1130,9 @@ export default function App() {
   };
 
   const handleUpdateTaskStatus = (taskId: string, newStatus: TaskStatus) => {
-    const nowIso = new Date().toISOString().slice(0, 10);
-    const formatted = formatModificationTimestamp(new Date());
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString().slice(0, 10);
+    const formatted = formatModificationTimestamp(new Date(nowMs));
     const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
     const task = tasks.find(t => t.id === taskId);
     const taskTitle = task ? task.title : taskId;
@@ -1137,6 +1145,7 @@ export default function App() {
           ...t,
           status: newStatus,
           completedDate: newStatus === 'Completada' ? nowIso : undefined,
+          updatedAtMs: nowMs,
           lastModifiedBy: {
             name: currentPersona.name,
             email: currentPersona.email,
@@ -1157,6 +1166,7 @@ export default function App() {
         ...prev,
         status: newStatus,
         completedDate: newStatus === 'Completada' ? nowIso : undefined,
+        updatedAtMs: nowMs,
         lastModifiedBy: {
           name: currentPersona.name,
           email: currentPersona.email,
@@ -1178,12 +1188,14 @@ export default function App() {
   };
 
   const handleUpdateTaskDetails = (updatedTask: Task, actionDescription: string) => {
-    const formatted = formatModificationTimestamp(new Date());
+    const nowMs = Date.now();
+    const formatted = formatModificationTimestamp(new Date(nowMs));
     const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
     const mod = logCloudModification(actionDescription, undefined, updatedTask.title);
 
     const taskWithAudit: Task = {
       ...updatedTask,
+      updatedAtMs: nowMs,
       lastModifiedBy: {
         name: currentPersona.name,
         email: currentPersona.email,
@@ -1208,6 +1220,7 @@ export default function App() {
           assignee: updatedTask.assignee,
           priority: updatedTask.priority,
           notes: updatedTask.notes,
+          updatedAtMs: nowMs,
           lastModifiedBy: {
             name: currentPersona.name,
             email: currentPersona.email,
@@ -1255,11 +1268,6 @@ export default function App() {
       return true;
     });
     markTaskIdsDeleted(deletedIds);
-    try {
-      localStorage.setItem('invict_tasks', JSON.stringify(updatedTasks));
-    } catch {
-      // ignore
-    }
     setTasks(updatedTasks);
     if (selectedTaskForDetail && selectedTaskForDetail.id === taskId) {
       setSelectedTaskForDetail(null);
@@ -1274,7 +1282,8 @@ export default function App() {
   };
 
   const handleAddTaskComment = (taskId: string, commentText: string, author: string, mentions?: string[]) => {
-    const formatted = formatModificationTimestamp(new Date());
+    const nowMs = Date.now();
+    const formatted = formatModificationTimestamp(new Date(nowMs));
     const userProf = currentPersona.profileType || determineProfileFromEmail(currentPersona.email);
     const task = tasks.find(t => t.id === taskId);
     const taskTitle = task ? task.title : taskId;
@@ -1282,7 +1291,7 @@ export default function App() {
     const mod = logCloudModification(actionDesc, commentText, taskTitle);
 
     const newComment = {
-      id: `comm-${Date.now()}`,
+      id: `comm-${nowMs}`,
       author,
       authorEmail: currentPersona.email,
       authorProfile: userProf,
@@ -1297,6 +1306,7 @@ export default function App() {
           ...t,
           commentsCount: (t.commentsCount || 0) + 1,
           comments: [...comments, newComment],
+          updatedAtMs: nowMs,
           lastModifiedBy: {
             name: currentPersona.name,
             email: currentPersona.email,
@@ -1316,6 +1326,7 @@ export default function App() {
         ...prev,
         commentsCount: (prev.commentsCount || 0) + 1,
         comments: [...(prev.comments || []), newComment],
+        updatedAtMs: nowMs,
         lastModifiedBy: {
           name: currentPersona.name,
           email: currentPersona.email,
