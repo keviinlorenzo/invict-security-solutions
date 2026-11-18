@@ -32,9 +32,17 @@ import {
   ArrowUp,
   ArrowDown,
   ClipboardCheck,
-  DollarSign
+  DollarSign,
+  Save,
+  Loader2
 } from 'lucide-react';
-import { broadcastCloudChange, markRecordIdsDeleted, subscribeToCloudSync } from '../utils/cloudSyncService';
+import {
+  broadcastCloudChange,
+  forceSaveToCloudNow,
+  markRecordIdsDeleted,
+  mergeAdminInformativeSheets,
+  subscribeToCloudSync
+} from '../utils/cloudSyncService';
 import { FixedTermContractsSheet } from './FixedTermContractsSheet';
 import {
   canEditFixedTermContracts,
@@ -454,10 +462,18 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       ? canEditLiquidaciones
       : canEditAdmin;
 
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+
   useEffect(() => {
     const unsub = subscribeToCloudSync((payload) => {
-      if (payload.type === 'SHEET_MUTATION' || payload.type === 'FULL_STATE_SYNC' || payload.stateSnapshot) {
-        setSheetsData(getAdminInformativeSheets());
+      const touchesAdminSheets =
+        payload.type === 'SHEET_MUTATION' ||
+        payload.type === 'FULL_STATE_SYNC' ||
+        Boolean(payload.stateSnapshot && STORAGE_KEY_ADMIN_SHEETS in payload.stateSnapshot);
+      if (touchesAdminSheets) {
+        setSheetsData((prev) => mergeAdminInformativeSheets(prev, getAdminInformativeSheets()));
       }
     });
     return () => unsub();
@@ -465,7 +481,50 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
 
   const updateData = (nextData: AdminInformativeSheetsData, actionSummary: string) => {
     setSheetsData(nextData);
+    setHasUnsavedChanges(true);
+    setSaveStatus('idle');
     saveAdminInformativeSheets(nextData, currentPersona, actionSummary);
+  };
+
+  const handleManualSaveToCloud = async (customLabel?: string) => {
+    if (!canEditCurrentSheet) return;
+    setSaveStatus('saving');
+    const summaryText =
+      customLabel ||
+      `${currentPersona.name} guardó manualmente la planilla informativa (${
+        activeSheet === 'liquidaciones_finales'
+          ? 'Liquidaciones Finales'
+          : activeSheet === 'sin_disep'
+          ? 'Personal Sin DISEP'
+          : activeSheet === 'debe_uniforme'
+          ? 'Personal que Debe Uniforme'
+          : 'Informes a Clientes'
+      })`;
+
+    saveAdminInformativeSheets(sheetsData, currentPersona, summaryText);
+    const latestData = getAdminInformativeSheets();
+    setSheetsData(latestData);
+
+    await forceSaveToCloudNow(
+      'SHEET_MUTATION',
+      summaryText,
+      {
+        name: currentPersona.name,
+        profile: currentPersona.profileType || currentPersona.department,
+        email: currentPersona.email,
+      },
+      latestData
+    );
+
+    const timeStr = new Date().toLocaleTimeString('es-AR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    setHasUnsavedChanges(false);
+    setSaveStatus('saved');
+    setLastSavedAt(timeStr);
+    onNotify?.('✓ Información guardada y asegurada en la nube. Ya puedes cerrar o salir de la app con tranquilidad.');
   };
 
   // --- Handlers: PERSONAL SIN DISEP ---
@@ -1319,6 +1378,41 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
         </div>
 
         <div className={activeSheet === 'contratos' ? 'hidden' : 'flex flex-wrap items-center gap-2 shrink-0'}>
+          {canEditCurrentSheet && (
+            <button
+              type="button"
+              onClick={() => handleManualSaveToCloud()}
+              disabled={saveStatus === 'saving'}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs shadow-lg transition-all cursor-pointer active:scale-95 border ${
+                saveStatus === 'saving'
+                  ? 'bg-emerald-800/80 text-emerald-200 border-emerald-600 cursor-wait'
+                  : hasUnsavedChanges
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border-emerald-400 ring-2 ring-emerald-500/40 animate-pulse'
+                  : saveStatus === 'saved'
+                  ? 'bg-emerald-950/90 hover:bg-emerald-900 text-emerald-300 border-emerald-600/80'
+                  : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border-emerald-500/80'
+              }`}
+              title="Guardar y asegurar toda la información cargada directamente en la base de datos en la nube para que no se borre al salir"
+            >
+              {saveStatus === 'saving' ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Guardando en la nube...</span>
+                </>
+              ) : saveStatus === 'saved' && !hasUnsavedChanges ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>✓ Guardado en la Nube {lastSavedAt ? `(${lastSavedAt})` : ''}</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>{hasUnsavedChanges ? 'Guardar Cambios Ahora' : 'Guardar Información'}</span>
+                </>
+              )}
+            </button>
+          )}
+
           <button
             onClick={handleExportCSV}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1b2333] hover:bg-[#242f45] text-slate-200 font-bold text-xs border border-[#2e3b54] shadow transition-all cursor-pointer active:scale-95"
@@ -1626,7 +1720,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                   Edición exclusiva para Recursos Humanos (Tamara) y Gerencia. El objetivo se vincula directamente con los clientes cargados por Gerencia y el monto a abonar es opcional.
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {!canEditLiquidaciones && (
                   <span className="text-[11px] px-2.5 py-1 rounded-lg bg-amber-950/60 text-amber-300 border border-amber-800/60 font-semibold flex items-center gap-1">
                     <Lock className="w-3 h-3" />
@@ -1634,14 +1728,35 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                   </span>
                 )}
                 {canEditLiquidaciones && (
-                  <button
-                    type="button"
-                    onClick={handleAddLiquidacion}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition-all cursor-pointer active:scale-95"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>+ Agregar Fila</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleManualSaveToCloud()}
+                      disabled={saveStatus === 'saving'}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs border border-emerald-400/60 shadow transition-all cursor-pointer active:scale-95"
+                      title="Guardar y asegurar las liquidaciones en la nube"
+                    >
+                      {saveStatus === 'saving' ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Guardando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-3.5 h-3.5" />
+                          <span>Guardar Información</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddLiquidacion}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs shadow transition-all cursor-pointer active:scale-95"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Agregar Fila</span>
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -1894,17 +2009,32 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                           )}
                         </td>
 
-                        {/* 9. Acción Eliminar */}
+                        {/* 9. Acción Guardar / Eliminar */}
                         {canEditLiquidaciones && (
                           <td className="py-2 px-2 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteLiquidacion(item.id)}
-                              className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-colors cursor-pointer"
-                              title="Eliminar liquidación"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleManualSaveToCloud(
+                                    `${currentPersona.name} guardó la liquidación de "${item.fullName || 'Vigilador'}"`
+                                  )
+                                }
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-600/60 font-bold text-[10px] transition-all cursor-pointer active:scale-95"
+                                title="Guardar esta fila y sincronizar en la nube"
+                              >
+                                <Save className="w-3.5 h-3.5" />
+                                <span>Guardar</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteLiquidacion(item.id)}
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-colors cursor-pointer"
+                                title="Eliminar liquidación"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -1934,6 +2064,40 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                 ))}
               </datalist>
             </div>
+
+            {canEditLiquidaciones && (
+              <div className="pt-3 border-t border-[#1f2637] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    Cuando termines de cargar o modificar los datos, presiona <strong>Guardar Información en la Nube</strong> para impedir que se borren al cerrar la app.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleManualSaveToCloud()}
+                  disabled={saveStatus === 'saving'}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs border border-emerald-400/80 shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
+                >
+                  {saveStatus === 'saving' ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Guardando en la nube...</span>
+                    </>
+                  ) : saveStatus === 'saved' && !hasUnsavedChanges ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-white" />
+                      <span>✓ Guardado en la Nube {lastSavedAt ? `(${lastSavedAt})` : ''}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Guardar Información en la Nube</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2286,6 +2450,40 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                 </tbody>
               </table>
             </div>
+
+            {canEditInformes && (
+              <div className="pt-3 border-t border-[#1f2637] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    Cuando termines de cargar o modificar informes, presiona <strong>Guardar Información en la Nube</strong> para impedir que se borren al cerrar la app.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleManualSaveToCloud()}
+                  disabled={saveStatus === 'saving'}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs border border-emerald-400/80 shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
+                >
+                  {saveStatus === 'saving' ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Guardando en la nube...</span>
+                    </>
+                  ) : saveStatus === 'saved' && !hasUnsavedChanges ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-white" />
+                      <span>✓ Guardado en la Nube {lastSavedAt ? `(${lastSavedAt})` : ''}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Guardar Información en la Nube</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2295,7 +2493,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       {/* ========================================================================= */}
       {activeSheet === 'sin_disep' && (
         <div className="p-4 rounded-2xl bg-[#121620] border border-[#22293b] shadow space-y-3">
-          <div className="flex items-center justify-between border-b border-[#1f2637] pb-3">
+          <div className="flex items-center justify-between border-b border-[#1f2637] pb-3 flex-wrap gap-2">
             <div>
               <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
                 <ShieldAlert className="w-4 h-4 text-blue-400" />
@@ -2305,9 +2503,22 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                 Detalle de vigiladores pendientes de habilitación o credencial DISEP, fecha de alta, objetivo asignado y estado del trámite.
               </p>
             </div>
-            <span className="text-xs font-mono text-slate-400">
-              {filteredSinDisep.length} registro(s)
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono text-slate-400">
+                {filteredSinDisep.length} registro(s)
+              </span>
+              {canEditAdmin && (
+                <button
+                  type="button"
+                  onClick={() => handleManualSaveToCloud()}
+                  disabled={saveStatus === 'saving'}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs border border-emerald-400/60 shadow transition-all cursor-pointer active:scale-95"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Guardar Información</span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -2382,13 +2593,28 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                     </td>
                     {canEditAdmin && (
                       <td className="py-2 px-2 text-center">
-                        <button
-                          onClick={() => handleDeleteSinDisep(item.id)}
-                          className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-colors cursor-pointer"
-                          title="Eliminar fila"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleManualSaveToCloud(
+                                `${currentPersona.name} guardó registro Sin DISEP de "${item.fullName || 'Vigilador'}"`
+                              )
+                            }
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-600/60 font-bold text-[10px] transition-all cursor-pointer active:scale-95"
+                            title="Guardar esta fila y sincronizar en la nube"
+                          >
+                            <Save className="w-3.5 h-3.5" />
+                            <span>Guardar</span>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSinDisep(item.id)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-colors cursor-pointer"
+                            title="Eliminar fila"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -2403,6 +2629,40 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
               </tbody>
             </table>
           </div>
+
+          {canEditAdmin && (
+            <div className="pt-3 border-t border-[#1f2637] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs text-slate-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>
+                  Cuando termines de cargar la información, presiona <strong>Guardar Información en la Nube</strong> para impedir que se borre al salir de la app.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleManualSaveToCloud()}
+                disabled={saveStatus === 'saving'}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs border border-emerald-400/80 shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
+              >
+                {saveStatus === 'saving' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Guardando en la nube...</span>
+                  </>
+                ) : saveStatus === 'saved' && !hasUnsavedChanges ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-white" />
+                    <span>✓ Guardado en la Nube {lastSavedAt ? `(${lastSavedAt})` : ''}</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Guardar Información en la Nube</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -2411,7 +2671,7 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
       {/* ========================================================================= */}
       {activeSheet === 'debe_uniforme' && (
         <div className="p-4 rounded-2xl bg-[#121620] border border-[#22293b] shadow space-y-3">
-          <div className="flex items-center justify-between border-b border-[#1f2637] pb-3">
+          <div className="flex items-center justify-between border-b border-[#1f2637] pb-3 flex-wrap gap-2">
             <div>
               <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
                 <Shirt className="w-4 h-4 text-amber-400" />
@@ -2421,9 +2681,22 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                 Seguimiento de indumentaria corporativa, borcegos, camperas y prendas adeudadas por colaboradores desvinculados o en proceso de restitución.
               </p>
             </div>
-            <span className="text-xs font-mono text-slate-400">
-              {filteredDebeUniforme.length} registro(s)
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono text-slate-400">
+                {filteredDebeUniforme.length} registro(s)
+              </span>
+              {canEditAdmin && (
+                <button
+                  type="button"
+                  onClick={() => handleManualSaveToCloud()}
+                  disabled={saveStatus === 'saving'}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs border border-emerald-400/60 shadow transition-all cursor-pointer active:scale-95"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Guardar Información</span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -2498,13 +2771,28 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
                     </td>
                     {canEditAdmin && (
                       <td className="py-2 px-2 text-center">
-                        <button
-                          onClick={() => handleDeleteDebeUniforme(item.id)}
-                          className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-colors cursor-pointer"
-                          title="Eliminar fila"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleManualSaveToCloud(
+                                `${currentPersona.name} guardó registro de uniforme de "${item.fullName || 'Vigilador'}"`
+                              )
+                            }
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-600/60 font-bold text-[10px] transition-all cursor-pointer active:scale-95"
+                            title="Guardar esta fila y sincronizar en la nube"
+                          >
+                            <Save className="w-3.5 h-3.5" />
+                            <span>Guardar</span>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteDebeUniforme(item.id)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-colors cursor-pointer"
+                            title="Eliminar fila"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -2519,6 +2807,40 @@ export const AdminInformativeSheetsView: React.FC<AdminInformativeSheetsViewProp
               </tbody>
             </table>
           </div>
+
+          {canEditAdmin && (
+            <div className="pt-3 border-t border-[#1f2637] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs text-slate-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>
+                  Cuando termines de cargar la información, presiona <strong>Guardar Información en la Nube</strong> para impedir que se borre al salir de la app.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleManualSaveToCloud()}
+                disabled={saveStatus === 'saving'}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs border border-emerald-400/80 shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
+              >
+                {saveStatus === 'saving' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Guardando en la nube...</span>
+                  </>
+                ) : saveStatus === 'saved' && !hasUnsavedChanges ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-white" />
+                    <span>✓ Guardado en la Nube {lastSavedAt ? `(${lastSavedAt})` : ''}</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Guardar Información en la Nube</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

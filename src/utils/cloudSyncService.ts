@@ -1126,6 +1126,126 @@ export function broadcastCloudChange(
   pushStateToRemote(payload, stateSnapshot);
 }
 
+/**
+ * Fuerza un guardado inmediato y confirmado contra Supabase PostgreSQL (con await),
+ * sellando `updatedAtMs` en todos los registros para impedir cualquier reversión al cerrar la app.
+ */
+export async function forceSaveToCloudNow(
+  type: CloudSyncPayload['type'],
+  summary: string,
+  author: { name: string; profile: string; email: string },
+  data?: any
+): Promise<boolean> {
+  initRemoteSync();
+  const now = Date.now();
+
+  if (typeof window !== 'undefined' && data !== undefined) {
+    try {
+      if (
+        type === 'SHEET_MUTATION' &&
+        data &&
+        typeof data === 'object' &&
+        !Array.isArray(data) &&
+        ('sinDisep' in data || 'debeUniforme' in data || 'informesClientes' in data || 'liquidacionesFinales' in data)
+      ) {
+        const stampAll = (arr: any[]) =>
+          (Array.isArray(arr) ? arr : []).map((item) =>
+            item && typeof item === 'object'
+              ? { ...item, updatedAtMs: Math.max(Number(item.updatedAtMs || 0), now) }
+              : item
+          );
+        const stamped = {
+          ...data,
+          sinDisep: stampAll(data.sinDisep),
+          debeUniforme: stampAll(data.debeUniforme),
+          informesClientes: stampAll(data.informesClientes),
+          liquidacionesFinales: stampAll(data.liquidacionesFinales),
+        };
+        localStorage.setItem('invict_admin_informative_sheets', JSON.stringify(stamped));
+        data = stamped;
+      } else if (type === 'SHEET_MUTATION' && Array.isArray(data)) {
+        const stamped = data.map((item) =>
+          item && typeof item === 'object'
+            ? { ...item, updatedAtMs: Math.max(Number(item.updatedAtMs || 0), now) }
+            : item
+        );
+        localStorage.setItem('invict_fixed_term_contracts', JSON.stringify(stamped));
+        data = stamped;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const rawSnapshot = collectLocalSharedState();
+  const scopedSnapshot = buildDomainScopedSnapshot(rawSnapshot, type, data);
+  const lightweightEvent = {
+    id: `evt-force-${now}-${Math.random().toString(36).slice(2, 7)}`,
+    type,
+    timestamp: new Date().toISOString(),
+    authorName: author.name,
+    authorProfile: author.profile,
+    authorEmail: author.email,
+    summary,
+  };
+
+  lastProcessedEventId = lightweightEvent.id;
+
+  let ok = false;
+  try {
+    const { data: rpcData, error } = await supabase.rpc('upsert_invict_cloud_state', {
+      p_client_id: CLIENT_INSTANCE_ID,
+      p_last_event: lightweightEvent,
+      p_partial_state: scopedSnapshot,
+    });
+    if (error) throw error;
+    ok = true;
+    if (Array.isArray(rpcData) && rpcData[0]?.version) {
+      lastServerVersion = Number(rpcData[0].version);
+    }
+  } catch {
+    try {
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: CLIENT_INSTANCE_ID,
+          event: lightweightEvent,
+          partialState: scopedSnapshot,
+        }),
+      });
+      if (res.ok) {
+        ok = true;
+        const json = await res.json();
+        if (json.version) lastServerVersion = Number(json.version);
+      }
+    } catch {
+      ok = false;
+    }
+  }
+
+  if (ok && typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem(STORAGE_KEY_PENDING_PUSH);
+      localStorage.removeItem(STORAGE_KEY_PENDING_TYPE);
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    supabase.channel('invict-realtime-sync').send({
+      type: 'broadcast',
+      event: 'cloud_mutation',
+      payload: { clientId: CLIENT_INSTANCE_ID, event: lightweightEvent },
+    });
+  } catch {
+    // ignore
+  }
+
+  return ok;
+}
+
 // --- PASSWORD MANAGEMENT CONTROLLED BY GERENCIA ---
 export function getProfilePasswords(): Record<UserProfileType, string> {
   try {
