@@ -25,7 +25,9 @@ import {
   Download,
   Search,
   Filter,
-  FileText
+  FileText,
+  Save,
+  Loader2
 } from 'lucide-react';
 import {
   calculateManagerialMetrics,
@@ -38,6 +40,7 @@ import {
   parseFlexibleHours,
   saveManagerialMonthData,
   getManagerialMonthData,
+  mergeManagerialMonthData,
   sortSalariesAlphabetically,
   ManagerialMonthData,
   EmployeeSalaryItem,
@@ -65,7 +68,7 @@ import {
   exportProfitabilityToPDF
 } from '../utils/pdfExportUtils';
 import { formatCurrencyARS } from '../utils/dateUtils';
-import { subscribeToCloudSync } from '../utils/cloudSyncService';
+import { forceSaveToCloudNow, subscribeToCloudSync } from '../utils/cloudSyncService';
 
 export interface BankColorTheme {
   name: string;
@@ -197,16 +200,25 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
     setSheetsData(getManagerialMonthData(currentPeriod));
   }, [currentPeriod]);
 
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+
   useEffect(() => {
     const handleSheetsUpdate = (e: any) => {
       if (e?.detail?.period && e.detail.period !== currentPeriod) return;
-      setSheetsData(getManagerialMonthData(currentPeriod));
+      setSheetsData((prev) => mergeManagerialMonthData(prev, getManagerialMonthData(currentPeriod)));
     };
     window.addEventListener('invict_managerial_sheets_mutation', handleSheetsUpdate);
     window.addEventListener('storage', handleSheetsUpdate);
     const unsub = subscribeToCloudSync((payload) => {
-      if (payload.type === 'SHEET_MUTATION' || payload.type === 'FULL_STATE_SYNC' || payload.stateSnapshot) {
-        setSheetsData(getManagerialMonthData(currentPeriod));
+      const sheetKey = `invict_managerial_sheets_${currentPeriod}`;
+      const touchesManagerialSheet =
+        payload.type === 'SHEET_MUTATION' ||
+        payload.type === 'FULL_STATE_SYNC' ||
+        Boolean(payload.stateSnapshot && sheetKey in payload.stateSnapshot);
+      if (touchesManagerialSheet) {
+        setSheetsData((prev) => mergeManagerialMonthData(prev, getManagerialMonthData(currentPeriod)));
       }
     });
     return () => {
@@ -285,7 +297,42 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
   const updateAndSaveData = (newData: ManagerialMonthData) => {
     if (isReadOnly) return;
     setSheetsData(newData);
+    setHasUnsavedChanges(true);
+    setSaveStatus('idle');
     saveManagerialMonthData(currentPeriod, newData);
+  };
+
+  const handleManualSaveToCloud = async (customLabel?: string) => {
+    if (isReadOnly) return;
+    setSaveStatus('saving');
+    const summaryText =
+      customLabel ||
+      `Gerencia General guardó manualmente las Planillas Financieras del período ${currentPeriod}`;
+
+    saveManagerialMonthData(currentPeriod, sheetsData);
+    const latest = getManagerialMonthData(currentPeriod);
+    setSheetsData(latest);
+
+    await forceSaveToCloudNow(
+      'SHEET_MUTATION',
+      summaryText,
+      {
+        name: 'Gerencia General',
+        profile: 'GERENTE',
+        email: 'gerencia@invictsecurity.com.ar',
+      },
+      latest
+    );
+
+    const timeStr = new Date().toLocaleTimeString('es-AR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    setHasUnsavedChanges(false);
+    setSaveStatus('saved');
+    setLastSavedAt(timeStr);
+    onNotify?.('✓ Planillas de Gerencia guardadas y aseguradas en la nube. Ya puedes cerrar o salir de la app con tranquilidad.');
   };
 
   // -------------------------------------------------------------
@@ -925,8 +972,43 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
           </p>
         </div>
 
-        {/* Global Toolbar: Reiniciar a 0, Copiar Excel, Iniciar Mes */}
+        {/* Global Toolbar: Guardar en la Nube, Reiniciar a 0, Copiar Excel, Iniciar Mes */}
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {!isReadOnly && (
+            <button
+              type="button"
+              onClick={() => handleManualSaveToCloud()}
+              disabled={saveStatus === 'saving'}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs shadow-lg transition-all cursor-pointer active:scale-95 border ${
+                saveStatus === 'saving'
+                  ? 'bg-emerald-800/80 text-emerald-200 border-emerald-600 cursor-wait'
+                  : hasUnsavedChanges
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border-emerald-400 ring-2 ring-emerald-500/40 animate-pulse'
+                  : saveStatus === 'saved'
+                  ? 'bg-emerald-950/90 hover:bg-emerald-900 text-emerald-300 border-emerald-600/80'
+                  : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border-emerald-500/80'
+              }`}
+              title="Guardar y asegurar toda la información de las planillas gerenciales directamente en la base de datos en la nube"
+            >
+              {saveStatus === 'saving' ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Guardando en la nube...</span>
+                </>
+              ) : saveStatus === 'saved' && !hasUnsavedChanges ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>✓ Guardado en la Nube {lastSavedAt ? `(${lastSavedAt})` : ''}</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>{hasUnsavedChanges ? 'Guardar Cambios Ahora' : 'Guardar Información'}</span>
+                </>
+              )}
+            </button>
+          )}
+
           {!isReadOnly && (
             <button
               onClick={() => setIsResetConfirmModalOpen(true)}
@@ -1456,15 +1538,32 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                           </button>
                         </td>
 
-                        {/* Delete Row */}
+                        {/* Save & Delete Row */}
                         <td className="py-2 px-2 text-center">
-                          <button
-                            onClick={() => handleDeleteClientRow(originalIdx)}
-                            className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/30 transition-colors cursor-pointer"
-                            title="Eliminar fila de cliente"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            {!isReadOnly && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleManualSaveToCloud(
+                                    `Gerencia General guardó la facturación del cliente "${client.clientName || 'Cliente'}"`
+                                  )
+                                }
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-600/60 font-bold text-[10px] font-sans transition-all cursor-pointer active:scale-95"
+                                title="Guardar esta fila y sincronizar en la nube"
+                              >
+                                <Save className="w-3.5 h-3.5" />
+                                <span>Guardar</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteClientRow(originalIdx)}
+                              className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/30 transition-colors cursor-pointer"
+                              title="Eliminar fila de cliente"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1515,6 +1614,40 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                 </tfoot>
               </table>
             </div>
+
+            {!isReadOnly && (
+              <div className="mt-3 pt-3 border-t border-[#1f2637] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    Cuando termines de cargar o modificar clientes, presiona <strong>Guardar Información en la Nube</strong> para impedir que se borren al cerrar la app.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleManualSaveToCloud()}
+                  disabled={saveStatus === 'saving'}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs border border-emerald-400/80 shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
+                >
+                  {saveStatus === 'saving' ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Guardando en la nube...</span>
+                    </>
+                  ) : saveStatus === 'saved' && !hasUnsavedChanges ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-white" />
+                      <span>✓ Guardado en la Nube {lastSavedAt ? `(${lastSavedAt})` : ''}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Guardar Información en la Nube</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1794,15 +1927,32 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                           </button>
                         </td>
 
-                        {/* Delete Row */}
+                        {/* Save & Delete Row */}
                         <td className="py-2 px-2 text-center">
-                          <button
-                            onClick={() => handleDeleteSalaryRow(originalIdx)}
-                            className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/30 transition-colors cursor-pointer"
-                            title="Eliminar colaborador de la planilla"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            {!isReadOnly && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleManualSaveToCloud(
+                                    `Gerencia General guardó el sueldo de "${sal.fullName || 'Colaborador'}"`
+                                  )
+                                }
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-600/60 font-bold text-[10px] font-sans transition-all cursor-pointer active:scale-95"
+                                title="Guardar esta fila y sincronizar en la nube"
+                              >
+                                <Save className="w-3.5 h-3.5" />
+                                <span>Guardar</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteSalaryRow(originalIdx)}
+                              className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/30 transition-colors cursor-pointer"
+                              title="Eliminar colaborador de la planilla"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1854,6 +2004,40 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                 </tfoot>
               </table>
             </div>
+
+            {!isReadOnly && (
+              <div className="mt-3 pt-3 border-t border-[#1f2637] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    Cuando termines de cargar o marcar sueldos pagados, presiona <strong>Guardar Información en la Nube</strong> para impedir que se borren al cerrar la app.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleManualSaveToCloud()}
+                  disabled={saveStatus === 'saving'}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs border border-emerald-400/80 shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
+                >
+                  {saveStatus === 'saving' ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Guardando en la nube...</span>
+                    </>
+                  ) : saveStatus === 'saved' && !hasUnsavedChanges ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-white" />
+                      <span>✓ Guardado en la Nube {lastSavedAt ? `(${lastSavedAt})` : ''}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Guardar Información en la Nube</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2037,15 +2221,32 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                           />
                         </td>
 
-                        {/* Delete Row */}
+                        {/* Save & Delete Row */}
                         <td className="py-2 px-2 text-center">
-                          <button
-                            onClick={() => handleDeleteFixedExpenseRow(originalIdx)}
-                            className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/30 transition-colors cursor-pointer"
-                            title="Eliminar gasto fijo"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            {!isReadOnly && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleManualSaveToCloud(
+                                    `Gerencia General guardó el gasto fijo "${exp.concept || 'Gasto Fijo'}"`
+                                  )
+                                }
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-600/60 font-bold text-[10px] font-sans transition-all cursor-pointer active:scale-95"
+                                title="Guardar esta fila y sincronizar en la nube"
+                              >
+                                <Save className="w-3.5 h-3.5" />
+                                <span>Guardar</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteFixedExpenseRow(originalIdx)}
+                              className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/30 transition-colors cursor-pointer"
+                              title="Eliminar gasto fijo"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -2066,6 +2267,40 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                 </tfoot>
               </table>
             </div>
+
+            {!isReadOnly && (
+              <div className="mt-3 pt-3 border-t border-[#1f2637] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    Cuando termines de cargar o modificar gastos fijos, presiona <strong>Guardar Información en la Nube</strong> para impedir que se borren al cerrar la app.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleManualSaveToCloud()}
+                  disabled={saveStatus === 'saving'}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs border border-emerald-400/80 shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
+                >
+                  {saveStatus === 'saving' ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Guardando en la nube...</span>
+                    </>
+                  ) : saveStatus === 'saved' && !hasUnsavedChanges ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-white" />
+                      <span>✓ Guardado en la Nube {lastSavedAt ? `(${lastSavedAt})` : ''}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Guardar Información en la Nube</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2333,15 +2568,32 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                           />
                         </td>
 
-                        {/* Delete Row */}
+                        {/* Save & Delete Row */}
                         <td className="py-2 px-2 text-center">
-                          <button
-                            onClick={() => handleDeleteBankExpenseRow(originalIdx)}
-                            className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/30 transition-colors cursor-pointer"
-                            title="Eliminar débito bancario"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            {!isReadOnly && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleManualSaveToCloud(
+                                    `Gerencia General guardó el movimiento bancario "${bankItem.concept || 'Movimiento'}" (${bankItem.bank})`
+                                  )
+                                }
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-600/60 font-bold text-[10px] font-sans transition-all cursor-pointer active:scale-95"
+                                title="Guardar esta fila y sincronizar en la nube"
+                              >
+                                <Save className="w-3.5 h-3.5" />
+                                <span>Guardar</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteBankExpenseRow(originalIdx)}
+                              className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/30 transition-colors cursor-pointer"
+                              title="Eliminar débito bancario"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -2362,6 +2614,40 @@ export const ManagerialFinancialSheets: React.FC<ManagerialFinancialSheetsProps>
                 </tfoot>
               </table>
             </div>
+
+            {!isReadOnly && (
+              <div className="mt-3 pt-3 border-t border-[#1f2637] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    Cuando termines de cargar o modificar movimientos bancarios, presiona <strong>Guardar Información en la Nube</strong> para impedir que se borren al cerrar la app.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleManualSaveToCloud()}
+                  disabled={saveStatus === 'saving'}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs border border-emerald-400/80 shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
+                >
+                  {saveStatus === 'saving' ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Guardando en la nube...</span>
+                    </>
+                  ) : saveStatus === 'saved' && !hasUnsavedChanges ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-white" />
+                      <span>✓ Guardado en la Nube {lastSavedAt ? `(${lastSavedAt})` : ''}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Guardar Información en la Nube</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -28,11 +28,14 @@ import {
   Receipt,
   Sparkles,
   Upload,
-  X
+  X,
+  Save,
+  Loader2
 } from 'lucide-react';
 import { formatCurrencyARS, formatDateLocale } from '../utils/dateUtils';
 import { exportExpensesToCSV } from '../utils/exportUtils';
 import { exportExpensesToPDF } from '../utils/pdfExportUtils';
+import { forceSaveToCloudNow } from '../utils/cloudSyncService';
 import { ManagerialFinancialSheets } from './ManagerialFinancialSheets';
 
 interface ExpensesViewProps {
@@ -109,6 +112,37 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [selectedExpenseForItems, setSelectedExpenseForItems] = useState<Expense | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+
+  const handleManualSaveExpenses = async (customLabel?: string) => {
+    setSaveStatus('saving');
+    const summaryText =
+      customLabel ||
+      `${currentPersona?.name || 'Gerencia'} guardó manualmente la planilla de Rendición de Gastos de Oficina`;
+
+    await forceSaveToCloudNow(
+      'EXPENSE_MUTATION',
+      summaryText,
+      {
+        name: currentPersona?.name || 'Gerencia General',
+        profile: currentPersona?.profileType || currentPersona?.department || 'GERENTE',
+        email: currentPersona?.email || 'gerencia@invictsecurity.com.ar',
+      },
+      expenses
+    );
+
+    const timeStr = new Date().toLocaleTimeString('es-AR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    setHasUnsavedChanges(false);
+    setSaveStatus('saved');
+    setLastSavedAt(timeStr);
+    onNotify?.('✓ Planilla de Gastos guardada y asegurada en la nube. Ya puedes cerrar o salir de la app con tranquilidad.');
+  };
 
   const isGerencia = Boolean(
     currentPersona && (currentPersona.department === 'GERENCIA' || currentPersona.profileType === 'GERENTE')
@@ -293,6 +327,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       updatedExpense.checkNumber = String(val);
     }
 
+    setHasUnsavedChanges(true);
+    setSaveStatus('idle');
     if (onUpdateExpense) {
       onUpdateExpense(updatedExpense);
     } else if (onBatchUpdateExpenses) {
@@ -557,6 +593,39 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
 
         {/* Action Buttons Toolbar */}
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleManualSaveExpenses()}
+            disabled={saveStatus === 'saving'}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs shadow-lg transition-all cursor-pointer active:scale-95 border ${
+              saveStatus === 'saving'
+                ? 'bg-emerald-800/80 text-emerald-200 border-emerald-600 cursor-wait'
+                : hasUnsavedChanges
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border-emerald-400 ring-2 ring-emerald-500/40 animate-pulse'
+                : saveStatus === 'saved'
+                ? 'bg-emerald-950/90 hover:bg-emerald-900 text-emerald-300 border-emerald-600/80'
+                : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border-emerald-500/80'
+            }`}
+            title="Guardar y asegurar toda la planilla de gastos directamente en la base de datos en la nube"
+          >
+            {saveStatus === 'saving' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                <span>Guardando en la nube...</span>
+              </>
+            ) : saveStatus === 'saved' && !hasUnsavedChanges ? (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>✓ Guardado en la Nube {lastSavedAt ? `(${lastSavedAt})` : ''}</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                <span>{hasUnsavedChanges ? 'Guardar Cambios Ahora' : 'Guardar Información'}</span>
+              </>
+            )}
+          </button>
+
           {isGerencia && (
             <>
               <button
@@ -1161,6 +1230,19 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                         <td className="py-2 px-2 text-center whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1">
                             <button
+                              type="button"
+                              onClick={() =>
+                                handleManualSaveExpenses(
+                                  `${currentPersona?.name || 'Gerencia'} guardó el gasto de "${exp.provider || 'Proveedor'}"`
+                                )
+                              }
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-600/60 font-bold text-[10px] transition-all cursor-pointer active:scale-95"
+                              title="Guardar esta fila y sincronizar en la nube"
+                            >
+                              <Save className="w-3.5 h-3.5" />
+                              <span>Guardar</span>
+                            </button>
+                            <button
                               onClick={() => handleDuplicateRow(exp)}
                               className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
                               title="Duplicar comprobante"
@@ -1217,6 +1299,37 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                 </tr>
               </tfoot>
             </table>
+            <div className="p-3.5 bg-[#121620] border-t border-[#22293b] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs text-slate-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>
+                  Cuando termines de cargar o modificar gastos, presiona <strong>Guardar Información en la Nube</strong> para impedir que se borren al cerrar la app.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleManualSaveExpenses()}
+                disabled={saveStatus === 'saving'}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs border border-emerald-400/80 shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
+              >
+                {saveStatus === 'saving' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Guardando en la nube...</span>
+                  </>
+                ) : saveStatus === 'saved' && !hasUnsavedChanges ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-white" />
+                    <span>✓ Guardado en la Nube {lastSavedAt ? `(${lastSavedAt})` : ''}</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Guardar Información en la Nube</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
 

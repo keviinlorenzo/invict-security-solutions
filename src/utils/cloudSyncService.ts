@@ -1163,6 +1163,30 @@ export async function forceSaveToCloudNow(
         };
         localStorage.setItem('invict_admin_informative_sheets', JSON.stringify(stamped));
         data = stamped;
+      } else if (
+        type === 'SHEET_MUTATION' &&
+        data &&
+        typeof data === 'object' &&
+        !Array.isArray(data) &&
+        ('clientBilling' in data || 'salaries' in data || 'fixedExpenses' in data || 'bankExpenses' in data)
+      ) {
+        const stampMgr = (arr: any[]) =>
+          (Array.isArray(arr) ? arr : []).map((item) =>
+            item && typeof item === 'object'
+              ? { ...item, updatedAt: Math.max(Number(item.updatedAt || 0), now) }
+              : item
+          );
+        const stamped = {
+          ...data,
+          updatedAt: Math.max(Number(data.updatedAt || 0), now),
+          clientBilling: stampMgr(data.clientBilling),
+          salaries: stampMgr(data.salaries),
+          fixedExpenses: stampMgr(data.fixedExpenses),
+          bankExpenses: stampMgr(data.bankExpenses),
+        };
+        const periodKey = `invict_managerial_sheets_${stamped.period || '2026-10'}`;
+        localStorage.setItem(periodKey, JSON.stringify(stamped));
+        data = stamped;
       } else if (type === 'SHEET_MUTATION' && Array.isArray(data)) {
         const stamped = data.map((item) =>
           item && typeof item === 'object'
@@ -1170,6 +1194,14 @@ export async function forceSaveToCloudNow(
             : item
         );
         localStorage.setItem('invict_fixed_term_contracts', JSON.stringify(stamped));
+        data = stamped;
+      } else if (type === 'EXPENSE_MUTATION' && Array.isArray(data)) {
+        const stamped = data.map((item) =>
+          item && typeof item === 'object'
+            ? { ...item, updatedAtMs: Math.max(Number(item.updatedAtMs || 0), now) }
+            : item
+        );
+        localStorage.setItem('invict_expenses', JSON.stringify(stamped));
         data = stamped;
       }
     } catch {
